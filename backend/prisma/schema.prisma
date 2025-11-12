@@ -1,0 +1,101 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String
+  phone         String?
+  specialization String?
+  role          Role      @default(CLIENT)
+  businessId    String?   @db.VarChar(255)
+  business      Business? @relation(fields: [businessId], references: [id])
+  bookings      Booking[]
+  employeeBookings Booking[] @relation("EmployeeBookings")
+  ownedBusinesses Business[] @relation("BusinessOwner")
+  resetTokens   PasswordResetToken[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Business {
+  id         String    @id @default(cuid())
+  name       String
+  email      String?   @unique
+  domain     String    @unique
+  ownerId    String
+  owner      User      @relation("BusinessOwner", fields: [ownerId], references: [id])
+  employees  User[]
+  services   Service[]
+  bookings   Booking[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Service {
+  id         String   @id @default(cuid())
+  name       String
+  duration   Int
+  price      Float
+  notes      String?
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  bookings   Booking[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Booking {
+  id         String   @id @default(cuid())
+  clientId   String
+  client     User     @relation(fields: [clientId], references: [id])
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  serviceId  String
+  service    Service  @relation(fields: [serviceId], references: [id])
+  employeeId String?
+  employee   User?    @relation("EmployeeBookings", fields: [employeeId], references: [id])
+  date       DateTime
+  paid       Boolean  @default(false)
+  consent    Consent?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Consent {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  signedAt  DateTime @default(now())
+  pdfUrl    String
+  signature String
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  SUPERADMIN
+  BUSINESS
+  EMPLOYEE
+  CLIENT
+}
