@@ -1,0 +1,192 @@
+"use client";
+
+import { FormEvent, useState } from "react";
+import Head from "next/head";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import Navbar from "../../../components/Navbar";
+import useAuth, { Role } from "../../../hooks/useAuth";
+
+export default function RegisterPage() {
+  const router = useRouter();
+  const { register, login, loading, error } = useAuth();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [role, setRole] = useState<Role>("CLIENT");
+  const [businessName, setBusinessName] = useState("");
+  const [success, setSuccess] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError(null);
+
+    if (password !== confirmPassword) {
+      setFormError("Parolele trebuie să coincidă.");
+      return;
+    }
+
+    if (role === "BUSINESS" && !businessName.trim()) {
+      setFormError("Numele businessului este obligatoriu pentru conturile Business.");
+      return;
+    }
+
+    try {
+      await register({ email, password, name, phone: phone.trim() || undefined, role, businessName: businessName.trim() || undefined });
+      setSuccess("Cont creat cu succes! Te autentificăm automat...");
+      const loggedUser = await login({ email, password, role });
+      switch (loggedUser.role) {
+        case "BUSINESS":
+          router.push("/business/dashboard");
+          break;
+        case "EMPLOYEE":
+          router.push("/employee/dashboard");
+          break;
+        case "CLIENT":
+        default:
+          router.push("/client/dashboard");
+      }
+    } catch {
+      // error handled by hook
+    }
+  };
+
+  return (
+    <>
+      <Head>
+        <title>Înregistrare - LARSTEF</title>
+      </Head>
+      <div className="min-h-screen bg-[#0B0E17] text-white">
+        <Navbar />
+        <div className="mx-auto flex max-w-4xl flex-col items-center px-4 py-20">
+          <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-white/5 p-10 shadow-2xl shadow-black/30">
+            <div className="mb-8 text-center">
+              <h1 className="text-3xl font-semibold">Creează-ți contul</h1>
+              <p className="mt-2 text-sm text-white/60">
+                Gratuit și rapid. AI-ul LARSTEF personalizează experiența din prima zi.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-white/70">Nume complet</span>
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                  className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-white/70">Email</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                  className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-white/70">Număr de telefon</span>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder="+40 7XX XXX XXX"
+                  className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-white/70">Parolă</span>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-white/70">Confirmă parola</span>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  required
+                  className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-white/70">Tip cont</span>
+                <select
+                  value={role}
+                  onChange={(event) => setRole(event.target.value as Role)}
+                  className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                >
+                  <option value="CLIENT">Client</option>
+                  <option value="BUSINESS">Business</option>
+                </select>
+              </label>
+
+              {role === "BUSINESS" && (
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="text-white/70">Numele businessului</span>
+                  <input
+                    value={businessName}
+                    onChange={(event) => setBusinessName(event.target.value)}
+                    placeholder="Ex: Larstef Clinic"
+                    required
+                    className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                  />
+                </label>
+              )}
+
+              {error && (
+                <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+                  {error}
+                </p>
+              )}
+
+              {formError && (
+                <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+                  {formError}
+                </p>
+              )}
+
+              {success && (
+                <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200">
+                  {success}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="mt-2 rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Se procesează..." : "Creează cont"}
+              </button>
+            </form>
+
+            <p className="mt-6 text-center text-sm text-white/60">
+              Ai cont?{" "}
+              <Link href="/auth/login" className="font-semibold text-[#6366F1] hover:text-[#7C3AED]">
+                Autentifică-te
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
