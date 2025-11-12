@@ -16,6 +16,7 @@ export interface Employee {
   email: string;
   phone?: string | null;
   specialization?: string | null;
+  avatar?: string | null;
 }
 
 export interface Business {
@@ -229,6 +230,68 @@ export default function useBusiness() {
     [api]
   );
 
+  const updateEmployee = useCallback(
+    async (businessId: string, employeeId: string, name: string, email: string, phone?: string, specialization?: string) => {
+      try {
+        const { data } = await api.put<Employee>(`/business/${businessId}/employees/${employeeId}`, {
+          name,
+          email,
+          phone,
+          specialization,
+        });
+        setBusinesses((prev) =>
+          prev.map((business) =>
+            business.id === businessId
+              ? {
+                  ...business,
+                  employees: business.employees.map((employee) =>
+                    employee.id === employeeId ? data : employee
+                  ),
+                }
+              : business
+          )
+        );
+        return data;
+      } catch (err) {
+        const axiosError = err as AxiosError<{ error?: string }>;
+        const message =
+          axiosError.response?.data?.error ??
+          axiosError.message ??
+          (err instanceof Error ? err.message : "Eroare la actualizarea angajatului.");
+        setError(message);
+        throw err;
+      }
+    },
+    [api]
+  );
+
+  const deleteEmployee = useCallback(
+    async (businessId: string, employeeId: string) => {
+      try {
+        await api.delete(`/business/${businessId}/employees/${employeeId}`);
+        setBusinesses((prev) =>
+          prev.map((business) =>
+            business.id === businessId
+              ? {
+                  ...business,
+                  employees: business.employees.filter((employee) => employee.id !== employeeId),
+                }
+              : business
+          )
+        );
+      } catch (err) {
+        const axiosError = err as AxiosError<{ error?: string }>;
+        const message =
+          axiosError.response?.data?.error ??
+          axiosError.message ??
+          (err instanceof Error ? err.message : "Eroare la ștergerea angajatului.");
+        setError(message);
+        throw err;
+      }
+    },
+    [api]
+  );
+
   return {
     businesses,
     loading,
@@ -239,6 +302,8 @@ export default function useBusiness() {
     updateService,
     deleteService,
     addEmployee,
+    updateEmployee,
+    deleteEmployee,
   };
 }
 

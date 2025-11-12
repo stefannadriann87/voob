@@ -66,7 +66,7 @@ export default function RegisterPage() {
             <div className="mb-8 text-center">
               <h1 className="text-3xl font-semibold">Creează-ți contul</h1>
               <p className="mt-2 text-sm text-white/60">
-                Gratuit și rapid. AI-ul LARSTEF personalizează experiența din prima zi.
+                Înregistrează-te rapid și gestionează-ți programările inteligent.
               </p>
             </div>
 
@@ -134,6 +134,7 @@ export default function RegisterPage() {
                 >
                   <option value="CLIENT">Client</option>
                   <option value="BUSINESS">Business</option>
+                  <option value="EMPLOYEE">Specialist</option>
                 </select>
               </label>
 

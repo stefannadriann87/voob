@@ -36,6 +36,7 @@ export default function DashboardPage() {
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   const [phoneInput, setPhoneInput] = useState("");
   const [updatingPhone, setUpdatingPhone] = useState(false);
+  const [displayedBookingsCount, setDisplayedBookingsCount] = useState(6);
 
   useEffect(() => {
     if (!hydrated) {
@@ -421,7 +422,7 @@ export default function DashboardPage() {
                 onClick={() => handleOpenServiceModal()}
                 className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
               >
-                Adaugă serviciu
+                Adaugă servicii
               </button>
             )}
           </div>
@@ -617,29 +618,46 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredBookings.length === 0 && !loading ? (
-            <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-white/60">
-              Nu există rezervări salvate momentan.
+        {filteredBookings.length === 0 && !loading ? (
+          <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-white/60">
+            Nu există rezervări salvate momentan.
+          </div>
+        ) : (
+          <>
+            <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {filteredBookings
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .slice(0, displayedBookingsCount)
+                .map((booking) => (
+                  <BookingCard
+                    key={booking.id}
+                    id={booking.id}
+                    serviceName={booking.service.name}
+                    businessName={booking.business.name}
+                    date={booking.date}
+                    paid={booking.paid}
+                    status={new Date(booking.date).getTime() > now ? "upcoming" : "completed"}
+                    onReschedule={handleReschedule}
+                    onRequestCancel={handleRequestCancel}
+                    onDetails={handleDetails}
+                    cancelling={cancellingId === booking.id && loading}
+                  />
+                ))}
             </div>
-          ) : (
-            filteredBookings.map((booking) => (
-              <BookingCard
-                key={booking.id}
-                id={booking.id}
-                serviceName={booking.service.name}
-                businessName={booking.business.name}
-                date={booking.date}
-                paid={booking.paid}
-                status={new Date(booking.date).getTime() > now ? "upcoming" : "completed"}
-                onReschedule={handleReschedule}
-                onRequestCancel={handleRequestCancel}
-                onDetails={handleDetails}
-                cancelling={cancellingId === booking.id && loading}
-              />
-            ))
-          )}
-        </div>
+
+            {filteredBookings.length > displayedBookingsCount && (
+              <div className="mt-6 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setDisplayedBookingsCount((prev) => prev + 6)}
+                  className="rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
+                >
+                  Vezi mai mult
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
@@ -813,7 +831,7 @@ export default function DashboardPage() {
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h3 className="text-2xl font-semibold text-white">
-                  {editingServiceId ? "Editează serviciu" : "Adaugă serviciu"}
+                  {editingServiceId ? "Editează serviciile" : "Adaugă servicii"}
                 </h3>
                 <p className="mt-2 text-sm text-white/60">
                   {editingServiceId 
@@ -902,7 +920,7 @@ export default function DashboardPage() {
                   type="submit"
                   className="rounded-xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED]"
                 >
-                  {editingServiceId ? "Salvează modificările" : "Adaugă serviciu"}
+                  {editingServiceId ? "Salvează modificările" : "Adaugă servicii"}
                 </button>
               </div>
             </form>

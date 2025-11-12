@@ -68,24 +68,34 @@ export default function BookingCard({
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
+              disabled={isCompleted}
               onClick={() => onDetails?.(id)}
-              className="rounded-lg bg-[#6366F1] px-2 py-2 text-sm font-semibold transition hover:bg-[#7C3AED]"
+              className={`rounded-lg px-2 py-2 text-sm font-semibold transition ${
+                isCompleted
+                  ? "cursor-not-allowed bg-white/5 text-white/40"
+                  : "bg-[#6366F1] hover:bg-[#7C3AED]"
+              }`}
             >
               Detalii
             </button>
             <button
               type="button"
+              disabled={isCompleted}
               onClick={() => onReschedule?.(id)}
-              className="rounded-lg border border-white/10 px-2 py-2 text-sm font-medium text-white/80 transition hover:border-[#6366F1] hover:bg-[#6366F1]/20 hover:text-white"
+              className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
+                isCompleted
+                  ? "cursor-not-allowed border-white/10 bg-white/5 text-white/40"
+                  : "border-white/10 text-white/80 hover:border-[#6366F1] hover:bg-[#6366F1]/20 hover:text-white"
+              }`}
             >
               Reprogramează
             </button>
             <button
               type="button"
-              disabled={cancelling}
+              disabled={cancelling || isCompleted}
               onClick={() => (onRequestCancel ? onRequestCancel(id) : onCancel?.(id))}
               className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
-                cancelling
+                cancelling || isCompleted
                   ? "cursor-not-allowed border-white/10 bg-white/5 text-white/40"
                   : "border-white/10 text-white/80 hover:border-red-400/40 hover:bg-red-500/15 hover:text-red-200"
               }`}

@@ -5,6 +5,7 @@ import Head from "next/head";
 import { useRouter, useSearchParams } from "next/navigation";
 import BusinessCard from "../../../components/BusinessCard";
 import ServiceCard from "../../../components/ServiceCard";
+import DatePicker from "../../../components/DatePicker";
 import useAuth from "../../../hooks/useAuth";
 import useBookings from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
@@ -53,6 +54,10 @@ export default function ClientBookingsPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
+  const [calendarDate, setCalendarDate] = useState<string>(() => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  });
   const [initializedFromUrl, setInitializedFromUrl] = useState(false);
   const [showEmployeePopup, setShowEmployeePopup] = useState(false);
   const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
@@ -412,118 +417,17 @@ export default function ClientBookingsPage() {
                     )}
                   </div>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-                    {/* Display current month and year */}
-                    <div className="text-sm font-semibold text-white sm:text-xs">
-                      {weekStart.toLocaleDateString("ro-RO", { month: "long", year: "numeric" })}
-                    </div>
-                    
-                    {/* Navigation buttons */}
-                    <div className="flex items-center gap-2 text-xs font-semibold text-white/70">
-                      {/* Previous year */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setWeekStart((prev) => {
-                            const d = new Date(prev);
-                            d.setFullYear(d.getFullYear() - 1);
-                            return getWeekStart(d);
-                          })
-                        }
-                        className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                        title="Anul anterior"
-                      >
-                        &lt;&lt;
-                      </button>
-                      
-                      {/* Previous month */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setWeekStart((prev) => {
-                            const d = new Date(prev);
-                            d.setMonth(d.getMonth() - 1);
-                            return getWeekStart(d);
-                          })
-                        }
-                        className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                        title="Luna anterioară"
-                      >
-                        &lt;
-                      </button>
-                      
-                      {/* Previous week */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setWeekStart((prev) => {
-                            const d = new Date(prev);
-                            d.setDate(d.getDate() - 7);
-                            return d;
-                          })
-                        }
-                        className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                        title="Săptămâna anterioară"
-                      >
-                        ‹
-                      </button>
-                      
-                      {/* Today button */}
-                      <button
-                        type="button"
-                        onClick={() => setWeekStart(getWeekStart(new Date()))}
-                        className="rounded-lg border border-white/10 px-3 py-2 transition hover:bg-white/10"
-                        title="Astăzi"
-                      >
-                        Azi
-                      </button>
-                      
-                      {/* Next week */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setWeekStart((prev) => {
-                            const d = new Date(prev);
-                            d.setDate(d.getDate() + 7);
-                            return d;
-                          })
-                        }
-                        className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                        title="Săptămâna următoare"
-                      >
-                        ›
-                      </button>
-                      
-                      {/* Next month */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setWeekStart((prev) => {
-                            const d = new Date(prev);
-                            d.setMonth(d.getMonth() + 1);
-                            return getWeekStart(d);
-                          })
-                        }
-                        className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                        title="Luna următoare"
-                      >
-                        &gt;
-                      </button>
-                      
-                      {/* Next year */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setWeekStart((prev) => {
-                            const d = new Date(prev);
-                            d.setFullYear(d.getFullYear() + 1);
-                            return getWeekStart(d);
-                          })
-                        }
-                        className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                        title="Anul următor"
-                      >
-                        &gt;&gt;
-                      </button>
+                    {/* Calendar picker */}
+                    <div className="hidden sm:block">
+                      <DatePicker
+                        value={calendarDate}
+                        onChange={(date) => {
+                          setCalendarDate(date);
+                          const selectedDateObj = new Date(date);
+                          setWeekStart(getWeekStart(selectedDateObj));
+                        }}
+                        placeholder="Selectează data"
+                      />
                     </div>
                   </div>
                 </div>
@@ -850,8 +754,14 @@ export default function ClientBookingsPage() {
                   className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-left transition hover:border-[#6366F1]/60 hover:bg-[#6366F1]/10"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
-                      <i className="fas fa-user" />
+                    <div className="relative h-10 w-10 overflow-hidden rounded-full border-2 border-white/10">
+                      {employee.avatar ? (
+                        <img src={employee.avatar} alt={employee.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-emerald-500/20 text-emerald-400">
+                          <i className="fas fa-user" />
+                        </div>
+                      )}
                     </div>
                     <div>
                       <h3 className="font-semibold text-white">{employee.name}</h3>

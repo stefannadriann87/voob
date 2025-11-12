@@ -13,7 +13,7 @@ export default function BusinessDashboardPage() {
   const router = useRouter();
   const { user, hydrated } = useAuth();
   const { bookings, fetchBookings, cancelBooking } = useBookings();
-  const { businesses, fetchBusinesses, addService, updateService, deleteService, addEmployee } = useBusiness();
+  const { businesses, fetchBusinesses, addService, updateService, deleteService, addEmployee, updateEmployee, deleteEmployee } = useBusiness();
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
@@ -25,12 +25,15 @@ export default function BusinessDashboardPage() {
   const [serviceToDelete, setServiceToDelete] = useState<{ id: string; name: string } | null>(null);
   const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState("");
   const [employeeEmail, setEmployeeEmail] = useState("");
   const [employeePhone, setEmployeePhone] = useState("");
   const [employeeSpecialization, setEmployeeSpecialization] = useState("");
   const [employeeFeedback, setEmployeeFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [addingEmployee, setAddingEmployee] = useState(false);
+  const [employeeToDelete, setEmployeeToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deletingEmployeeId, setDeletingEmployeeId] = useState<string | null>(null);
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -405,6 +408,7 @@ export default function BusinessDashboardPage() {
             <button
               type="button"
               onClick={() => {
+                setEditingEmployeeId(null);
                 setEmployeeModalOpen(true);
                 setEmployeeName("");
                 setEmployeeEmail("");
@@ -433,6 +437,32 @@ export default function BusinessDashboardPage() {
                     {employee.phone && (
                       <p className="mt-1 text-xs text-white/50">{employee.phone}</p>
                     )}
+                  </div>
+                  <div className="ml-4 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingEmployeeId(employee.id);
+                        setEmployeeName(employee.name);
+                        setEmployeeEmail(employee.email);
+                        setEmployeePhone(employee.phone || "");
+                        setEmployeeSpecialization(employee.specialization || "");
+                        setEmployeeFeedback(null);
+                        setEmployeeModalOpen(true);
+                      }}
+                      className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-[#6366F1]/20 hover:text-[#6366F1]"
+                      title="Editează angajat"
+                    >
+                      <i className="fas fa-edit text-sm" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEmployeeToDelete({ id: employee.id, name: employee.name })}
+                      className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-red-500/20 hover:text-red-400"
+                      title="Șterge angajat"
+                    >
+                      <i className="fas fa-trash text-sm" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -605,11 +635,21 @@ export default function BusinessDashboardPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
             <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40">
               <div className="mb-6 flex items-center justify-between">
-                <h3 className="text-xl font-semibold text-white">Adaugă angajat</h3>
+                <div>
+                  <h3 className="text-xl font-semibold text-white">
+                    {editingEmployeeId ? "Editează angajat" : "Adaugă angajat"}
+                  </h3>
+                  <p className="mt-2 text-sm text-white/60">
+                    {editingEmployeeId 
+                      ? "Actualizează informațiile despre angajat" 
+                      : "Completează informațiile pentru noul angajat"}
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
                     setEmployeeModalOpen(false);
+                    setEditingEmployeeId(null);
                     setEmployeeName("");
                     setEmployeeEmail("");
                     setEmployeePhone("");
@@ -635,26 +675,44 @@ export default function BusinessDashboardPage() {
                   setAddingEmployee(true);
                   setEmployeeFeedback(null);
                   try {
-                    await addEmployee({
-                      businessId: business.id,
-                      name: employeeName.trim(),
-                      email: employeeEmail.trim(),
-                      phone: employeePhone.trim() || undefined,
-                      specialization: employeeSpecialization.trim() || undefined,
-                    });
-                    setEmployeeFeedback({ type: "success", message: "Angajat adăugat cu succes!" });
+                    if (editingEmployeeId) {
+                      // Update existing employee
+                      await updateEmployee(
+                        business.id,
+                        editingEmployeeId,
+                        employeeName.trim(),
+                        employeeEmail.trim(),
+                        employeePhone.trim() || undefined,
+                        employeeSpecialization.trim() || undefined
+                      );
+                      setEmployeeFeedback({ type: "success", message: "Angajat actualizat cu succes!" });
+                    } else {
+                      // Add new employee
+                      await addEmployee({
+                        businessId: business.id,
+                        name: employeeName.trim(),
+                        email: employeeEmail.trim(),
+                        phone: employeePhone.trim() || undefined,
+                        specialization: employeeSpecialization.trim() || undefined,
+                      });
+                      setEmployeeFeedback({ type: "success", message: "Angajat adăugat cu succes!" });
+                    }
                     setTimeout(() => {
                       setEmployeeModalOpen(false);
+                      setEditingEmployeeId(null);
                       setEmployeeName("");
                       setEmployeeEmail("");
                       setEmployeePhone("");
                       setEmployeeSpecialization("");
                       setEmployeeFeedback(null);
+                      void fetchBusinesses();
                     }, 1000);
                   } catch (error) {
                     setEmployeeFeedback({
                       type: "error",
-                      message: error instanceof Error ? error.message : "Eroare la adăugarea angajatului.",
+                      message: error instanceof Error ? error.message : editingEmployeeId 
+                        ? "Eroare la actualizarea angajatului." 
+                        : "Eroare la adăugarea angajatului.",
                     });
                   } finally {
                     setAddingEmployee(false);
@@ -681,7 +739,7 @@ export default function BusinessDashboardPage() {
                     value={employeeSpecialization}
                     onChange={(e) => setEmployeeSpecialization(e.target.value)}
                     className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                    placeholder="Ex: Stomatolog, Frizer, etc."
+                    placeholder="Ex: Stomatolog, Hair stylist, etc."
                   />
                 </label>
 
@@ -725,6 +783,7 @@ export default function BusinessDashboardPage() {
                     type="button"
                     onClick={() => {
                       setEmployeeModalOpen(false);
+                      setEditingEmployeeId(null);
                       setEmployeeName("");
                       setEmployeeEmail("");
                       setEmployeePhone("");
@@ -734,17 +793,65 @@ export default function BusinessDashboardPage() {
                     disabled={addingEmployee}
                     className="flex-1 rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Anulează
+                    Renunță
                   </button>
                   <button
                     type="submit"
                     disabled={addingEmployee}
                     className="flex-1 rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {addingEmployee ? "Se adaugă..." : "Adaugă angajat"}
+                    {addingEmployee 
+                      ? (editingEmployeeId ? "Se actualizează..." : "Se adaugă...") 
+                      : (editingEmployeeId ? "Salvează modificările" : "Adaugă angajat")}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Employee Confirmation Modal */}
+        {employeeToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40">
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-white">Confirmă ștergerea</h3>
+                <p className="mt-2 text-sm text-white/60">
+                  Ești sigur că vrei să ștergi angajatul <strong className="text-white">"{employeeToDelete.name}"</strong>? 
+                  Această acțiune nu poate fi anulată.
+                </p>
+              </div>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setEmployeeToDelete(null)}
+                  disabled={deletingEmployeeId === employeeToDelete.id}
+                  className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Renunță
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!employeeToDelete || !business?.id) return;
+                    setDeletingEmployeeId(employeeToDelete.id);
+                    try {
+                      await deleteEmployee(business.id, employeeToDelete.id);
+                      setEmployeeToDelete(null);
+                      void fetchBusinesses();
+                    } catch (error) {
+                      console.error("Delete employee failed:", error);
+                      setEmployeeToDelete(null);
+                    } finally {
+                      setDeletingEmployeeId(null);
+                    }
+                  }}
+                  disabled={deletingEmployeeId === employeeToDelete.id}
+                  className="rounded-2xl bg-red-500/80 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {deletingEmployeeId === employeeToDelete.id ? "Se șterge..." : "Șterge angajat"}
+                </button>
+              </div>
             </div>
           </div>
         )}

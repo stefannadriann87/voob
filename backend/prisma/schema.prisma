@@ -20,29 +20,48 @@ model User {
   name          String
   phone         String?
   specialization String?
+  avatar        String?   // URL către poza de profil
   role          Role      @default(CLIENT)
   businessId    String?   @db.VarChar(255)
   business      Business? @relation(fields: [businessId], references: [id])
+  workingHours  Json?     // Program de lucru pentru employee: { "monday": { "enabled": true, "slots": [{ "start": "09:00", "end": "18:00" }] }, ... }
   bookings      Booking[]
   employeeBookings Booking[] @relation("EmployeeBookings")
   ownedBusinesses Business[] @relation("BusinessOwner")
+  employeeHolidays EmployeeHoliday[]
   resetTokens   PasswordResetToken[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
 
 model Business {
-  id         String    @id @default(cuid())
-  name       String
-  email      String?   @unique
-  domain     String    @unique
-  ownerId    String
-  owner      User      @relation("BusinessOwner", fields: [ownerId], references: [id])
-  employees  User[]
-  services   Service[]
-  bookings   Booking[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  name          String
+  email         String?   @unique
+  domain        String    @unique
+  ownerId       String
+  owner         User      @relation("BusinessOwner", fields: [ownerId], references: [id])
+  employees     User[]
+  services      Service[]
+  bookings      Booking[]
+  workingHours  Json?     // Program de lucru: { "monday": { "enabled": true, "hours": ["09:00", "18:00"] }, ... }
+  holidays      Holiday[] // Perioade de concediu/blocare
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Holiday {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  startDate  DateTime // Data de început
+  endDate    DateTime // Data de sfârșit
+  reason     String?  // Motiv (ex: "Concediu", "Închidere temporară")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([startDate, endDate])
 }
 
 model Service {
@@ -82,6 +101,20 @@ model Consent {
   signedAt  DateTime @default(now())
   pdfUrl    String
   signature String
+}
+
+model EmployeeHoliday {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   User     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate  DateTime // Data de început
+  endDate    DateTime // Data de sfârșit
+  reason     String?  // Motiv (ex: "Concediu", "Închidere temporară")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([startDate, endDate])
 }
 
 model PasswordResetToken {

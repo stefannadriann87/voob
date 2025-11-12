@@ -42,6 +42,7 @@ npm run dev
    DATABASE_URL="your_database_url"
    JWT_SECRET="your_jwt_secret"
    PORT=3001
+   OPENAI_API_KEY="your_openai_api_key"  # Opțional - pentru funcționalitate AI completă
    ```
 
 2. Rulează migrațiile Prisma:
@@ -65,6 +66,8 @@ npm run dev
 - **Management Business**: Adăugare servicii, angajați, setări
 - **Notificări**: Sistem de notificări pentru programări viitoare
 - **Profil**: Editare profil pentru clienți și business
+- **AI Assistant**: Asistent inteligent cu acces bazat pe roluri (necesită OPENAI_API_KEY)
+- **Program de lucru**: Configurare zile și ore de lucru, pauze, concedii
 
 ## Rulare
 

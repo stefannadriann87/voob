@@ -10,6 +10,8 @@ export interface AuthUser {
   email: string;
   name: string;
   phone?: string | null;
+  specialization?: string | null;
+  avatar?: string | null;
   role: Role;
   business?: {
     id: string;
@@ -206,7 +208,7 @@ export default function useAuth() {
   }, [api, logout]);
 
   const updateProfile = useCallback(
-    async (data: { phone?: string; name?: string }) => {
+    async (data: { phone?: string; name?: string; specialization?: string; avatar?: string }) => {
       setLoading(true);
       setError(null);
       try {

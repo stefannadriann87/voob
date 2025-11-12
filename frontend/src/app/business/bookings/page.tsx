@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import DatePicker from "../../../components/DatePicker";
 import useAuth from "../../../hooks/useAuth";
 import useBookings, { Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
@@ -34,7 +35,7 @@ const getWeekStart = (date: Date) => {
 const formatDayLabel = (date: Date) =>
   date.toLocaleDateString("ro-RO", { weekday: "short", day: "numeric" });
 
-// Color palette for clients - 16 vibrant colors in a cohesive palette
+// Color palette for clients - 15 vibrant colors in a cohesive palette (red excluded to avoid confusion with cancelled bookings)
 const CLIENT_COLORS = [
   { bg: "bg-blue-500/60", border: "border-blue-500/80", hover: "hover:bg-blue-500/70", shadow: "shadow-blue-500/40" },
   { bg: "bg-purple-500/60", border: "border-purple-500/80", hover: "hover:bg-purple-500/70", shadow: "shadow-purple-500/40" },
@@ -50,7 +51,6 @@ const CLIENT_COLORS = [
   { bg: "bg-orange-500/60", border: "border-orange-500/80", hover: "hover:bg-orange-500/70", shadow: "shadow-orange-500/40" },
   { bg: "bg-lime-500/60", border: "border-lime-500/80", hover: "hover:bg-lime-500/70", shadow: "shadow-lime-500/40" },
   { bg: "bg-sky-500/60", border: "border-sky-500/80", hover: "hover:bg-sky-500/70", shadow: "shadow-sky-500/40" },
-  { bg: "bg-red-500/60", border: "border-red-500/80", hover: "hover:bg-red-500/70", shadow: "shadow-red-500/40" },
   { bg: "bg-yellow-500/60", border: "border-yellow-500/80", hover: "hover:bg-yellow-500/70", shadow: "shadow-yellow-500/40" },
 ];
 
@@ -71,6 +71,10 @@ export default function BusinessBookingsPage() {
   const { bookings, fetchBookings, loading, cancelBooking, updateBooking, createBooking } = useBookings();
   const { businesses, fetchBusinesses } = useBusiness();
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
+  const [calendarDate, setCalendarDate] = useState<string>(() => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  });
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
@@ -95,6 +99,38 @@ export default function BusinessBookingsPage() {
   const [newClientEmail, setNewClientEmail] = useState("");
   const [newClientPhone, setNewClientPhone] = useState("");
   const [creatingClient, setCreatingClient] = useState(false);
+  const [workingHours, setWorkingHours] = useState<any>(null);
+  const [holidays, setHolidays] = useState<Array<{ id: string; startDate: string; endDate: string; reason: string | null }>>([]);
+
+  const businessId = user?.business?.id;
+
+  // Fetch working hours
+  useEffect(() => {
+    if (!businessId) return;
+    const fetchWorkingHours = async () => {
+      try {
+        const { data } = await api.get<{ workingHours: any }>(`/business/${businessId}/working-hours`);
+        setWorkingHours(data.workingHours);
+      } catch (error) {
+        console.error("Failed to fetch working hours:", error);
+      }
+    };
+    void fetchWorkingHours();
+  }, [businessId, api]);
+
+  // Fetch holidays
+  useEffect(() => {
+    if (!businessId) return;
+    const fetchHolidays = async () => {
+      try {
+        const { data } = await api.get<{ holidays: Array<{ id: string; startDate: string; endDate: string; reason: string | null }> }>(`/business/${businessId}/holidays`);
+        setHolidays(data.holidays);
+      } catch (error) {
+        console.error("Failed to fetch holidays:", error);
+      }
+    };
+    void fetchHolidays();
+  }, [businessId, api]);
 
   useEffect(() => {
     if (!hydrated) {
@@ -146,8 +182,6 @@ export default function BusinessBookingsPage() {
     const timeoutId = setTimeout(fetchClients, 300); // Debounce search
     return () => clearTimeout(timeoutId);
   }, [createBookingModalOpen, clientSearchQuery, api]);
-
-  const businessId = user?.business?.id;
   
   // Get business with employees
   const business = useMemo(() => {
@@ -186,15 +220,66 @@ export default function BusinessBookingsPage() {
 
   const slotDurationMinutes = 60;
 
+  // Get available hours for a specific day based on working hours
+  const getAvailableHoursForDay = useCallback((date: Date): string[] => {
+    if (!workingHours) return HOURS; // Fallback to default hours if no working hours set
+    
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const dayName = dayNames[date.getDay()] as keyof typeof workingHours;
+    const daySchedule = workingHours[dayName];
+    
+    if (!daySchedule || !daySchedule.enabled || !daySchedule.slots || daySchedule.slots.length === 0) {
+      return []; // Day is disabled or has no slots
+    }
+    
+    // Generate all hours from all slots for this day
+    const availableHours: string[] = [];
+    daySchedule.slots.forEach((slot: { start: string; end: string }) => {
+      const [startH, startM] = slot.start.split(":").map(Number);
+      const [endH, endM] = slot.end.split(":").map(Number);
+      
+      let currentH = startH;
+      let currentM = startM;
+      
+      while (currentH < endH || (currentH === endH && currentM < endM)) {
+        const hourStr = `${String(currentH).padStart(2, "0")}:${String(currentM).padStart(2, "0")}`;
+        if (!availableHours.includes(hourStr)) {
+          availableHours.push(hourStr);
+        }
+        
+        // Move to next hour
+        currentM += slotDurationMinutes;
+        if (currentM >= 60) {
+          currentM = 0;
+          currentH += 1;
+        }
+      }
+    });
+    
+    return availableHours.sort();
+  }, [workingHours, slotDurationMinutes]);
+
   const slotsMatrix = useMemo(() => {
     return weekDays.map((day) => {
-      return HOURS.map((hour) => {
+      const availableHours = getAvailableHoursForDay(day);
+      return availableHours.map((hour: string) => {
         const [h, m] = hour.split(":").map(Number);
         const slotDate = new Date(day);
         slotDate.setHours(h, m, 0, 0);
         const slotStartMs = slotDate.getTime();
         const iso = slotDate.toISOString();
         const isPast = slotStartMs < Date.now();
+        const slotEndMs = slotStartMs + slotDurationMinutes * 60 * 1000;
+
+        // Check if slot is in a holiday period and get the holiday
+        const blockingHoliday = holidays.find((holiday) => {
+          const holidayStart = new Date(holiday.startDate);
+          holidayStart.setHours(0, 0, 0, 0);
+          const holidayEnd = new Date(holiday.endDate);
+          holidayEnd.setHours(23, 59, 59, 999);
+          return slotStartMs < holidayEnd.getTime() && slotEndMs > holidayStart.getTime();
+        });
+        const isBlocked = !!blockingHoliday;
 
         const booking = businessBookings.find((b) => {
           const bookingStart = new Date(b.date);
@@ -207,8 +292,9 @@ export default function BusinessBookingsPage() {
           return sameDay && bookingStartMs < slotEndMs && bookingEndMs > slotStartMs;
         });
 
-        let status: "available" | "booked" | "past" = "available";
+        let status: "available" | "booked" | "past" | "blocked" = "available";
         if (isPast) status = "past";
+        if (isBlocked) status = "blocked";
         if (booking) status = "booked";
 
         // Check if this is the first slot of the booking (to show details only on the first slot)
@@ -227,10 +313,11 @@ export default function BusinessBookingsPage() {
           booking: booking || null,
           isFirstSlot: isFirstSlotOfBooking || false,
           clientColor: clientColor || null,
+          blockingHoliday: blockingHoliday || null,
         };
       });
     });
-  }, [weekDays, businessBookings]);
+  }, [weekDays, businessBookings, getAvailableHoursForDay, holidays, slotDurationMinutes]);
 
   if (!hydrated) {
     return null;
@@ -258,118 +345,18 @@ export default function BusinessBookingsPage() {
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-              {/* Display current month and year */}
-              <div className="text-sm font-semibold text-white sm:text-xs">
-                {weekStart.toLocaleDateString("ro-RO", { month: "long", year: "numeric" })}
-              </div>
               
-              {/* Navigation buttons */}
-              <div className="flex items-center gap-2 text-xs font-semibold text-white/70">
-                {/* Previous year */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeekStart((prev) => {
-                      const d = new Date(prev);
-                      d.setFullYear(d.getFullYear() - 1);
-                      return getWeekStart(d);
-                    })
-                  }
-                  className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                  title="Anul anterior"
-                >
-                  &lt;&lt;
-                </button>
-                
-                {/* Previous month */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeekStart((prev) => {
-                      const d = new Date(prev);
-                      d.setMonth(d.getMonth() - 1);
-                      return getWeekStart(d);
-                    })
-                  }
-                  className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                  title="Luna anterioară"
-                >
-                  &lt;
-                </button>
-                
-                {/* Previous week */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeekStart((prev) => {
-                      const d = new Date(prev);
-                      d.setDate(d.getDate() - 7);
-                      return d;
-                    })
-                  }
-                  className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                  title="Săptămâna anterioară"
-                >
-                  ‹
-                </button>
-                
-                {/* Today button */}
-                <button
-                  type="button"
-                  onClick={() => setWeekStart(getWeekStart(new Date()))}
-                  className="rounded-lg border border-white/10 px-3 py-2 transition hover:bg-white/10"
-                  title="Astăzi"
-                >
-                  Azi
-                </button>
-                
-                {/* Next week */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeekStart((prev) => {
-                      const d = new Date(prev);
-                      d.setDate(d.getDate() + 7);
-                      return d;
-                    })
-                  }
-                  className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                  title="Săptămâna următoare"
-                >
-                  ›
-                </button>
-                
-                {/* Next month */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeekStart((prev) => {
-                      const d = new Date(prev);
-                      d.setMonth(d.getMonth() + 1);
-                      return getWeekStart(d);
-                    })
-                  }
-                  className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                  title="Luna următoare"
-                >
-                  &gt;
-                </button>
-                
-                {/* Next year */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeekStart((prev) => {
-                      const d = new Date(prev);
-                      d.setFullYear(d.getFullYear() + 1);
-                      return getWeekStart(d);
-                    })
-                  }
-                  className="rounded-lg border border-white/10 px-2 py-2 transition hover:bg-white/10"
-                  title="Anul următor"
-                >
-                  &gt;&gt;
-                </button>
+              {/* Calendar picker */}
+              <div className="hidden sm:block">
+                <DatePicker
+                  value={calendarDate}
+                  onChange={(date) => {
+                    setCalendarDate(date);
+                    const selectedDateObj = new Date(date);
+                    setWeekStart(getWeekStart(selectedDateObj));
+                  }}
+                  placeholder="Selectează data"
+                />
               </div>
             </div>
           </div>
@@ -427,10 +414,22 @@ export default function BusinessBookingsPage() {
                     </div>
                   ))}
 
-                  {HOURS.map((hour, hourIndex) => (
+                  {(() => {
+                    // Get all unique hours from all days for this week
+                    const allHours = new Set<string>();
+                    weekDays.forEach((day) => {
+                      const availableHours = getAvailableHoursForDay(day);
+                      availableHours.forEach((h: string) => allHours.add(h));
+                    });
+                    return Array.from(allHours).sort();
+                  })().map((hour, hourIndex) => (
                     <Fragment key={`row-${hour}`}>
                       {weekDays.map((_, dayIndex) => {
-                        const slot = slotsMatrix?.[dayIndex]?.[hourIndex];
+                        // Find the slot for this day and hour
+                        const day = weekDays[dayIndex];
+                        const availableHoursForDay = getAvailableHoursForDay(day);
+                        const slotIndex = availableHoursForDay.indexOf(hour);
+                        const slot = slotIndex >= 0 ? slotsMatrix?.[dayIndex]?.[slotIndex] : null;
                         if (!slot) {
                           return <div key={`empty-${dayIndex}-${hour}`} className="rounded-2xl bg-[#0B0E17]/30" />;
                         }
@@ -441,19 +440,23 @@ export default function BusinessBookingsPage() {
                         const hoveredDayString = hoveredSlot ? new Date(hoveredSlot).toDateString() : null;
 
                         let stateClasses =
-                          "bg-[#0B0E17]/60 text-white/70 hover:bg-white/10 border border-white/10";
-                        if (slot.status === "booked") {
+                          "bg-[#0B0E17]/60 text-white/70  border-white/10 hover:brightness-110";
+                        if (slot.status === "blocked") {
+                          stateClasses =
+                            "bg-red-500/20 text-white/40  border-red-500/30 cursor-not-allowed hover:brightness-110";
+                        } else if (slot.status === "booked") {
                           // Use client-specific color if available
                           if (slot.clientColor) {
-                            stateClasses = `${slot.clientColor.bg} text-white ${slot.clientColor.border} border cursor-pointer ${slot.clientColor.hover}`;
+                            // Keep the same color on hover, just make it slightly brighter
+                            stateClasses = `${slot.clientColor.bg} text-white ${slot.clientColor.border} cursor-pointer hover:brightness-110`;
                           } else {
                             // Fallback to default purple if no client color
                             stateClasses =
-                              "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 cursor-pointer hover:bg-[#6366F1]/60";
+                              "bg-[#6366F1]/50 text-white border-[#6366F1]/70 cursor-pointer hover:bg-[#6366F1]/60";
                           }
                         } else if (slot.status === "past") {
                           stateClasses =
-                            "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed";
+                            "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed hover:brightness-110";
                         }
 
                         // Highlight all slots that belong to the same booking when hovering
@@ -607,7 +610,7 @@ export default function BusinessBookingsPage() {
                           >
                           <button
                             type="button"
-                            disabled={slot.status === "past"}
+                            disabled={slot.status === "past" || slot.status === "blocked"}
                             onClick={(e) => {
                               e.stopPropagation();
                               if (slot.booking) {
@@ -654,6 +657,10 @@ export default function BusinessBookingsPage() {
                               ) : (
                                 <span className="text-[10px] opacity-60">Ocupat</span>
                               )
+                            ) : slot.status === "blocked" ? (
+                              <span className="text-[10px] opacity-60 truncate">
+                                {slot.blockingHoliday?.reason || "Blocat"}
+                              </span>
                             ) : (
                               <span>{slot.label}</span>
                             )}
@@ -703,7 +710,7 @@ export default function BusinessBookingsPage() {
             }}
           >
             <div 
-              className="pointer-events-auto w-80 rounded-2xl border-2 border-[#6366F1]/50 bg-[#0B0E17] p-4 shadow-2xl shadow-black/50 backdrop-blur-sm"
+              className="pointer-events-auto w-80 rounded-2xl bg-[#0B0E17] p-4 shadow-2xl shadow-black/50 backdrop-blur-sm"
               style={{ 
                 zIndex: 10000,
                 boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.8), 0 10px 10px -5px rgba(0, 0, 0, 0.4)",

@@ -1,5 +1,6 @@
 import express = require("express");
-import prisma from "../lib/prisma";
+const prisma = require("../lib/prisma").default;
+import type { Prisma } from "@prisma/client";
 
 const router = express.Router();
 
@@ -162,7 +163,7 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Rezervarea nu există sau a fost deja ștearsă." });
     }
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       if (booking.consent) {
         await tx.consent.delete({ where: { bookingId: id } });
       }

@@ -112,7 +112,7 @@ export default function Home() {
           <div className="demo-preview">
             <div className="demo-window">
               <Image
-                src="/images/img1.png"
+                src="/images/img-hero.png"
                 alt="Previzualizare LARSTEF"
                 width={960}
                 height={600}
@@ -258,7 +258,7 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              Alege domeniile care te interesează frizerie, stomatolog, psiholog și
+              Alege domeniile care te interesează hair styling, stomatolog, psiholog și
               LARSTEF AI îți personalizează experiența din prima zi.
             </p>
           </div>
@@ -699,7 +699,7 @@ export default function Home() {
                   <label htmlFor="business-type">Tip business *</label>
                   <select id="business-type" name="business-type" required>
                     <option value="">Selectează tipul de business</option>
-                    <option value="frizerie">Frizerie / Barber Shop</option>
+                    <option value="hair-styling">Hair Styling / Barber Shop</option>
                     <option value="salon">Salon de frumusețe</option>
                     <option value="stomatolog">Cabinet stomatologic</option>
                     <option value="psiholog">Cabinet psihologie</option>

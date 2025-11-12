@@ -42,6 +42,8 @@ const menuConfig: Record<Role, MenuItem[]> = {
     { label: "Dashboard", path: "/employee/dashboard", icon: LayoutDashboard },
     { label: "Calendar", path: "/employee/calendar", icon: CalendarRange },
     { label: "Consimțăminte", path: "/employee/consents", icon: FileText },
+    { label: "Setări", path: "/employee/settings", icon: Settings },
+    { label: "Profil", path: "/employee/profile", icon: User },
   ],
   CLIENT: [
     { label: "Dashboard", path: "/client/dashboard", icon: LayoutDashboard },
@@ -78,7 +80,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       }`}
     >
       <Link href={homePath} className="flex items-center gap-3 px-6 py-8 border-b border-white/5">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/20 text-lg text-emerald-400">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#6366F1]/20 text-lg text-[#6366F1]">
           <LayoutDashboard className="h-5 w-5" />
         </div>
         {!collapsed && (
@@ -99,13 +101,13 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               href={item.path}
               className={`group w-full flex items-center gap-3 rounded-xl px-3 py-3 font-medium transition ${
                 active
-                  ? "bg-emerald-400/15 text-white shadow-inner shadow-emerald-500/20"
+                  ? "bg-[#6366F1]/15 text-white shadow-inner shadow-[#6366F1]/20"
                   : "text-white/70 hover:bg-white/5 hover:text-white"
               }`}
             >
               <span
                 className={`flex h-9 w-9 items-center justify-center rounded-xl text-base transition ${
-                  active ? "bg-emerald-400/25 text-emerald-300" : "bg-white/5 text-white/60 group-hover:text-white"
+                  active ? "bg-[#6366F1]/25 text-[#6366F1]" : "bg-white/5 text-white/60 group-hover:text-white"
                 }`}
               >
                 <Icon className="h-5 w-5" />
@@ -121,7 +123,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         <button
           type="button"
           onClick={handleLogout}
-          className={`group flex w-full items-center gap-3 rounded-xl border border-white/10 px-3 py-3 text-sm font-semibold text-white/80 transition hover:border-emerald-400/40 hover:bg-emerald-400/15 hover:text-white ${
+          className={`group flex w-full items-center gap-3 rounded-xl border border-white/10 px-3 py-3 text-sm font-semibold text-white/80 transition hover:border-[#6366F1]/40 hover:bg-[#6366F1]/15 hover:text-white ${
             collapsed ? "justify-center" : ""
           }`}
         >

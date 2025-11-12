@@ -1,6 +1,7 @@
 import express = require("express");
 import bcrypt = require("bcryptjs");
-import prisma from "../lib/prisma";
+const prisma = require("../lib/prisma").default;
+import type { Prisma } from "@prisma/client";
 
 const router = express.Router();
 
@@ -59,7 +60,7 @@ router.post("/", async (req, res) => {
         },
         services: true,
         employees: {
-          select: { id: true, name: true, email: true, phone: true, specialization: true },
+          select: { id: true, name: true, email: true, phone: true, specialization: true, avatar: true },
         },
       },
     });
@@ -80,7 +81,7 @@ router.get("/", async (_req, res) => {
           select: { id: true, name: true, email: true },
         },
         employees: {
-          select: { id: true, name: true, email: true, phone: true, specialization: true },
+          select: { id: true, name: true, email: true, phone: true, specialization: true, avatar: true },
         },
       },
     });
@@ -239,7 +240,7 @@ router.post("/:businessId/employees", async (req, res) => {
     const hashedPassword = await bcrypt.hash(randomPassword, 10);
 
     // Create employee user and add to business
-    const employee = await prisma.$transaction(async (tx) => {
+    const employee = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const createdUser = await tx.user.create({
         data: {
           email: email.trim(),
@@ -271,6 +272,311 @@ router.post("/:businessId/employees", async (req, res) => {
   } catch (error) {
     console.error("Add employee error:", error);
     return res.status(500).json({ error: "Eroare la adăugarea employee-ului." });
+  }
+});
+
+// Update an employee
+router.put("/:businessId/employees/:employeeId", async (req, res) => {
+  const { businessId, employeeId } = req.params;
+  const {
+    name,
+    email,
+    phone,
+    specialization,
+  }: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    specialization?: string;
+  } = req.body;
+
+  if (!businessId || !employeeId) {
+    return res.status(400).json({ error: "businessId și employeeId sunt obligatorii." });
+  }
+
+  if (!name || !email) {
+    return res.status(400).json({ error: "name și email sunt obligatorii pentru actualizarea unui employee." });
+  }
+
+  try {
+    // Verify that the business exists
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      include: {
+        employees: {
+          where: { id: employeeId },
+        },
+      },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    if (business.employees.length === 0) {
+      return res.status(404).json({ error: "Angajatul nu a fost găsit sau nu aparține acestui business." });
+    }
+
+    // Check if email is being changed and if it already exists
+    if (email.trim() !== business.employees[0].email) {
+      const existingUser = await prisma.user.findUnique({ where: { email: email.trim() } });
+      if (existingUser) {
+        return res.status(409).json({ error: "Un utilizator cu acest email există deja." });
+      }
+    }
+
+    // Update employee user
+    const updatedEmployee = await prisma.user.update({
+      where: { id: employeeId },
+      data: {
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone?.trim() || null,
+        specialization: specialization?.trim() || null,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        specialization: true,
+      },
+    });
+
+    return res.json(updatedEmployee);
+  } catch (error) {
+    console.error("Update employee error:", error);
+    return res.status(500).json({ error: "Eroare la actualizarea angajatului." });
+  }
+});
+
+// Delete an employee from a business
+router.delete("/:businessId/employees/:employeeId", async (req, res) => {
+  const { businessId, employeeId } = req.params;
+
+  if (!businessId || !employeeId) {
+    return res.status(400).json({ error: "businessId și employeeId sunt obligatorii." });
+  }
+
+  try {
+    // Verify that the business exists
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      include: {
+        employees: {
+          where: { id: employeeId },
+        },
+      },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    if (business.employees.length === 0) {
+      return res.status(404).json({ error: "Angajatul nu a fost găsit sau nu aparține acestui business." });
+    }
+
+    // Remove employee from business
+    await prisma.business.update({
+      where: { id: businessId },
+      data: {
+        employees: {
+          disconnect: { id: employeeId },
+        },
+      },
+    });
+
+    // Optionally delete the user if they are only an employee (not owner)
+    // For now, we'll just disconnect them from the business
+    // You might want to check if they have bookings before deleting
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Delete employee error:", error);
+    return res.status(500).json({ error: "Eroare la ștergerea angajatului." });
+  }
+});
+
+// Get working hours for a business
+router.get("/:businessId/working-hours", async (req, res) => {
+  const { businessId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { workingHours: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    return res.json({ workingHours: business.workingHours });
+  } catch (error) {
+    console.error("Get working hours error:", error);
+    return res.status(500).json({ error: "Eroare la obținerea programului de lucru." });
+  }
+});
+
+// Update working hours for a business
+router.put("/:businessId/working-hours", async (req, res) => {
+  const { businessId } = req.params;
+  const { workingHours }: { workingHours?: any } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // Verify that the business exists
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    const updatedBusiness = await prisma.business.update({
+      where: { id: businessId },
+      data: {
+        workingHours: workingHours || null,
+      },
+      select: { workingHours: true },
+    });
+
+    return res.json({ workingHours: updatedBusiness.workingHours });
+  } catch (error) {
+    console.error("Update working hours error:", error);
+    return res.status(500).json({ error: "Eroare la actualizarea programului de lucru." });
+  }
+});
+
+// Get holidays for a business
+router.get("/:businessId/holidays", async (req, res) => {
+  const { businessId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    const holidays = await prisma.holiday.findMany({
+      where: { businessId },
+      orderBy: { startDate: "asc" },
+    });
+
+    return res.json({ holidays });
+  } catch (error) {
+    console.error("Get holidays error:", error);
+    return res.status(500).json({ error: "Eroare la obținerea perioadelor de concediu." });
+  }
+});
+
+// Create a holiday period
+router.post("/:businessId/holidays", async (req, res) => {
+  const { businessId } = req.params;
+  const { startDate, endDate, reason }: { startDate?: string; endDate?: string; reason?: string } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: "startDate și endDate sunt obligatorii." });
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start > end) {
+      return res.status(400).json({ error: "Data de început trebuie să fie înainte de data de sfârșit." });
+    }
+
+    // Check for overlapping holidays
+    const overlapping = await prisma.holiday.findFirst({
+      where: {
+        businessId,
+        OR: [
+          {
+            AND: [{ startDate: { lte: end } }, { endDate: { gte: start } }],
+          },
+        ],
+      },
+    });
+
+    if (overlapping) {
+      return res.status(409).json({ error: "Există deja o perioadă de concediu care se suprapune cu această perioadă." });
+    }
+
+    const holiday = await prisma.holiday.create({
+      data: {
+        businessId,
+        startDate: start,
+        endDate: end,
+        reason: reason?.trim() || null,
+      },
+    });
+
+    return res.status(201).json({ holiday });
+  } catch (error) {
+    console.error("Create holiday error:", error);
+    return res.status(500).json({ error: "Eroare la crearea perioadei de concediu." });
+  }
+});
+
+// Delete a holiday period
+router.delete("/:businessId/holidays/:holidayId", async (req, res) => {
+  const { businessId, holidayId } = req.params;
+
+  if (!businessId || !holidayId) {
+    return res.status(400).json({ error: "businessId și holidayId sunt obligatorii." });
+  }
+
+  try {
+    // Verify that the holiday belongs to the business
+    const holiday = await prisma.holiday.findFirst({
+      where: {
+        id: holidayId,
+        businessId: businessId,
+      },
+    });
+
+    if (!holiday) {
+      return res.status(404).json({ error: "Perioada de concediu nu a fost găsită sau nu aparține acestui business." });
+    }
+
+    await prisma.holiday.delete({
+      where: { id: holidayId },
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Delete holiday error:", error);
+    return res.status(500).json({ error: "Eroare la ștergerea perioadei de concediu." });
   }
 });
 

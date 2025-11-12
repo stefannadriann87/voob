@@ -4,13 +4,14 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useAuth from "../../../hooks/useAuth";
 
-export default function ClientProfilePage() {
+export default function EmployeeProfilePage() {
   const router = useRouter();
   const { user, hydrated, updateProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [specialization, setSpecialization] = useState("");
   const [avatar, setAvatar] = useState<string | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,14 +27,15 @@ export default function ClientProfilePage() {
       router.replace("/auth/login");
       return;
     }
-    if (user.role !== "CLIENT") {
-      router.replace("/client/dashboard");
+    if (user.role !== "EMPLOYEE") {
+      router.replace("/employee/dashboard");
       return;
     }
     // Initialize form with user data
     setName(user.name || "");
     setEmail(user.email || "");
     setPhone(user.phone || "");
+    setSpecialization(user.specialization || "");
     setAvatar(user.avatar || null);
     setAvatarPreview(user.avatar || null);
   }, [hydrated, user, router]);
@@ -48,6 +50,7 @@ export default function ClientProfilePage() {
       await updateProfile({
         name: name.trim(),
         phone: phone.trim() || undefined,
+        specialization: specialization.trim() || undefined,
       });
       setSuccess("Profil actualizat cu succes!");
       setIsEditing(false);
@@ -66,6 +69,7 @@ export default function ClientProfilePage() {
     setName(user?.name || "");
     setEmail(user?.email || "");
     setPhone(user?.phone || "");
+    setSpecialization(user?.specialization || "");
     setAvatar(user?.avatar || null);
     setAvatarPreview(user?.avatar || null);
     setError(null);
@@ -179,6 +183,13 @@ export default function ClientProfilePage() {
                   {user.phone || "—"}
                 </div>
               </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-white/70">Funcție</label>
+                <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
+                  {user.specialization || "—"}
+                </div>
+              </div>
             </div>
           </>
         ) : (
@@ -271,6 +282,17 @@ export default function ClientProfilePage() {
                   onChange={(e) => setPhone(e.target.value)}
                   className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
                   placeholder="+40 7XX XXX XXX"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-white/70">Funcție</label>
+                <input
+                  type="text"
+                  value={specialization}
+                  onChange={(e) => setSpecialization(e.target.value)}
+                  className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                  placeholder="Ex: Hair stylist, Stomatolog, Psiholog"
                 />
               </div>
 

@@ -2,33 +2,68 @@
 
 import { FormEvent, useState } from "react";
 import { X, Send, Bot } from "lucide-react";
-import useBookings from "../hooks/useBookings";
+import useApi from "../hooks/useApi";
 
 interface AIChatWidgetProps {
   initialOpen?: boolean;
 }
 
+interface Message {
+  from: "user" | "ai";
+  text: string;
+}
+
 export default function AIChatWidget({ initialOpen = false }: AIChatWidgetProps) {
+  const api = useApi();
   const [isOpen, setIsOpen] = useState(initialOpen);
-  const [messages, setMessages] = useState<{ from: "user" | "ai"; text: string }[]>([
+  const [messages, setMessages] = useState<Message[]>([
     {
       from: "ai",
-      text: "Salut! Sunt asistentul LARSTEF. Spune-mi ce rezervare dorești iar eu o pregătesc pentru tine.",
+      text: "Salut! Sunt asistentul LARSTEF AI. Cu ce te pot ajuta astăzi?",
     },
   ]);
   const [input, setInput] = useState("");
-  const { createBookingFromAI } = useBookings();
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
 
     const userMessage = input.trim();
     setMessages((prev) => [...prev, { from: "user", text: userMessage }]);
     setInput("");
+    setLoading(true);
 
-    const aiMessage = await createBookingFromAI(userMessage);
-    setMessages((prev) => [...prev, { from: "ai", text: aiMessage }]);
+    try {
+      const conversationHistory = messages.map((m) => ({
+        role: m.from === "user" ? "user" : "assistant",
+        content: m.text,
+      }));
+
+      console.log("📤 Sending AI request:", { message: userMessage, historyLength: conversationHistory.length });
+
+      const { data } = await api.post<{ response: string; tools?: string[] }>("/api/ai/agent", {
+        message: userMessage,
+        conversationHistory,
+      });
+
+      console.log("✅ AI response received:", data);
+
+      setMessages((prev) => [...prev, { from: "ai", text: data.response }]);
+    } catch (error: any) {
+      console.error("❌ AI Agent error:", error);
+      console.error("Error details:", {
+        status: error?.response?.status,
+        statusText: error?.response?.statusText,
+        data: error?.response?.data,
+        message: error?.message,
+      });
+      const errorMessage =
+        error?.response?.data?.error || error?.message || "Eroare la comunicarea cu AI-ul. Te rugăm să încerci din nou.";
+      setMessages((prev) => [...prev, { from: "ai", text: `Eroare: ${errorMessage}` }]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isOpen) {
@@ -83,15 +118,21 @@ export default function AIChatWidget({ initialOpen = false }: AIChatWidgetProps)
           <input
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Ex: Programează-mă vineri la ora 16"
-            className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/50 outline-none transition focus:border-[#6366F1]"
+            placeholder="Ex: Arată-mi rezervările mele"
+            disabled={loading}
+            className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/50 outline-none transition focus:border-[#6366F1] disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#6366F1] text-white transition hover:bg-[#7C3AED]"
+            disabled={loading || !input.trim()}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#6366F1] text-white transition hover:bg-[#7C3AED] disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Trimite mesaj"
           >
-            <Send size={16} />
+            {loading ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            ) : (
+              <Send size={16} />
+            )}
           </button>
         </form>
       </div>

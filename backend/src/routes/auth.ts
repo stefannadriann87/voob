@@ -2,9 +2,11 @@ import express = require("express");
 import bcrypt = require("bcryptjs");
 import jwt = require("jsonwebtoken");
 import nodemailer = require("nodemailer");
-import { randomBytes } from "node:crypto";
-import prisma from "../lib/prisma";
-import { Role } from "@prisma/client";
+const { randomBytes } = require("node:crypto");
+const prisma = require("../lib/prisma").default;
+const { Role } = require("@prisma/client");
+import type { Role as RoleType } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 const router = express.Router();
 
@@ -54,7 +56,7 @@ const sendResetEmail = async (to: string, resetLink: string) => {
 
 type TokenPayload = {
   userId: string;
-  role: Role;
+  role: RoleType;
 };
 
 const authenticate = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -65,7 +67,10 @@ const authenticate = (req: express.Request, res: express.Response, next: express
 
   try {
     const token = header.split(" ")[1];
-    const payload = jwt.verify(token, JWT_SECRET) as TokenPayload;
+    if (!token) {
+      return res.status(401).json({ error: "Token lipsă." });
+    }
+    const payload = jwt.verify(token, JWT_SECRET) as unknown as TokenPayload;
     (req as express.Request & { user?: TokenPayload }).user = payload;
     next();
   } catch (error) {
@@ -87,7 +92,7 @@ router.post("/register", async (req, res) => {
     password?: string;
     name?: string;
     phone?: string;
-    role?: Role | string;
+    role?: RoleType | string;
     businessName?: string;
   } = req.body;
 
@@ -95,9 +100,9 @@ router.post("/register", async (req, res) => {
     return res.status(400).json({ error: "Email, nume și parolă sunt obligatorii." });
   }
 
-  let normalizedRole: Role;
+  let normalizedRole: RoleType;
   if (typeof role === "string") {
-    normalizedRole = role.toUpperCase() as Role;
+    normalizedRole = role.toUpperCase() as RoleType;
   } else if (role) {
     normalizedRole = role;
   } else {
@@ -119,7 +124,7 @@ router.post("/register", async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const createdUser = await tx.user.create({
         data: {
           email,
@@ -169,7 +174,7 @@ router.post("/register", async (req, res) => {
 });
 
 router.post("/login", async (req, res) => {
-  const { email, password, role }: { email?: string; password?: string; role?: Role | string } = req.body;
+  const { email, password, role }: { email?: string; password?: string; role?: RoleType | string } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: "Email și parolă sunt obligatorii." });
@@ -193,7 +198,7 @@ router.post("/login", async (req, res) => {
 
     // If role is provided, verify it matches the user's role (for backward compatibility)
     // Otherwise, use the role from the database automatically
-    const expectedRole = typeof role === "string" ? (role.toUpperCase() as Role) : undefined;
+    const expectedRole = typeof role === "string" ? (role.toUpperCase() as RoleType) : undefined;
     if (expectedRole && user.role !== expectedRole) {
       return res.status(401).json({ error: "Rolul selectat nu corespunde contului." });
     }
@@ -287,6 +292,8 @@ router.get("/me", authenticate, async (req, res) => {
         email: true,
         name: true,
         phone: true,
+        specialization: true,
+        avatar: true,
         role: true,
         business: true,
         createdAt: true,
@@ -306,15 +313,21 @@ router.get("/me", authenticate, async (req, res) => {
 
 router.put("/me", authenticate, async (req, res) => {
   const authReq = req as express.Request & { user?: TokenPayload };
-  const { phone, name }: { phone?: string; name?: string } = req.body;
+  const { phone, name, specialization, avatar }: { phone?: string; name?: string; specialization?: string; avatar?: string } = req.body;
 
   try {
-    const updateData: { phone?: string | null; name?: string } = {};
+    const updateData: { phone?: string | null; name?: string; specialization?: string | null; avatar?: string | null } = {};
     if (phone !== undefined) {
       updateData.phone = phone?.trim() || null;
     }
     if (name !== undefined && name.trim()) {
       updateData.name = name.trim();
+    }
+    if (specialization !== undefined) {
+      updateData.specialization = specialization?.trim() || null;
+    }
+    if (avatar !== undefined) {
+      updateData.avatar = avatar?.trim() || null;
     }
 
     const user = await prisma.user.update({
@@ -325,6 +338,8 @@ router.put("/me", authenticate, async (req, res) => {
         email: true,
         name: true,
         phone: true,
+        specialization: true,
+        avatar: true,
         role: true,
         business: true,
         createdAt: true,
