@@ -328,7 +328,7 @@ export default function BusinessBookingsPage() {
 
   return (
     <div className="min-h-screen bg-[#0B0E17] text-white">
-      <main className="flex flex-col gap-10 px-4">
+      <main className="flex flex-col gap-10 px-0 desktop:px-4 ">
         {/* <section className="rounded-3xl border border-white/10 bg-white/5 p-8">
           <h1 className="text-3xl font-semibold">Programările businessului</h1>
           <p className="mt-2 text-sm text-white/60">

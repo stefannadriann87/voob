@@ -54,9 +54,11 @@ const menuConfig: Record<Role, MenuItem[]> = {
 
 interface SidebarProps {
   collapsed?: boolean;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export default function Sidebar({ collapsed = false }: SidebarProps) {
+export default function Sidebar({ collapsed = false, isOpen = true, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -73,23 +75,47 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const items = menuConfig[user.role] ?? [];
   const homePath = items[0]?.path ?? "/";
 
+  const handleLinkClick = () => {
+    // Close sidebar on mobile when a link is clicked
+    if (onClose && typeof window !== "undefined" && window.innerWidth < 1024) {
+      onClose();
+    }
+  };
+
   return (
     <aside
-      className={`fixed left-0 top-0 z-30 flex h-screen flex-col border-r border-white/5 bg-[#0B0E17]/80 backdrop-blur ${
+      className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-white/5 bg-[#0B0E17]/80 backdrop-blur transition-transform duration-300 ${
         collapsed ? "w-[72px]" : "w-72"
-      }`}
+      } ${
+        isOpen ? "translate-x-0" : "-translate-x-full"
+      } lg:translate-x-0`}
     >
-      <Link href={homePath} className="flex items-center gap-3 px-6 py-8 border-b border-white/5">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#6366F1]/20 text-lg text-[#6366F1]">
-          <LayoutDashboard className="h-5 w-5" />
-        </div>
-        {!collapsed && (
-          <div>
-            <p className="text-base font-semibold text-white">LARSTEF</p>
-            <p className="text-xs text-white/50">Timpul tău, organizat perfect</p>
+      <div className="flex items-center justify-between border-b border-white/5 px-6 py-8">
+        <Link href={homePath} className="flex items-center gap-3" onClick={handleLinkClick}>
+          <div className={`flex items-center justify-center rounded-2xl bg-[#6366F1]/20 text-[#6366F1] transition-all duration-300 ${
+            onClose ? "h-8 w-8 lg:h-11 lg:w-11" : "h-11 w-11"
+          }`}>
+            <LayoutDashboard className={`transition-all duration-300 ${onClose ? "h-4 w-4 lg:h-5 lg:w-5" : "h-5 w-5"}`} />
           </div>
+          {!collapsed && (
+            <div className="transition-all duration-300">
+              <p className={`font-semibold text-white transition-all duration-300 ${onClose ? "text-sm lg:text-base" : "text-base"}`}>LARSTEF</p>
+              <p className={`text-white/50 transition-all duration-300 ${onClose ? "text-[10px] lg:text-xs" : "text-xs"}`}>Timpul tău, organizat perfect</p>
+            </div>
+          )}
+        </Link>
+        {/* Close button for mobile */}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition-all duration-300 hover:bg-white/10 hover:text-white group"
+            aria-label="Close menu"
+          >
+            <i className="fas fa-times text-lg transition-all duration-300 group-hover:rotate-90 group-active:scale-110" />
+          </button>
         )}
-      </Link>
+      </div>
 
       <div className="relative w-full flex flex-1 flex-col items-start gap-1 p-5 text-sm text-white/80">
         {items.map((item) => {
@@ -99,6 +125,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             <Link
               key={item.path}
               href={item.path}
+              onClick={handleLinkClick}
               className={`group w-full flex items-center gap-3 rounded-xl px-3 py-3 font-medium transition ${
                 active
                   ? "bg-[#6366F1]/15 text-white shadow-inner shadow-[#6366F1]/20"
@@ -112,7 +139,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               >
                 <Icon className="h-5 w-5" />
               </span>
-              {!collapsed && <span className="hidden md:inline truncate">{item.label}</span>}
+              {!collapsed && <span className="truncate">{item.label}</span>}
               {collapsed && <span className="font-semibold text-white">{item.label.slice(0, 1)}</span>}
             </Link>
           );

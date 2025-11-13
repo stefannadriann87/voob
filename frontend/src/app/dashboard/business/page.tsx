@@ -263,13 +263,13 @@ export default function BusinessDashboardPage() {
           </p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-5">
+            <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-3 desktop:p-5">
               <p className="text-xs uppercase tracking-wide text-white/60">Rezervări lună curentă</p>
               <p className="mt-3 text-2xl font-semibold">
                 {businessBookings.filter((booking) => new Date(booking.date).getMonth() === new Date().getMonth()).length}
               </p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-5">
               <p className="text-xs uppercase tracking-wide text-white/60">Venit estimat</p>
               <p className="mt-3 text-2xl font-semibold">
                 {businessBookings
@@ -340,7 +340,7 @@ export default function BusinessDashboardPage() {
           </div>
         </section>
 
-        <section id="services" className="flex flex-col gap-6">
+        <section id="services" className="flex flex-col gap-6 mobile:px-0 py-2">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Servicii</h2>
             <button
@@ -351,11 +351,11 @@ export default function BusinessDashboardPage() {
               Adaugă serviciu
             </button>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2 desktop:gap-4 md:grid-cols-2 lg:grid-cols-3">
             {business?.services.map((service) => (
               <div
                 key={service.id}
-                className="group relative rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:border-[#6366F1]/60 hover:bg-white/10"
+                className="group relative rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-6 transition hover:border-[#6366F1]/60 hover:bg-white/10"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -421,11 +421,11 @@ export default function BusinessDashboardPage() {
               Adaugă angajat
             </button>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2 desktop:gap-4 gap-2 md:grid-cols-2 lg:grid-cols-3">
             {business?.employees.map((employee) => (
               <div
                 key={employee.id}
-                className="group relative rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:border-[#6366F1]/60 hover:bg-white/10"
+                className="group relative rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-6 transition hover:border-[#6366F1]/60 hover:bg-white/10"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -615,13 +615,13 @@ export default function BusinessDashboardPage() {
         <section id="insights" className="rounded-3xl border border-white/10 bg-white/5 p-8">
           <h2 className="text-xl font-semibold mb-2">AI Insights</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-5">
+            <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-3 desktop:p-5">
               <p className="text-sm font-semibold">Ore recomandate pentru promoții</p>
               <p className="mt-2 text-sm text-white/70">
                 Joi și vineri între 17:00 - 19:00 ai zone cu disponibilitate ridicată. Trimite notificări automate pentru upgrade-uri.
               </p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-5">
               <p className="text-sm font-semibold">Clienți în risc de inactivitate</p>
               <p className="mt-2 text-sm text-white/70">
                 5 clienți nu au mai rezervat în ultimele 3 luni. Trimite-le un voucher de revenire.

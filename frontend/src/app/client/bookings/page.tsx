@@ -323,7 +323,7 @@ export default function ClientBookingsPage() {
         <title>Rezervări - LARSTEF</title>
       </Head>
       <div className="flex w-full max-w-full flex-col gap-10">
-          <section className="w-full rounded-3xl border border-white/10 bg-white/5 p-8">
+          <section className="w-full rounded-3xl border border-white/10 bg-white/5 p-3 desktop:p-8">
             <h1 className="text-3xl font-semibold">Creează o rezervare</h1>
             <p className="mt-2 text-sm text-white/60">
               Alege businessul, serviciul și ora potrivită. Plata se poate face online sau la fața locului.
@@ -338,7 +338,7 @@ export default function ClientBookingsPage() {
                   {user?.role !== "CLIENT" && (
                     <button
                       type="button"
-                      className="rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/60 transition hover:bg-white/10"
+                      className="rounded-2xl border border-white/10 px-3 py-3 desktop:px-4 desktop:py-2 text-xs font-semibold text-white/60 transition hover:bg-white/10"
                     >
                       Vezi businessurile mele
                     </button>
@@ -629,8 +629,8 @@ export default function ClientBookingsPage() {
                 </div>
               </div>
 
-              <div className="w-full flex flex-col gap-6 rounded-3xl border border-white/10 bg-white/5 p-6 lg:shrink-0">
-              <h2 className="text-xl font-semibold">Rezumat rezervare</h2>
+              <div className="w-full flex flex-col gap-6 desktop:rounded-3xl desktop:border desktop:border-white/10 desktop:bg-white/5 p-0 desktop:p-6 lg:shrink-0">
+              <h2 className="text-xl font-semibold mt-6 desktop:mt-0">Rezumat rezervare</h2>
               <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0E17]/40 p-4 text-sm text-white/70">
                 <div className="flex items-center justify-between">
                   <span>Business</span>

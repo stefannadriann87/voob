@@ -127,11 +127,11 @@ export default function EmployeeProfilePage() {
   return (
     <div className="max-w-4xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-semibold text-white">Profil</h1>
+        <h1 className="text-3xl font-semibold text-white mt-8 desktop:mt-0">Profil</h1>
         <p className="mt-2 text-sm text-white/60">Gestionează datele tale personale și preferințele contului.</p>
       </div>
 
-      <div className="rounded-3xl border border-white/10 bg-white/5 p-8">
+      <div className="desktop:rounded-3xl desktop:border desktop:border-white/10 desktop:bg-white/5 p-0 desktop:p-8 mt-8 desktop:mt-0">
         {!isEditing ? (
           <>
             <div className="mb-6 flex items-center justify-between">

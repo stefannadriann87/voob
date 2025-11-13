@@ -221,7 +221,7 @@ export default function NewBookingPage() {
       </Head>
       <div className="min-h-screen bg-[#0B0E17] text-white">
         <main className="mx-auto flex max-w-6xl flex-col gap-10 px-4 py-10">
-          <section className="rounded-3xl border border-white/10 bg-white/5 p-8">
+          <section className="rounded-3xl border border-white/10 bg-white/5 p-3 desktop:p-8">
             <h1 className="text-3xl font-semibold">Creează o rezervare</h1>
             <p className="mt-2 text-sm text-white/60">
               Alege businessul, serviciul și ora potrivită. Plata se poate face online sau la fața locului.

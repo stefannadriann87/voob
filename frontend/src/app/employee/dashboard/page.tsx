@@ -130,13 +130,13 @@ export default function EmployeeDashboardPage() {
           </p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-5">
+            <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-3 desktop:p-5">
               <p className="text-xs uppercase tracking-wide text-white/60">Rezervări lună curentă</p>
               <p className="mt-3 text-2xl font-semibold">
                 {businessBookings.filter((booking) => new Date(booking.date).getMonth() === new Date().getMonth()).length}
               </p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-5">
               <p className="text-xs uppercase tracking-wide text-white/60">Venit estimat</p>
               <p className="mt-3 text-2xl font-semibold">
                 {businessBookings

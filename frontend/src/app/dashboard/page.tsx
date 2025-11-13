@@ -412,7 +412,7 @@ export default function DashboardPage() {
             <button
               type="button"
             onClick={handleCreateBookingClick}
-              className="rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED]"
+              className="rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] mb-4 desktop:mb-0"
             >
               Adaugă rezervare
             </button>
@@ -420,7 +420,7 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={() => handleOpenServiceModal()}
-                className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 mb-4 desktop:mb-0"
               >
                 Adaugă servicii
               </button>
@@ -429,19 +429,19 @@ export default function DashboardPage() {
         </header>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-5">
+          <div className="col-span-2 sm:col-span-1 rounded-2xl border border-white/10 bg-[#6366F1]/10 p-3 desktop:p-5">
             <p className="text-xs uppercase tracking-wide text-white/60">
               {isBusinessUser ? "Rezervări lună curentă" : "Rezervări confirmate"}
             </p>
-            <p className="mt-3 text-2xl font-semibold">
+            <p className="mt-3 text-lg desktop:text-2xl font-semibold">
               {(isBusinessUser ? bookings : filteredBookings).filter((booking) => new Date(booking.date).getMonth() === new Date().getMonth()).length}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-5">
             <p className="text-xs uppercase tracking-wide text-white/60">
               {isBusinessUser ? "Venit estimat" : "Rezervări viitoare"}
             </p>
-            <p className="mt-3 text-2xl font-semibold">
+            <p className="mt-3 text-lg desktop:text-2xl font-semibold">
               {isBusinessUser
                 ? bookings
                     .filter((booking) => booking.paid)
@@ -450,11 +450,11 @@ export default function DashboardPage() {
                 : filteredBookings.filter((booking) => new Date(booking.date).getTime() >= now).length}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-5">
             <p className="text-xs uppercase tracking-wide text-white/60">
               {isBusinessUser ? "Clienți recurenți" : "Rezervări finalizate"}
             </p>
-            <p className="mt-3 text-2xl font-semibold">
+            <p className="mt-3 text-lg desktop:text-2xl font-semibold">
               {isBusinessUser
                 ? new Set(bookings.map((booking) => booking.client.email)).size
                 : filteredBookings.filter((booking) => new Date(booking.date).getTime() < now).length}
@@ -661,7 +661,7 @@ export default function DashboardPage() {
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+        <div className="desktop:rounded-3xl desktop:border desktop:border-white/10 desktop:bg-white/5 p-0 desktop:p-6">
           <header className="mb-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white">Rezervări</h2>
@@ -746,7 +746,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+        <div className="desktop:rounded-3xl desktop:border desktop:border-white/10 desktop:bg-white/5 p-0 desktop:p-6">
           <h2 className="text-lg font-semibold text-white">AI Insights</h2>
           <ul className="mt-4 space-y-3 text-sm text-white/70">
             <li className="flex gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
@@ -764,7 +764,7 @@ export default function DashboardPage() {
       </section>
 
       {isBusinessUser && businessRecord && businessRecord.services && (
-        <section id="services" className="rounded-3xl border border-white/10 bg-white/5 p-8">
+        <section id="services" className="rounded-3xl border border-white/10 bg-white/5 p-8 mobile:px-0 py-2">
           <header className="flex items-center justify-between">
             <div>
               <h2 className="text-xl font-semibold text-white">Servicii active</h2>

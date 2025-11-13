@@ -23,14 +23,14 @@ export default function BusinessCard({
     <button
       type="button"
       onClick={() => onSelect?.(id)}
-      className={`w-full rounded-2xl border px-5 py-4 text-left transition focus:outline-none ${
+      className={`w-full rounded-2xl border desktop:px-5 desktop:py-4 px-3 py-3 text-left transition focus:outline-none ${
         selected
           ? "border-[#6366F1] bg-[#6366F1]/10"
           : "border-white/10 bg-white/5 hover:border-[#6366F1]/60"
       }`}
     >
       <div className="flex items-center justify-between text-sm text-white/50">
-        <span className="uppercase tracking-wide">{domain}</span>
+        {/* <span className="uppercase tracking-wide">{domain}</span> */}
         {services !== undefined && (
           <span className="flex items-center gap-2 text-white/60">
             <i className="fas fa-briefcase" />

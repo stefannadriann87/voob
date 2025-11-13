@@ -137,7 +137,7 @@ export default function HolidaySettings() {
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+    <div className="desktop:rounded-2xl desktop:border desktop:border-white/10 desktop:bg-white/5 p-0 pt-8 desktop:pt-0 desktop:p-6">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-white">Concedii și blocări</h2>

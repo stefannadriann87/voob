@@ -19,7 +19,7 @@ export default function ServiceCard({
     <button
       type="button"
       onClick={() => onSelect?.(id)}
-      className={`w-full rounded-2xl border px-5 py-4 text-left transition ${
+      className={`w-full rounded-2xl border px-3 py-3 desktop:px-5 desktop:py-4 text-left transition ${
         selected
           ? "border-[#6366F1] bg-[#6366F1]/15 text-white"
           : "border-white/10 bg-white/5 text-white hover:border-[#6366F1]/60"

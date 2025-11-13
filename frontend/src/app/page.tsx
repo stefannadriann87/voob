@@ -6,6 +6,21 @@ import { FormEvent, useEffect, useState } from "react";
 
 export default function Home() {
   const [formSuccess, setFormSuccess] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+
+  useEffect(() => {
+    // Lock body scroll when sidebar or video modal is open
+    if (isSidebarOpen || isVideoModalOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isSidebarOpen, isVideoModalOpen]);
 
   useEffect(() => {
     const anchors = document.querySelectorAll<HTMLAnchorElement>(
@@ -14,8 +29,51 @@ export default function Home() {
     const handleAnchorClick = (event: Event) => {
       event.preventDefault();
       const target = event.currentTarget as HTMLAnchorElement;
-      const element = document.querySelector(target.getAttribute("href") || "");
-      element?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const href = target.getAttribute("href");
+      if (!href || href === "#") return;
+
+      const element = document.querySelector(href);
+      if (!element) return;
+
+      // Calculate header height (mobile header on mobile, desktop nav on desktop)
+      const mobileHeader = document.querySelector<HTMLElement>(".mobile-header");
+      const desktopNav = document.querySelector<HTMLElement>(".desktop-nav");
+      
+      let headerHeight = 0;
+      const extraOffset = 20; // Extra space between header and content
+      
+      if (window.innerWidth <= 1023) {
+        // Mobile: use mobile header height
+        if (mobileHeader && mobileHeader.offsetHeight > 0) {
+          headerHeight = mobileHeader.offsetHeight + extraOffset;
+        } else {
+          // Fallback: approximate mobile header height
+          headerHeight = 60 + extraOffset;
+        }
+      } else {
+        // Desktop: use desktop nav height
+        if (desktopNav && desktopNav.offsetHeight > 0) {
+          headerHeight = desktopNav.offsetHeight + extraOffset;
+        } else {
+          // Fallback: approximate desktop nav height
+          headerHeight = 80 + extraOffset;
+        }
+      }
+
+      // Get element position
+      const elementPosition = element.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.pageYOffset - headerHeight;
+
+      // Scroll to element with offset
+      window.scrollTo({
+        top: Math.max(0, offsetPosition), // Ensure we don't scroll to negative values
+        behavior: "smooth",
+      });
+
+      // Close sidebar if open (mobile)
+      if (isSidebarOpen) {
+        setIsSidebarOpen(false);
+      }
     };
 
     anchors.forEach((anchor) =>
@@ -57,7 +115,7 @@ export default function Home() {
       );
       observer.disconnect();
     };
-  }, []);
+  }, [isSidebarOpen]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -67,9 +125,78 @@ export default function Home() {
     window.setTimeout(() => setFormSuccess(false), 5000);
   };
 
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  const closeSidebar = () => {
+    setIsSidebarOpen(false);
+  };
+
   return (
     <>
-      <nav>
+      {/* Mobile Header */}
+      <header className="mobile-header">
+        <div className="mobile-logo">
+          <div className="logo">LARSTEF</div>
+          <div className="logo-motto">Timpul tău, organizat perfect!</div>
+        </div>
+        <button
+          className="mobile-menu-btn"
+          onClick={toggleSidebar}
+          aria-label="Open menu"
+        >
+          <i className="fas fa-bars"></i>
+        </button>
+      </header>
+
+      {/* Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div className="sidebar-overlay" onClick={closeSidebar}></div>
+      )}
+
+      {/* Sidebar */}
+      <aside className={`sidebar ${isSidebarOpen ? "open" : ""}`}>
+        <div className="sidebar-header">
+          <div className="sidebar-logo">
+            <div className="logo">LARSTEF</div>
+            <div className="logo-motto">Timpul tău, organizat perfect!</div>
+          </div>
+          <button
+            className="sidebar-close-btn"
+            onClick={closeSidebar}
+            aria-label="Close menu"
+          >
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+        <nav className="sidebar-menu">
+          <Link href="#despre" onClick={closeSidebar}>
+            Despre
+          </Link>
+          <Link href="#cum-functioneaza-client" onClick={closeSidebar}>
+            Pentru Clienți
+          </Link>
+          <Link href="#cum-functioneaza-afacere" onClick={closeSidebar}>
+            Pentru Afacere
+          </Link>
+          <Link href="#pachete-preturi" onClick={closeSidebar}>
+            Abonamente
+          </Link>
+          <Link href="#contact-business" onClick={closeSidebar}>
+            Contact
+          </Link>
+          <Link href="#demo" onClick={closeSidebar}>
+            Demo
+          </Link>
+          <Link href="/auth/login" className="btn-nav" onClick={closeSidebar}>
+            Fă-ți cont
+          </Link>
+        </nav>
+      </aside>
+
+      {/* Desktop Nav */}
+      <nav className="desktop-nav">
         <div className="logo-container">
           <div className="logo">LARSTEF</div>
           <div className="logo-motto">Timpul tău, organizat perfect!</div>
@@ -123,6 +250,76 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <section id="ai-section">
+        <div className="ai-container">
+          <div className="ai-image">
+            <div className="ai-image-wrapper" onClick={() => setIsVideoModalOpen(true)}>
+              <img src="/images/img1.png" alt="LARSTEF AI" className="ai-preview-image" />
+              <div className="ai-play-button">
+                <i className="fas fa-play"></i>
+              </div>
+            </div>
+          </div>
+          <div className="ai-content">
+            <h2 className="ai-title">LARSTEF AI</h2>
+            <h3 className="ai-subtitle">Asistentul tău inteligent pentru rezervări și management</h3>
+            <p className="ai-text">
+              Cu LARSTEF AI poți crea, modifica sau anula programări doar printr-un mesaj.
+              AI-ul verifică disponibilitatea, gestionează calendarul, răspunde la întrebări
+              și poate genera rapid rapoarte pentru afacerea ta. Totul automat, fără pași
+              complicați.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="klarna-section">
+        <div className="klarna-container">
+          <div className="klarna-content pb-20 pt-20">
+            <h2 className="klarna-title">Opțiuni de plată</h2>
+            <h3 className="klarna-subtitle">Modalități flexibile de plată</h3>
+            <p className="klarna-text">
+              Fă o rezervare acum in platforma LARSTEF și plătește mai târziu cu opțiunile flexibile de plată
+              Klarna. Poți alege dacă vrei să plătești imediat, în 30 de zile sau în 3
+              rate fără dobândă.
+            </p>
+            <img src="/images/logo-klarna.svg" alt="Klarna" width={200} height={80}/>
+          </div>
+          <div className="klarna-image">
+            <div className="klarna-logo-placeholder">
+              <img src="/images/klarna-img.avif" alt="Klarna" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+     
+
+      {/* Video Modal */}
+      {isVideoModalOpen && (
+        <div className="video-modal-overlay" onClick={() => setIsVideoModalOpen(false)}>
+          <div className="video-modal-content" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="video-modal-close"
+              onClick={() => setIsVideoModalOpen(false)}
+              aria-label="Close video"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+            <div className="video-modal-wrapper">
+              <iframe
+                src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                title="LARSTEF AI Video"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="video-modal-iframe"
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section id="despre">
         <h2 className="section-title">De ce noi?</h2>

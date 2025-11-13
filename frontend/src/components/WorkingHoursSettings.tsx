@@ -189,15 +189,17 @@ export default function WorkingHoursSettings() {
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-white">Program de lucru</h2>
-        <p className="mt-2 text-sm text-white/60">
-          Configurează zilele și orele în care business-ul tău este deschis pentru rezervări.
-        </p>
+    <div className="desktop:rounded-2xl desktop:border desktop:border-white/10 desktop:bg-white/5 p-0 desktop:p-6">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-white">Program de lucru</h2>
+          <p className="mt-2 text-sm text-white/60">
+            Configurează zilele și orele în care business-ul tău este deschis pentru rezervări.
+          </p>
+        </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-4 desktop:space-y-4">
         {DAYS.map((day) => {
           const daySchedule = workingHours[day.key];
           return (
