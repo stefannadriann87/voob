@@ -18,7 +18,6 @@ const getLinksForRole = (role: Role | undefined) => {
       return [
         { href: "/client/dashboard", label: "Dashboard" },
         { href: "/client/bookings", label: "Rezervări" },
-        { href: "/bookings/new", label: "Rezervare nouă" },
       ];
     case "BUSINESS":
       return [

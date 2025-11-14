@@ -127,7 +127,7 @@ export default function ConsentPage() {
 
       setSuccess("Consimțământul a fost salvat. Mulțumim!");
       setTimeout(() => {
-        router.push(`/bookings/${booking.id}`);
+        router.push("/client/bookings");
       }, 1500);
     } catch (error) {
       const axiosError = error as AxiosError<{ error?: string }>;

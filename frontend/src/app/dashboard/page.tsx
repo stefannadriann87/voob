@@ -214,16 +214,17 @@ export default function DashboardPage() {
           router.push("/client/bookings#calendar");
         }
       } else {
-        // For other roles, keep old behavior
+        // For other roles, redirect to client bookings page
+        // (or their specific booking page if they have one)
         if (booking?.serviceId) {
           const params = new URLSearchParams({
             businessId: booking.businessId,
             serviceId: booking.serviceId,
             date: booking.date,
           });
-          router.push(`/bookings/new?${params.toString()}`);
+          router.push(`/client/bookings?${params.toString()}`);
         } else {
-          router.push("/bookings/new");
+          router.push("/client/bookings");
         }
       }
     },
