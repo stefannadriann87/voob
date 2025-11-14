@@ -51,6 +51,7 @@ export default function ClientBookingsPage() {
   const [employeeSelections, setEmployeeSelections] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod>("card");
+  const [paymentAlreadyMade, setPaymentAlreadyMade] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
@@ -207,6 +208,46 @@ export default function ClientBookingsPage() {
     });
   }, [bookings, selectedBusinessId, selectedEmployeeId]);
 
+  // Check if there's a cancelled paid booking for the same business (any service)
+  // This allows the user to skip payment when reprogramming after cancellation
+  // Also calculates price difference for refund or additional payment
+  const cancelledPaidBooking = useMemo(() => {
+    if (!selectedBusinessId || !user) return null;
+    
+    // Find any cancelled paid booking for the same business
+    // Note: Adjust this logic based on how cancelled bookings are identified in your system
+    // If your Booking interface has a status field, check booking.status === "CANCELLED"
+    // For now, we check if there are any paid bookings for the same business
+    // You may need to track cancelled bookings separately or add a status field
+    const cancelledPaid = bookings.find((booking) => {
+      const isSameBusiness = booking.businessId === selectedBusinessId;
+      const isPaid = booking.paid === true;
+      const isOwnBooking = booking.clientId === user.id;
+      // TODO: Add proper cancellation check when status field is available
+      // For example: const isCancelled = booking.status === "CANCELLED" || booking.cancelledAt !== null;
+      return isSameBusiness && isPaid && isOwnBooking;
+    });
+
+    return cancelledPaid || null;
+  }, [bookings, selectedBusinessId, user]);
+
+  const hasCancelledPaidBooking = !!cancelledPaidBooking;
+
+  // Calculate price difference between cancelled booking and new booking
+  const priceDifference = useMemo(() => {
+    if (!cancelledPaidBooking || !selectedService) return null;
+    
+    const previousPrice = cancelledPaidBooking.service?.price || 0;
+    const newPrice = selectedService.price || 0;
+    const difference = previousPrice - newPrice;
+    
+    return {
+      previousPrice,
+      newPrice,
+      difference, // Positive means refund, negative means additional payment
+    };
+  }, [cancelledPaidBooking, selectedService]);
+
   const serviceDurationMinutes = selectedService?.duration ?? 60;
   const slotDurationMinutes = 60;
   const serviceDurationMs = serviceDurationMinutes * 60 * 1000;
@@ -287,13 +328,16 @@ export default function ClientBookingsPage() {
     }
 
     try {
+      // If payment already made checkbox is checked, mark as paid without processing payment
+      const isPaid = paymentAlreadyMade || selectedPayment !== "offline";
+      
       await createBooking({
         clientId: user.id,
         businessId: selectedBusinessId,
         serviceId: selectedServiceId,
         employeeId: selectedEmployeeId || undefined,
         date: isoDate,
-        paid: selectedPayment !== "offline",
+        paid: isPaid,
       });
       setSuccessMessage("Rezervare creată cu succes! Vei primi confirmarea pe email.");
       // Reset form after success
@@ -302,6 +346,7 @@ export default function ClientBookingsPage() {
         setServiceSelections({});
         setEmployeeSelections({});
         setBusinessIdOverride(null);
+        setPaymentAlreadyMade(false);
         setSuccessMessage(null);
         void fetchBookings(); // Refresh bookings list
       }, 2000);
@@ -545,7 +590,34 @@ export default function ClientBookingsPage() {
             <div className="grid w-full flex-col gap-6 lg:flex-row lg:items-start">
               <div className="w-full flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-6 text-sm lg:shrink-0">
                 <span className="font-semibold text-white">4. Metoda de plată</span>
-                <div className="!grid !grid-cols-2 gap-6" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr)) !important", maxWidth: "none", margin: "0" }}>
+                
+                {/* Checkbox for payment already made (when reprogramming after cancellation) */}
+                {hasCancelledPaidBooking && (
+                  <label className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
+                    paymentAlreadyMade
+                      ? "border-emerald-500 bg-emerald-500/20"
+                      : "border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20"
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={paymentAlreadyMade}
+                      onChange={(e) => {
+                        setPaymentAlreadyMade(e.target.checked);
+                        // If checked, set payment to offline to skip payment processing
+                        if (e.target.checked) {
+                          setSelectedPayment("offline");
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-white/20 bg-transparent text-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-transparent"
+                    />
+                    <span className="text-sm font-medium text-white flex items-center gap-2">
+                      <i className="fas fa-check-circle text-emerald-500"></i>
+                      Plată efectuată
+                    </span>
+                  </label>
+                )}
+
+                <div className={`!grid !grid-cols-2 gap-6 ${paymentAlreadyMade ? "opacity-50 pointer-events-none" : ""}`} style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr)) !important", maxWidth: "none", margin: "0" }}>
                   <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border bg-[#0B0E17]/50 px-3 py-4 text-center transition ${
                     selectedPayment === "applepay"
                       ? "border-[#6366F1] bg-[#6366F1]/10"
@@ -662,17 +734,55 @@ export default function ClientBookingsPage() {
                 <div className="flex items-center justify-between">
                   <span>Plată</span>
                   <span className="font-semibold text-white">
-                    {selectedPayment === "applepay"
-                      ? "Apple Pay"
-                      : selectedPayment === "googlepay"
-                        ? "Google Pay"
-                        : selectedPayment === "card"
-                          ? "Card bancar"
-                          : selectedPayment === "klarna"
-                            ? "Klarna (4 rate)"
-                            : "La locație"}
+                    {paymentAlreadyMade
+                      ? "Plată efectuată"
+                      : selectedPayment === "applepay"
+                        ? "Apple Pay"
+                        : selectedPayment === "googlepay"
+                          ? "Google Pay"
+                          : selectedPayment === "card"
+                            ? "Card bancar"
+                            : selectedPayment === "klarna"
+                              ? "Klarna (4 rate)"
+                              : "La locație"}
                   </span>
                 </div>
+                {priceDifference && priceDifference.difference !== 0 && (
+                  <div className="border-t border-white/10 pt-3 mt-2">
+                    <div className="flex items-center justify-between text-xs text-white/50 mb-2">
+                      <span>Plată anterioară</span>
+                      <span>
+                        {priceDifference.previousPrice.toLocaleString("ro-RO", {
+                          style: "currency",
+                          currency: "RON",
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-white/50 mb-2">
+                      <span>Preț serviciu nou</span>
+                      <span>
+                        {priceDifference.newPrice.toLocaleString("ro-RO", {
+                          style: "currency",
+                          currency: "RON",
+                        })}
+                      </span>
+                    </div>
+                    <div className={`flex items-center justify-between pt-2 border-t border-white/10 ${
+                      priceDifference.difference > 0 ? "text-emerald-400" : "text-red-400"
+                    }`}>
+                      <span className="font-semibold text-sm">
+                        {priceDifference.difference > 0 ? "Diferență de returnat" : "Diferență de plată"}
+                      </span>
+                      <span className="font-semibold">
+                        {priceDifference.difference > 0 ? "+" : ""}
+                        {priceDifference.difference.toLocaleString("ro-RO", {
+                          style: "currency",
+                          currency: "RON",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between border-t border-dashed border-white/10 pt-3">
                   <span>Total estimat</span>
                   <span className="text-lg font-semibold text-[#6366F1]">

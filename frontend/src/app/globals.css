@@ -1146,6 +1146,21 @@ section.ai-section {
   grid-template-columns: 2fr 1fr 1fr 1fr;
   gap: 60px;
   margin-bottom: 50px;
+  text-align: left;
+}
+
+.footer-grid > div {
+  text-align: left;
+}
+
+.footer-grid > div ul li {
+  justify-content: flex-start !important;
+  text-align: left;
+}
+
+.footer-grid > div > div[style*="justifyContent: 'center'"],
+.footer-grid > div > div[style*="justify-content: center"] {
+  justify-content: flex-start !important;
 }
 
 .footer-bottom {
@@ -1156,6 +1171,7 @@ section.ai-section {
   align-items: center;
   flex-wrap: wrap;
   gap: 20px;
+  text-align: left;
 }
 
 @keyframes fadeIn {
@@ -1341,16 +1357,211 @@ section.ai-section {
   .footer-grid {
     grid-template-columns: 1fr;
     gap: 40px;
-    text-align: center;
+    text-align: left;
   }
 
   .footer-grid > div {
-    text-align: center;
+    text-align: left;
   }
 
   .footer-bottom {
     flex-direction: column;
-    text-align: center;
+    text-align: left;
+    align-items: flex-start;
+  }
+}
+
+/* Legal Pages Header */
+.legal-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  padding: 20px 60px;
+  background: rgba(11, 14, 23, 0.8);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 1000;
+}
+
+.legal-header-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.legal-header-logo {
+  text-decoration: none;
+  color: #fff;
+  transition: all 0.3s;
+}
+
+.legal-header-logo:hover {
+  opacity: 0.8;
+}
+
+.legal-header-logo .logo {
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (max-width: 768px) {
+  .legal-header {
+    padding: 15px 20px;
+  }
+
+  .legal-header-logo .logo {
+    font-size: 20px;
+  }
+}
+
+/* Legal Pages Styles */
+.legal-page {
+  min-height: 100vh;
+  background: #0a0a0f;
+  color: #fff;
+  padding: 100px 20px 60px;
+  margin-top: 80px;
+}
+
+.legal-container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.legal-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #6366F1;
+  text-decoration: none;
+  font-size: 14px;
+  margin-bottom: 40px;
+  transition: all 0.3s;
+}
+
+.legal-back-link:hover {
+  color: #818CF8;
+  transform: translateX(-5px);
+}
+
+.legal-back-link i {
+  font-size: 12px;
+}
+
+.legal-page h1 {
+  font-size: 42px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: #fff;
+}
+
+.legal-last-updated {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+  margin-bottom: 50px;
+  font-style: italic;
+}
+
+.legal-section {
+  margin-bottom: 50px;
+}
+
+.legal-section h2 {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: #fff;
+  border-bottom: 2px solid rgba(99, 102, 241, 0.3);
+  padding-bottom: 10px;
+}
+
+.legal-section h3 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-top: 25px;
+  margin-bottom: 15px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.legal-section p {
+  font-size: 16px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 15px;
+}
+
+.legal-section ul {
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 20px;
+}
+
+.legal-section ul li {
+  font-size: 16px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 12px;
+  padding-left: 25px;
+  position: relative;
+}
+
+.legal-section ul li::before {
+  content: "•";
+  color: #6366F1;
+  font-weight: bold;
+  position: absolute;
+  left: 0;
+}
+
+.legal-section ul li strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+.legal-section a {
+  color: #6366F1;
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+.legal-section a:hover {
+  color: #818CF8;
+  text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+  .legal-page {
+    padding: 80px 20px 40px;
+    margin-top: 60px;
+  }
+
+  .legal-page h1 {
+    font-size: 32px;
+  }
+
+  .legal-section h2 {
+    font-size: 24px;
+  }
+
+  .legal-section h3 {
+    font-size: 18px;
+  }
+
+  .legal-section p,
+  .legal-section ul li {
+    font-size: 14px;
+  }
+
+  .legal-back-link {
+    font-size: 13px;
   }
 }
 

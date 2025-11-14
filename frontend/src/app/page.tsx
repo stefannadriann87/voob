@@ -23,63 +23,91 @@ export default function Home() {
   }, [isSidebarOpen, isVideoModalOpen]);
 
   useEffect(() => {
-    const anchors = document.querySelectorAll<HTMLAnchorElement>(
-      'a[href^="#"]'
-    );
-    const handleAnchorClick = (event: Event) => {
-      event.preventDefault();
-      const target = event.currentTarget as HTMLAnchorElement;
-      const href = target.getAttribute("href");
-      if (!href || href === "#") return;
+    // Handle only anchor links (starting with #) for smooth scrolling
+    // This handler explicitly ignores Next.js routes (starting with /)
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      let anchor: HTMLAnchorElement | null = null;
 
-      const element = document.querySelector(href);
-      if (!element) return;
-
-      // Calculate header height (mobile header on mobile, desktop nav on desktop)
-      const mobileHeader = document.querySelector<HTMLElement>(".mobile-header");
-      const desktopNav = document.querySelector<HTMLElement>(".desktop-nav");
-      
-      let headerHeight = 0;
-      const extraOffset = 20; // Extra space between header and content
-      
-      if (window.innerWidth <= 1023) {
-        // Mobile: use mobile header height
-        if (mobileHeader && mobileHeader.offsetHeight > 0) {
-          headerHeight = mobileHeader.offsetHeight + extraOffset;
-        } else {
-          // Fallback: approximate mobile header height
-          headerHeight = 60 + extraOffset;
+      // Find the anchor element
+      let current: HTMLElement | null = target;
+      while (current && current !== document.body) {
+        if (current.tagName === "A") {
+          anchor = current as HTMLAnchorElement;
+          break;
         }
-      } else {
-        // Desktop: use desktop nav height
-        if (desktopNav && desktopNav.offsetHeight > 0) {
-          headerHeight = desktopNav.offsetHeight + extraOffset;
-        } else {
-          // Fallback: approximate desktop nav height
-          headerHeight = 80 + extraOffset;
-        }
+        current = current.parentElement;
       }
 
-      // Get element position
+      if (!anchor) {
+        return;
+      }
+
+      const href = anchor.getAttribute("href");
+
+      // CRITICAL: Exit early if href is a route path (starts with /)
+      // This MUST be checked FIRST before any querySelector call
+      if (!href || href.startsWith("/")) {
+        // This is a Next.js route or no href - let Next.js handle it
+        return;
+      }
+
+      // Only process anchor links (must start with #)
+      if (!href.startsWith("#") || href === "#") {
+        // Not an anchor link - let browser handle it
+        return;
+      }
+
+      // Safety check: anchors should not contain slashes
+      if (href.includes("/")) {
+        return;
+      }
+
+      // Validate it's a proper anchor format
+      if (!/^#[\w-]+$/.test(href)) {
+        return;
+      }
+
+      // At this point, href is guaranteed to be a valid anchor like "#section"
+      // It's safe to use querySelector
+      event.preventDefault();
+      event.stopPropagation();
+
+      const element = document.querySelector(href);
+      if (!element) {
+        return;
+      }
+
+      // Calculate header height
+      const mobileHeader = document.querySelector<HTMLElement>(".mobile-header");
+      const desktopNav = document.querySelector<HTMLElement>(".desktop-nav");
+
+      let headerHeight = 0;
+      const extraOffset = 20;
+
+      if (window.innerWidth <= 1023) {
+        headerHeight = (mobileHeader?.offsetHeight || 60) + extraOffset;
+      } else {
+        headerHeight = (desktopNav?.offsetHeight || 80) + extraOffset;
+      }
+
       const elementPosition = element.getBoundingClientRect().top;
       const offsetPosition = elementPosition + window.pageYOffset - headerHeight;
 
-      // Scroll to element with offset
       window.scrollTo({
-        top: Math.max(0, offsetPosition), // Ensure we don't scroll to negative values
+        top: Math.max(0, offsetPosition),
         behavior: "smooth",
       });
 
-      // Close sidebar if open (mobile)
       if (isSidebarOpen) {
         setIsSidebarOpen(false);
       }
     };
 
-    anchors.forEach((anchor) =>
-      anchor.addEventListener("click", handleAnchorClick)
-    );
+    // Use bubbling phase (not capture) so Next.js can handle routes first
+    document.addEventListener("click", handleClick, false);
 
+    // Set up IntersectionObserver for card animations
     const cards = document.querySelectorAll<HTMLElement>(
       ".card, .pricing-card"
     );
@@ -109,10 +137,9 @@ export default function Home() {
       observer.observe(card);
     });
 
+    // Cleanup function
     return () => {
-      anchors.forEach((anchor) =>
-        anchor.removeEventListener("click", handleAnchorClick)
-      );
+      document.removeEventListener("click", handleClick, true);
       observer.disconnect();
     };
   }, [isSidebarOpen]);
@@ -1021,7 +1048,7 @@ export default function Home() {
                 style={{
                   fontSize: 12,
                   color: "rgba(255, 255, 255, 0.5)",
-                  marginBottom: 20,
+                  marginBottom: 6,
                   textTransform: "uppercase",
                   letterSpacing: 1,
                 }}
@@ -1042,7 +1069,7 @@ export default function Home() {
                   display: "flex",
                   gap: 15,
                   marginBottom: 20,
-                  justifyContent: "center",
+                  justifyContent: "flex-start",
                 }}
               >
                 <Link
@@ -1223,7 +1250,7 @@ export default function Home() {
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                 <li style={{ marginBottom: 12 }}>
                   <Link
-                    href="#"
+                    href="/legal/termeni-conditii"
                     style={{
                       color: "rgba(255, 255, 255, 0.6)",
                       textDecoration: "none",
@@ -1236,7 +1263,7 @@ export default function Home() {
                 </li>
                 <li style={{ marginBottom: 12 }}>
                   <Link
-                    href="#"
+                    href="/legal/politica-confidentialitate"
                     style={{
                       color: "rgba(255, 255, 255, 0.6)",
                       textDecoration: "none",
@@ -1249,7 +1276,7 @@ export default function Home() {
                 </li>
                 <li style={{ marginBottom: 12 }}>
                   <Link
-                    href="#"
+                    href="/legal/politica-cookies"
                     style={{
                       color: "rgba(255, 255, 255, 0.6)",
                       textDecoration: "none",
@@ -1262,7 +1289,7 @@ export default function Home() {
                 </li>
                 <li style={{ marginBottom: 12 }}>
                   <Link
-                    href="#"
+                    href="/legal/gdpr"
                     style={{
                       color: "rgba(255, 255, 255, 0.6)",
                       textDecoration: "none",
@@ -1294,7 +1321,7 @@ export default function Home() {
                     display: "flex",
                     alignItems: "center",
                     gap: 10,
-                    justifyContent: "center",
+                    justifyContent: "flex-start",
                   }}
                 >
                   <i className="fas fa-envelope" style={{ color: "#6366F1" }} />
@@ -1315,7 +1342,7 @@ export default function Home() {
                     display: "flex",
                     alignItems: "center",
                     gap: 10,
-                    justifyContent: "center",
+                    justifyContent: "flex-start",
                   }}
                 >
                   <i className="fas fa-phone" style={{ color: "#6366F1" }} />
@@ -1336,7 +1363,7 @@ export default function Home() {
                     display: "flex",
                     alignItems: "flex-start",
                     gap: 10,
-                    justifyContent: "center",
+                    justifyContent: "flex-start",
                   }}
                 >
                   <i
