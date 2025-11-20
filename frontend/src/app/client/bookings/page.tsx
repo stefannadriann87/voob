@@ -1,16 +1,37 @@
 "use client";
 
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AxiosError } from "axios";
 import Head from "next/head";
 import { useRouter, useSearchParams } from "next/navigation";
 import BusinessCard from "../../../components/BusinessCard";
 import ServiceCard from "../../../components/ServiceCard";
 import DatePicker from "../../../components/DatePicker";
 import useAuth from "../../../hooks/useAuth";
-import useBookings from "../../../hooks/useBookings";
+import useBookings, { type Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
+import { requiresConsentForBusiness } from "../../../constants/consentTemplates";
+import useApi from "../../../hooks/useApi";
 
 type PaymentMethod = "applepay" | "googlepay" | "card" | "klarna" | "offline";
+
+type ConsentFieldBase = {
+  id: string;
+  label: string;
+  required?: boolean;
+  helperText?: string;
+};
+
+type ConsentTemplateField =
+  | (ConsentFieldBase & { type: "text" | "date"; placeholder?: string })
+  | (ConsentFieldBase & { type: "textarea"; placeholder?: string })
+  | (ConsentFieldBase & { type: "checkbox" });
+
+type ConsentTemplate = {
+  title: string;
+  description: string;
+  fields: ConsentTemplateField[];
+};
 
 const HOURS = [
   "08:00",
@@ -45,6 +66,7 @@ export default function ClientBookingsPage() {
   const { user, hydrated } = useAuth();
   const { businesses, fetchBusinesses } = useBusiness();
   const { bookings, fetchBookings, createBooking, loading, error } = useBookings();
+  const api = useApi();
 
   const [businessIdOverride, setBusinessIdOverride] = useState<string | null>(null);
   const [serviceSelections, setServiceSelections] = useState<Record<string, string>>({});
@@ -62,6 +84,53 @@ export default function ClientBookingsPage() {
   const [initializedFromUrl, setInitializedFromUrl] = useState(false);
   const [showEmployeePopup, setShowEmployeePopup] = useState(false);
   const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consentBooking, setConsentBooking] = useState<Booking | null>(null);
+  const [consentTemplate, setConsentTemplate] = useState<ConsentTemplate | null>(null);
+  const [consentValues, setConsentValues] = useState<Record<string, boolean | string>>({});
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const [consentLoading, setConsentLoading] = useState(false);
+  const [consentSubmitting, setConsentSubmitting] = useState(false);
+  const consentCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const openConsentModal = useCallback(
+    async (newBooking: Booking) => {
+      setConsentBooking(newBooking);
+      setShowConsentModal(true);
+      setConsentError(null);
+      setConsentTemplate(null);
+      setConsentValues({});
+      setConsentLoading(true);
+      try {
+        const { data } = await api.get<{ template: ConsentTemplate }>("/consent/template");
+        setConsentTemplate(data.template);
+        setConsentValues(buildConsentInitialValues(data.template, newBooking));
+      } catch (err) {
+        const axiosError = err as AxiosError<{ error?: string }>;
+        const message =
+          axiosError.response?.data?.error ??
+          axiosError.message ??
+          (err instanceof Error ? err.message : "Nu am putut încărca formularul de consimțământ.");
+        setConsentError(message);
+      } finally {
+        setConsentLoading(false);
+      }
+    },
+    [api]
+  );
+
+
+  const handleServiceSelection = (serviceId: string) => {
+    if (!selectedBusinessId) return;
+    if (selectedBusiness && selectedBusiness.employees.length > 0) {
+      setPendingServiceId(serviceId);
+      setShowEmployeePopup(true);
+    } else {
+      setServiceSelections((prev) => ({
+        ...prev,
+        [selectedBusinessId]: serviceId,
+      }));
+    }
+  };
 
   useEffect(() => {
     if (!hydrated) {
@@ -88,7 +157,7 @@ export default function ClientBookingsPage() {
       }
       return;
     }
-    void fetchBusinesses();
+    void fetchBusinesses({ scope: "linked" });
     void fetchBookings();
   }, [hydrated, user, fetchBusinesses, fetchBookings, router]);
 
@@ -252,6 +321,89 @@ export default function ClientBookingsPage() {
   const slotDurationMinutes = 60;
   const serviceDurationMs = serviceDurationMinutes * 60 * 1000;
 
+  const focusedDate = useMemo(() => (calendarDate ? new Date(calendarDate) : null), [calendarDate]);
+
+useEffect(() => {
+  if (!showConsentModal) return;
+  const canvas = consentCanvasRef.current;
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * ratio;
+  canvas.height = canvas.offsetHeight * ratio;
+  ctx.scale(ratio, ratio);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = "#6366F1";
+
+  let drawing = false;
+
+  const getPointerPosition = (event: PointerEvent) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  };
+
+  const handlePointerDown = (event: PointerEvent) => {
+    event.preventDefault();
+    const { x, y } = getPointerPosition(event);
+    drawing = true;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const handlePointerMove = (event: PointerEvent) => {
+    if (!drawing) return;
+    event.preventDefault();
+    const { x, y } = getPointerPosition(event);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const handlePointerUp = () => {
+    drawing = false;
+  };
+
+  canvas.addEventListener("pointerdown", handlePointerDown);
+  canvas.addEventListener("pointermove", handlePointerMove);
+  canvas.addEventListener("pointerup", handlePointerUp);
+  canvas.addEventListener("pointerleave", handlePointerUp);
+  canvas.addEventListener("pointercancel", handlePointerUp);
+
+  return () => {
+    canvas.removeEventListener("pointerdown", handlePointerDown);
+    canvas.removeEventListener("pointermove", handlePointerMove);
+    canvas.removeEventListener("pointerup", handlePointerUp);
+    canvas.removeEventListener("pointerleave", handlePointerUp);
+    canvas.removeEventListener("pointercancel", handlePointerUp);
+  };
+}, [showConsentModal]);
+
+const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) => {
+  const initial: Record<string, boolean | string> = {};
+  template.fields.forEach((field) => {
+    if (field.type === "checkbox") {
+      initial[field.id] = false;
+      return;
+    }
+    if (field.id === "patientName") {
+      initial[field.id] = booking.client.name;
+      return;
+    }
+    if (field.id === "procedure") {
+      initial[field.id] = booking.service.name;
+      return;
+    }
+    initial[field.id] = "";
+  });
+  return initial;
+};
+
   const slotsMatrix = useMemo(() => {
     if (!selectedServiceId) return null;
 
@@ -305,6 +457,80 @@ export default function ClientBookingsPage() {
     slotDurationMinutes,
   ]);
 
+  const resetBookingForm = useCallback(() => {
+    setSelectedDate("");
+    setServiceSelections({});
+    setEmployeeSelections({});
+    setBusinessIdOverride(null);
+    setPaymentAlreadyMade(false);
+  }, []);
+
+const handleConsentModalClose = () => {
+  setShowConsentModal(false);
+  setConsentBooking(null);
+  setConsentTemplate(null);
+  setConsentValues({});
+  setConsentError(null);
+  setConsentLoading(false);
+  setConsentSubmitting(false);
+};
+
+const handleConsentSubmit = async () => {
+  if (!consentBooking || !consentTemplate || !user) return;
+  setConsentError(null);
+  const missingField = consentTemplate.fields.find((field) => {
+    if (!field.required) return false;
+    const value = consentValues[field.id];
+    if (field.type === "checkbox") {
+      return !value;
+    }
+    return !(typeof value === "string" && value.trim().length > 0);
+  });
+  if (missingField) {
+    setConsentError("Te rugăm să completezi toate câmpurile obligatorii.");
+    return;
+  }
+
+  const canvas = consentCanvasRef.current;
+  if (!canvas) {
+    setConsentError("Semnătura nu este disponibilă.");
+    return;
+  }
+
+  setConsentSubmitting(true);
+  try {
+    const signature = canvas.toDataURL("image/png");
+    await api.post("/consent/sign", {
+      bookingId: consentBooking.id,
+      clientId: user.id,
+      signature,
+      formData: consentValues,
+    });
+    setShowConsentModal(false);
+    setConsentBooking(null);
+    setConsentTemplate(null);
+    setConsentValues({});
+    setSuccessMessage("Consimțământ semnat cu succes! Rezervarea a fost confirmată.");
+    setTimeout(() => setSuccessMessage(null), 2000);
+    resetBookingForm();
+    void fetchBookings();
+  } catch (err) {
+    const axiosError = err as AxiosError<{ error?: string }>;
+    const message =
+      axiosError.response?.data?.error ??
+      axiosError.message ??
+      (err instanceof Error ? err.message : "Nu am putut salva consimțământul.");
+    setConsentError(message);
+  } finally {
+    setConsentSubmitting(false);
+  }
+};
+
+const handleOpenConsentFullPage = () => {
+  if (!consentBooking) return;
+  router.push(`/consent/${consentBooking.id}?redirect=/client/bookings`);
+};
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!user || !selectedBusinessId || !selectedServiceId || !selectedDate) return;
@@ -331,7 +557,7 @@ export default function ClientBookingsPage() {
       // If payment already made checkbox is checked, mark as paid without processing payment
       const isPaid = paymentAlreadyMade || selectedPayment !== "offline";
       
-      await createBooking({
+      const booking = await createBooking({
         clientId: user.id,
         businessId: selectedBusinessId,
         serviceId: selectedServiceId,
@@ -339,14 +565,17 @@ export default function ClientBookingsPage() {
         date: isoDate,
         paid: isPaid,
       });
+      const needsConsent =
+        selectedBusiness != null ? requiresConsentForBusiness(selectedBusiness.businessType) : false;
+
+      if (needsConsent && booking.status === "PENDING_CONSENT") {
+        await openConsentModal(booking);
+        return;
+      }
       setSuccessMessage("Rezervare creată cu succes! Vei primi confirmarea pe email.");
       // Reset form after success
       setTimeout(() => {
-        setSelectedDate("");
-        setServiceSelections({});
-        setEmployeeSelections({});
-        setBusinessIdOverride(null);
-        setPaymentAlreadyMade(false);
+        resetBookingForm();
         setSuccessMessage(null);
         void fetchBookings(); // Refresh bookings list
       }, 2000);
@@ -405,7 +634,8 @@ export default function ClientBookingsPage() {
                   ))}
                   {availableBusinesses.length === 0 && (
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
-                      Nu există businessuri disponibile momentan. Mergi la dashboard pentru a adăuga business-uri.
+                      Nu ești conectat la niciun business. Scanează codul QR în{" "}
+                      <span className="text-white font-semibold">Client → Scanează QR</span> pentru a începe.
                     </div>
                   )}
                 </div>
@@ -424,17 +654,7 @@ export default function ClientBookingsPage() {
                       selected={service.id === selectedServiceId}
                       onSelect={(serviceId) => {
                         if (selectedBusinessId != null) {
-                          // If business has employees, show popup to select employee first
-                          if (selectedBusiness && selectedBusiness.employees.length > 0) {
-                            setPendingServiceId(serviceId);
-                            setShowEmployeePopup(true);
-                          } else {
-                            // No employees, directly select service
-                            setServiceSelections((prev) => ({
-                              ...prev,
-                              [selectedBusinessId]: serviceId,
-                            }));
-                          }
+                          handleServiceSelection(serviceId);
                         }
                       }}
                     />
@@ -468,6 +688,8 @@ export default function ClientBookingsPage() {
                         value={calendarDate}
                         onChange={(date) => {
                           setCalendarDate(date);
+                          setSelectedDate("");
+                          setHoveredSlot(null);
                           const selectedDateObj = new Date(date);
                           setWeekStart(getWeekStart(selectedDateObj));
                         }}
@@ -490,18 +712,26 @@ export default function ClientBookingsPage() {
                           gridTemplateColumns: `repeat(${weekDays.length}, minmax(100px, 1fr))`,
                         }}
                       >
-                        {weekDays.map((day, index) => (
-                          <div key={`head-${index}`} className="text-center text-sm font-semibold text-white/70">
-                            <div>{formatDayLabel(day)}</div>
-                            <div className="mt-1 text-xs text-white/40">
-                              {day.toLocaleDateString("ro-RO", { month: "short" })}
+                        {weekDays.map((day, index) => {
+                          const isFocused = focusedDate && day.toDateString() === focusedDate.toDateString();
+                          return (
+                            <div
+                              key={`head-${index}`}
+                              className={`rounded-xl px-2 py-1 text-center text-sm font-semibold ${
+                                isFocused ? "bg-[#6366F1]/30 text-white" : "text-white/70"
+                              }`}
+                            >
+                              <div>{formatDayLabel(day)}</div>
+                              <div className="mt-1 text-xs text-white/40">
+                                {day.toLocaleDateString("ro-RO", { month: "short" })}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
 
                         {HOURS.map((hour, hourIndex) => (
                           <Fragment key={`row-${hour}`}>
-                            {weekDays.map((_, dayIndex) => {
+                            {weekDays.map((day, dayIndex) => {
                               const slot = slotsMatrix?.[dayIndex]?.[hourIndex];
                               if (!slot) {
                                 return <div key={`empty-${dayIndex}-${hour}`} className="rounded-2xl bg-[#0B0E17]/30" />;
@@ -513,6 +743,8 @@ export default function ClientBookingsPage() {
                               const hoveredDayString = hoveredSlot ? new Date(hoveredSlot).toDateString() : null;
                               const hoveredEndMs =
                                 hoveredStartMs !== null ? hoveredStartMs + serviceDurationMs : null;
+                              const isFocusedDay =
+                                focusedDate && slotDate.toDateString() === focusedDate.toDateString();
 
                               let stateClasses =
                                 "bg-[#0B0E17]/60 text-white/70 hover:bg-white/10 border border-white/10";
@@ -568,7 +800,11 @@ export default function ClientBookingsPage() {
                                   onMouseLeave={() => {
                                     setHoveredSlot((prev) => (prev === slot.iso ? null : prev));
                                   }}
-                                  className={`flex h-[52px] w-full items-center justify-center rounded-2xl px-3 text-xs font-semibold transition ${stateClasses}`}
+                                  className={`flex h-[52px] w-full items-center justify-center rounded-2xl px-3 text-xs font-semibold transition ${
+                                    isFocusedDay && slot.status === "available"
+                                      ? `${stateClasses} border-[#6366F1]/40 bg-[#6366F1]/10`
+                                      : stateClasses
+                                  }`}
                                   style={{
                                     cursor:
                                       slot.status === "booked" || slot.status === "past" ? "not-allowed" : "pointer",
@@ -817,6 +1053,180 @@ export default function ClientBookingsPage() {
             </div>
           </form>
       </div>
+
+      {showConsentModal && consentBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6" onClick={handleConsentModalClose}>
+          <div
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-white/50">Consimțământ digital</p>
+                <h3 className="text-2xl font-semibold text-white">{consentBooking.business.name}</h3>
+                <p className="mt-1 text-sm text-white/60">
+                  Serviciu: <strong>{consentBooking.service.name}</strong> •{" "}
+                  {new Date(consentBooking.date).toLocaleString("ro-RO", { dateStyle: "medium", timeStyle: "short" })}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenConsentFullPage}
+                  className="rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
+                >
+                  Deschide pagina completă
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConsentModalClose}
+                  className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+                >
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+            </div>
+
+            {consentLoading && (
+              <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
+                Se încarcă formularul de consimțământ...
+              </p>
+            )}
+
+            {!consentLoading && consentTemplate ? (
+              <div className="flex flex-col gap-6">
+                <section className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-sm text-white/70">{consentTemplate.description}</p>
+                  <div className="mt-4 flex flex-col gap-4">
+                    {consentTemplate.fields.map((field) => {
+                      if (field.type === "checkbox") {
+                        return (
+                          <label key={field.id} className="flex items-start gap-3 text-sm text-white/80">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(consentValues[field.id])}
+                              onChange={(event) => {
+                                setConsentError(null);
+                                setConsentValues((prev) => ({ ...prev, [field.id]: event.target.checked }));
+                              }}
+                              className="mt-1 h-4 w-4 rounded border-white/30 text-[#6366F1] focus:ring-[#6366F1]"
+                            />
+                            <span>
+                              {field.label}
+                              {field.required && <span className="ml-1 text-[#F59E0B]">*</span>}
+                              {"helperText" in field && field.helperText && (
+                                <p className="text-xs text-white/50">{field.helperText}</p>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      }
+
+                      if (field.type === "textarea") {
+                        return (
+                          <label key={field.id} className="flex flex-col gap-2 text-sm text-white/80">
+                            <span>
+                              {field.label}
+                              {field.required && <span className="ml-1 text-[#F59E0B]">*</span>}
+                            </span>
+                            <textarea
+                              rows={4}
+                              placeholder={"placeholder" in field ? field.placeholder : undefined}
+                              value={(consentValues[field.id] as string) ?? ""}
+                              onChange={(event) => {
+                                setConsentError(null);
+                                setConsentValues((prev) => ({ ...prev, [field.id]: event.target.value }));
+                              }}
+                              className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                            />
+                          </label>
+                        );
+                      }
+
+                      return (
+                        <label key={field.id} className="flex flex-col gap-2 text-sm text-white/80">
+                          <span>
+                            {field.label}
+                            {field.required && <span className="ml-1 text-[#F59E0B]">*</span>}
+                          </span>
+                          <input
+                            type={field.type === "date" ? "date" : "text"}
+                            placeholder={"placeholder" in field ? field.placeholder : undefined}
+                            value={(consentValues[field.id] as string) ?? ""}
+                            onChange={(event) => {
+                            setConsentError(null);
+                              setConsentValues((prev) => ({ ...prev, [field.id]: event.target.value }));
+                            }}
+                            className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-white">Semnătură digitală</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const canvas = consentCanvasRef.current;
+                        if (canvas) {
+                          const ctx = canvas.getContext("2d");
+                          ctx?.clearRect(0, 0, canvas.width, canvas.height);
+                        }
+                      }}
+                      className="text-xs font-semibold text-[#6366F1] hover:text-[#7C3AED]"
+                    >
+                      Șterge semnătura
+                    </button>
+                  </div>
+                  <canvas
+                    ref={consentCanvasRef}
+                    width={800}
+                    height={200}
+                    className="mt-3 w-full rounded-2xl border border-dashed border-white/20 bg-[#0B0E17]/60 cursor-crosshair select-none"
+                    style={{ touchAction: "none" }}
+                  />
+                  <p className="mt-2 text-xs text-white/50">
+                    Semnează direct cu degetul sau cu mouse-ul. Semnătura este salvată criptat (base64).
+                  </p>
+                </div>
+
+                {consentError && (
+                  <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+                    {consentError}
+                  </p>
+                )}
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={handleConsentModalClose}
+                    className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                  >
+                    Renunță
+                  </button>
+                  <button
+                    type="button"
+                    disabled={consentSubmitting || consentLoading}
+                    onClick={handleConsentSubmit}
+                    className="rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {consentSubmitting ? "Se trimite..." : "Semnez și finalizez"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {!consentLoading && !consentTemplate && (
+              <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {consentError ?? "Nu am putut încărca formularul de consimțământ. Încearcă din nou sau deschide pagina completă."}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {showEmployeePopup && selectedBusiness && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={() => setShowEmployeePopup(false)}>

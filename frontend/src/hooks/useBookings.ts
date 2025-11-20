@@ -1,6 +1,9 @@
 import { AxiosError } from "axios";
 import { useCallback, useState } from "react";
 import useApi from "./useApi";
+import type { BusinessTypeValue } from "../constants/businessTypes";
+
+export type BookingStatus = "PENDING_CONSENT" | "CONFIRMED" | "CANCELLED";
 
 export interface Booking {
   id: string;
@@ -10,11 +13,18 @@ export interface Booking {
   employeeId?: string | null;
   date: string;
   paid: boolean;
-  business: { id: string; name: string };
+  status: BookingStatus;
+  business: { id: string; name: string; businessType: BusinessTypeValue };
   service: { id: string; name: string; duration: number; price: number };
   client: { id: string; name: string; email: string; phone?: string | null };
   employee?: { id: string; name: string; email: string } | null;
-  consent?: { id: string; pdfUrl: string; signature: string };
+  consentForm?: {
+    id: string;
+    pdfUrl: string;
+    templateType?: BusinessTypeValue | null;
+    formData?: Record<string, unknown> | null;
+    createdAt: string;
+  } | null;
 }
 
 interface CreateBookingInput {
@@ -24,7 +34,6 @@ interface CreateBookingInput {
   employeeId?: string;
   date: string;
   paid?: boolean;
-  consent?: { pdfUrl: string; signature: string };
 }
 
 export default function useBookings() {

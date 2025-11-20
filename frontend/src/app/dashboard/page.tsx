@@ -1,8 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Search, Building2 } from "lucide-react";
 import BookingCard from "../../components/BookingCard";
 import ServiceCard from "../../components/ServiceCard";
 import useAuth from "../../hooks/useAuth";
@@ -29,14 +28,17 @@ export default function DashboardPage() {
   const [bookingDetailsId, setBookingDetailsId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"upcoming" | "past">("upcoming");
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
-  const [businessSearchQuery, setBusinessSearchQuery] = useState("");
-  const [isBusinessDropdownOpen, setIsBusinessDropdownOpen] = useState(false);
   const [selectedBusinessIdsForBookings, setSelectedBusinessIdsForBookings] = useState<Set<string>>(new Set());
-  const businessDropdownRef = useRef<HTMLDivElement>(null);
+  const [initialSelectionLoaded, setInitialSelectionLoaded] = useState(false);
+  const [hasStoredSelection, setHasStoredSelection] = useState(false);
+  const [autoPopulatedSelection, setAutoPopulatedSelection] = useState(false);
+  const [businessToRemoveId, setBusinessToRemoveId] = useState<string | null>(null);
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   const [phoneInput, setPhoneInput] = useState("");
   const [updatingPhone, setUpdatingPhone] = useState(false);
   const [displayedBookingsCount, setDisplayedBookingsCount] = useState(6);
+
+  const businessScope: "linked" | "all" = user?.role === "CLIENT" ? "linked" : "all";
 
   useEffect(() => {
     if (!hydrated) {
@@ -46,65 +48,116 @@ export default function DashboardPage() {
       router.replace("/auth/login");
       return;
     }
-    void Promise.all([fetchBookings(), fetchBusinesses()]);
+    void fetchBookings();
+    void fetchBusinesses({ scope: businessScope });
     
     // Show phone modal for CLIENT users without phone
     if (user.role === "CLIENT" && !user.phone && !showPhoneModal) {
       setShowPhoneModal(true);
     }
-  }, [hydrated, user, fetchBookings, fetchBusinesses, router, showPhoneModal]);
+  }, [hydrated, user, fetchBookings, fetchBusinesses, router, showPhoneModal, businessScope]);
 
   // Load selected business IDs from localStorage on mount
   useEffect(() => {
-    if (typeof window !== "undefined" && user?.role === "CLIENT" && hydrated) {
-      const savedIds = localStorage.getItem("selectedBusinessIds");
-      if (savedIds) {
-        try {
-          const ids = JSON.parse(savedIds) as string[];
-          if (ids.length > 0) {
-            setSelectedBusinessIdsForBookings(new Set(ids));
-            // Also set the selected business for filtering bookings
-            if (!selectedBusinessId && ids.length > 0) {
-              setSelectedBusinessId(ids[0]);
-            }
-          }
-        } catch (error) {
-          console.error("Error loading selected business IDs:", error);
+    if (typeof window === "undefined" || user?.role !== "CLIENT" || !hydrated) {
+      return;
+    }
+
+    const savedIdsRaw = localStorage.getItem("selectedBusinessIds");
+    if (savedIdsRaw) {
+      try {
+        const ids = JSON.parse(savedIdsRaw) as string[];
+        setSelectedBusinessIdsForBookings(new Set(ids));
+        setHasStoredSelection(ids.length > 0);
+        if (ids.length > 0) {
+          setSelectedBusinessId((prev) => prev ?? ids[0]);
+        }
+      } catch (error) {
+        console.error("Error loading selected business IDs:", error);
+        setHasStoredSelection(false);
+        setSelectedBusinessIdsForBookings(new Set());
+      }
+    } else {
+      setHasStoredSelection(false);
+      setSelectedBusinessIdsForBookings(new Set());
+    }
+
+    setInitialSelectionLoaded(true);
+  }, [user?.role, hydrated]);
+
+  useEffect(() => {
+    if (
+      !hydrated ||
+      user?.role !== "CLIENT" ||
+      !initialSelectionLoaded ||
+      hasStoredSelection ||
+      autoPopulatedSelection
+    ) {
+      return;
+    }
+
+    if (selectedBusinessIdsForBookings.size === 0 && businesses.length > 0) {
+      const ids = businesses.map((business) => business.id);
+      setSelectedBusinessIdsForBookings(new Set(ids));
+      setSelectedBusinessId((prev) => prev ?? ids[0] ?? null);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("selectedBusinessIds", JSON.stringify(ids));
+      }
+      setHasStoredSelection(ids.length > 0);
+      setAutoPopulatedSelection(true);
+    }
+  }, [
+    autoPopulatedSelection,
+    businesses,
+    hasStoredSelection,
+    hydrated,
+    initialSelectionLoaded,
+    selectedBusinessIdsForBookings,
+    user?.role,
+  ]);
+
+  useEffect(() => {
+    if (
+      !hydrated ||
+      user?.role !== "CLIENT" ||
+      !initialSelectionLoaded ||
+      businesses.length === 0
+    ) {
+      return;
+    }
+
+    setSelectedBusinessIdsForBookings((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+
+      for (const business of businesses) {
+        if (!next.has(business.id)) {
+          next.add(business.id);
+          changed = true;
         }
       }
-    }
-  }, [user?.role, hydrated, selectedBusinessId]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (businessDropdownRef.current && !businessDropdownRef.current.contains(event.target as Node)) {
-        setIsBusinessDropdownOpen(false);
+      if (!changed) {
+        return prev;
       }
-    };
 
-    if (isBusinessDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
+      if (typeof window !== "undefined") {
+        localStorage.setItem("selectedBusinessIds", JSON.stringify(Array.from(next)));
+      }
+      setHasStoredSelection(true);
+      if (!selectedBusinessId && next.size > 0) {
+        setSelectedBusinessId(Array.from(next)[0]);
+      }
+      return next;
+    });
+  }, [businesses, hydrated, initialSelectionLoaded, selectedBusinessId, user?.role]);
 
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isBusinessDropdownOpen]);
-
-  // Filter businesses based on search query
-  const filteredBusinesses = useMemo(() => {
-    if (!businessSearchQuery.trim()) {
+  const selectedBusinesses = useMemo(() => {
+    if (selectedBusinessIdsForBookings.size === 0) {
       return businesses;
     }
-    const query = businessSearchQuery.toLowerCase();
-    return businesses.filter(
-      (business) =>
-        business.name.toLowerCase().includes(query) ||
-        business.domain.toLowerCase().includes(query) ||
-        business.email?.toLowerCase().includes(query)
-    );
-  }, [businesses, businessSearchQuery]);
+    return businesses.filter((business) => selectedBusinessIdsForBookings.has(business.id));
+  }, [businesses, selectedBusinessIdsForBookings]);
 
   // Get selected business
   const selectedBusiness = useMemo(() => {
@@ -130,6 +183,13 @@ export default function DashboardPage() {
       businesses.find((item) => item.ownerId === userId || item.id === userBusiness?.id) ?? null
     );
   }, [isBusinessUser, businesses, userId, userBusiness]);
+
+  const businessPendingRemoval = useMemo(() => {
+    if (!businessToRemoveId) {
+      return null;
+    }
+    return businesses.find((business) => business.id === businessToRemoveId) ?? null;
+  }, [businesses, businessToRemoveId]);
 
   // Filter bookings by selected business (for clients) or by business ID (for business users)
   const filteredBookings = useMemo(() => {
@@ -354,7 +414,7 @@ export default function DashboardPage() {
       setTimeout(() => {
         handleCloseServiceModal();
         // Refresh businesses to get updated data
-        void fetchBusinesses();
+        void fetchBusinesses({ scope: businessScope });
       }, 1000);
     } catch (error) {
       console.error("Service operation failed:", error);
@@ -375,7 +435,7 @@ export default function DashboardPage() {
       await deleteService(businessRecord.id, serviceToDelete.id);
       setServiceToDelete(null);
       // Refresh businesses to get updated data
-      void fetchBusinesses();
+      void fetchBusinesses({ scope: businessScope });
     } catch (error) {
       console.error("Delete service failed:", error);
       setServiceToDelete(null);
@@ -383,6 +443,41 @@ export default function DashboardPage() {
       setDeletingServiceId(null);
     }
   }, [serviceToDelete, businessRecord?.id, deleteService, fetchBusinesses]);
+
+  const handleRemoveBusiness = useCallback((businessId: string) => {
+    setBusinessToRemoveId(businessId);
+  }, []);
+
+  const handleCancelRemoveBusiness = useCallback(() => {
+    setBusinessToRemoveId(null);
+  }, []);
+
+  const handleConfirmRemoveBusiness = useCallback(() => {
+    if (!businessToRemoveId) return;
+    setSelectedBusinessIdsForBookings((prev) => {
+      const next = new Set(prev);
+      next.delete(businessToRemoveId);
+
+      if (typeof window !== "undefined") {
+        if (next.size > 0) {
+          localStorage.setItem("selectedBusinessIds", JSON.stringify(Array.from(next)));
+        } else {
+          localStorage.removeItem("selectedBusinessIds");
+        }
+      }
+
+      setHasStoredSelection(next.size > 0);
+
+      if (next.size === 0) {
+        setSelectedBusinessId(null);
+      } else if (selectedBusinessId === businessToRemoveId) {
+        setSelectedBusinessId(Array.from(next)[0]);
+      }
+
+      return next;
+    });
+    setBusinessToRemoveId(null);
+  }, [businessToRemoveId, selectedBusinessId]);
 
   if (!hydrated) {
     return null;
@@ -464,150 +559,85 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Business Selector for Clients */}
-      {user?.role === "CLIENT" && businesses.length > 0 && (
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div className="relative" ref={businessDropdownRef}>
-            <label className="mb-2 block text-sm font-semibold text-white">Selectează business-urile pentru rezervări</label>
-            <button
-              type="button"
-              onClick={() => setIsBusinessDropdownOpen(!isBusinessDropdownOpen)}
-              className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-[#0B0E17]/50 px-4 py-3 text-left transition hover:border-[#6366F1]/60 hover:bg-white/5"
-            >
-              <div className="flex items-center gap-3">
-                <Building2 className="h-5 w-5 text-white/60" />
-                <span className="text-white">
-                  {selectedBusinessIdsForBookings.size > 0
-                    ? `${selectedBusinessIdsForBookings.size} business-uri selectate`
-                    : "Selectează business-uri"}
-                </span>
-              </div>
-              <ChevronDown
-                className={`h-5 w-5 text-white/60 transition-transform ${
-                  isBusinessDropdownOpen ? "rotate-180" : ""
-                }`}
-              />
-            </button>
+      {/* Client onboarding hint */}
+      {user?.role === "CLIENT" && businesses.length === 0 && (
+        <section className="rounded-3xl border border-dashed border-white/10 bg-white/5 p-6">
+          <h2 className="text-xl font-semibold text-white">Nu ai business-uri conectate încă</h2>
+          <p className="mt-2 text-sm text-white/60">
+            Partenerii LARSTEF îți oferă acces exclusiv prin codul lor QR. Scanează-l pentru a vedea servicii și a face
+            rezervări.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push("/client/scan-qr")}
+            className="mt-4 rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED]"
+          >
+            Deschide pagina „Scanează QR”
+          </button>
+        </section>
+      )}
 
-            {isBusinessDropdownOpen && (
-              <div className="absolute z-50 mt-2 w-full rounded-xl border border-white/10 bg-[#0B0E17] shadow-xl">
-                <div className="p-3">
-                  <div className="relative mb-2">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
-                    <input
-                      type="text"
-                      placeholder="Caută business..."
-                      value={businessSearchQuery}
-                      onChange={(e) => setBusinessSearchQuery(e.target.value)}
-                      className="w-full rounded-lg border border-white/10 bg-white/5 px-10 py-2 text-sm text-white placeholder:text-white/40 focus:border-[#6366F1]/60 focus:outline-none"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                  <div className="max-h-60 overflow-y-auto">
-                    {filteredBusinesses.length === 0 ? (
-                      <div className="px-3 py-4 text-sm text-white/60">
-                        Nu s-au găsit business-uri.
-                      </div>
-                    ) : (
-                      filteredBusinesses.map((business) => (
-                        <label
-                          key={business.id}
-                          className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${
-                            selectedBusinessIdsForBookings.has(business.id)
-                              ? "bg-[#6366F1]/20 text-white"
-                              : "text-white/70 hover:bg-white/5 hover:text-white"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedBusinessIdsForBookings.has(business.id)}
-                            onChange={(e) => {
-                              setSelectedBusinessIdsForBookings((prev) => {
-                                const next = new Set(prev);
-                                if (e.target.checked) {
-                                  next.add(business.id);
-                                } else {
-                                  next.delete(business.id);
-                                }
-                                return next;
-                              });
-                            }}
-                            className="h-4 w-4 rounded border-white/20 text-[#6366F1] focus:ring-[#6366F1]"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          <Building2 className="h-4 w-4" />
-                          <div className="flex-1">
-                            <div className="font-medium">{business.name}</div>
-                            {business.domain && (
-                              <div className="text-xs text-white/50">{business.domain}</div>
-                            )}
-                          </div>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                  <div className="mt-3 border-t border-white/10 pt-3">
+      {/* Business Selector for Clients */}
+      {user?.role === "CLIENT" && (
+        <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-white">Business-urile tale</h2>
+              <p className="mt-1 text-sm text-white/60">
+                Ai acces la aceste locații după scanarea codului QR.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {selectedBusinesses.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-white/60 md:col-span-2 xl:col-span-3">
+                Nu ai încă business-uri salvate. Scanează un cod QR pentru a începe.
+                <button
+                  type="button"
+                  onClick={() => router.push("/client/scan-qr")}
+                  className="mt-3 inline-flex items-center justify-center rounded-2xl bg-[#6366F1] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#7C3AED]"
+                >
+                  Scanează cod QR
+                </button>
+              </div>
+            ) : (
+              selectedBusinesses.map((business) => (
+                <article
+                  key={business.id}
+                  className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0B0E17]/60 p-5 shadow-lg shadow-black/20"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-base font-semibold text-white">{business.name}</p>
+                      {business.domain && (
+                        <p className="mt-1 text-xs text-white/60">{business.domain}</p>
+                      )}
+                      {business.email && (
+                        <p className="mt-2 text-xs text-white/50">{business.email}</p>
+                      )}
+                      {(() => {
+                        const phone = (business as { phone?: string | null }).phone;
+                        if (!phone) {
+                          return null;
+                        }
+                        return <p className="text-xs text-white/50">{phone}</p>;
+                      })()}
+                    </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (selectedBusinessIdsForBookings.size > 0) {
-                          // Save to localStorage
-                          localStorage.setItem(
-                            "selectedBusinessIds",
-                            JSON.stringify(Array.from(selectedBusinessIdsForBookings))
-                          );
-                          setIsBusinessDropdownOpen(false);
-                          setBusinessSearchQuery("");
-                          // Redirect to bookings page
-                          router.push("/client/bookings");
-                        }
-                      }}
-                      disabled={selectedBusinessIdsForBookings.size === 0}
-                      className="w-full rounded-lg bg-[#6366F1] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => handleRemoveBusiness(business.id)}
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-red-500/20 hover:text-red-300"
                     >
-                      Adaugă ({selectedBusinessIdsForBookings.size})
+                      Șterge
                     </button>
                   </div>
-                </div>
-              </div>
+                  <div className="rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs text-white/70">
+                    Cod QR generat • {business.qrCodeUrl ? "Disponibil" : "În curs"}
+                  </div>
+                </article>
+              ))
             )}
           </div>
-          {selectedBusinessIdsForBookings.size > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {Array.from(selectedBusinessIdsForBookings).map((businessId) => {
-                const business = businesses.find((b) => b.id === businessId);
-                if (!business) return null;
-                return (
-                  <div
-                    key={businessId}
-                    className="flex items-center gap-2 rounded-lg bg-[#6366F1]/20 px-3 py-1.5 text-xs text-white"
-                  >
-                    <span>{business.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedBusinessIdsForBookings((prev) => {
-                          const next = new Set(prev);
-                          next.delete(businessId);
-                          // Update localStorage
-                          if (typeof window !== "undefined") {
-                            localStorage.setItem(
-                              "selectedBusinessIds",
-                              JSON.stringify(Array.from(next))
-                            );
-                          }
-                          return next;
-                        });
-                      }}
-                      className="text-white/60 hover:text-white"
-                    >
-                      <i className="fas fa-times" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </section>
       )}
 
@@ -929,7 +959,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Delete Service Confirmation Modal */}
+        {/* Delete Service Confirmation Modal */}
       {serviceToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40">
@@ -961,6 +991,37 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+        {businessPendingRemoval && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40">
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-white">Confirmă eliminarea</h3>
+                <p className="mt-2 text-sm text-white/60">
+                  Vrei să elimini business-ul{" "}
+                  <strong className="text-white">{businessPendingRemoval.name}</strong> din lista ta? Îl vei putea
+                  adăuga din nou doar prin scanarea codului QR.
+                </p>
+              </div>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={handleCancelRemoveBusiness}
+                  className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                >
+                  Renunță
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmRemoveBusiness}
+                  className="rounded-2xl bg-red-500/80 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500"
+                >
+                  Elimină
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       {bookingToCancel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">

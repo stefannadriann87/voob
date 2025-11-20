@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "../../../components/Navbar";
 import useAuth, { Role } from "../../../hooks/useAuth";
+import { BUSINESS_TYPE_OPTIONS, type BusinessTypeValue } from "../../../constants/businessTypes";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<Role>("CLIENT");
   const [businessName, setBusinessName] = useState("");
+  const [businessType, setBusinessType] = useState<BusinessTypeValue>("GENERAL");
   const [success, setSuccess] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -35,7 +37,15 @@ export default function RegisterPage() {
     }
 
     try {
-      await register({ email, password, name, phone: phone.trim() || undefined, role, businessName: businessName.trim() || undefined });
+      await register({
+        email,
+        password,
+        name,
+        phone: phone.trim() || undefined,
+        role,
+        businessName: businessName.trim() || undefined,
+        businessType: role === "BUSINESS" ? businessType : undefined,
+      });
       setSuccess("Cont creat cu succes! Te autentificăm automat...");
       const loggedUser = await login({ email, password, role });
       switch (loggedUser.role) {
@@ -139,16 +149,36 @@ export default function RegisterPage() {
               </label>
 
               {role === "BUSINESS" && (
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-white/70">Numele businessului</span>
-                  <input
-                    value={businessName}
-                    onChange={(event) => setBusinessName(event.target.value)}
-                    placeholder="Ex: Larstef Clinic"
-                    required
-                    className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                  />
-                </label>
+                <>
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span className="text-white/70">Tipul cabinetului / businessului</span>
+                    <select
+                      value={businessType}
+                      onChange={(event) => setBusinessType(event.target.value as BusinessTypeValue)}
+                      className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                    >
+                      {BUSINESS_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-xs text-white/50">
+                      Tipul selectat ne ajută să pregătim automat consimțămintele necesare clienților tăi.
+                    </span>
+                  </label>
+
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span className="text-white/70">Numele businessului</span>
+                    <input
+                      value={businessName}
+                      onChange={(event) => setBusinessName(event.target.value)}
+                      placeholder="Ex: Larstef Clinic"
+                      required
+                      className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                    />
+                  </label>
+                </>
               )}
 
               {error && (

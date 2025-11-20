@@ -5,28 +5,31 @@ const { PrismaClient, Role } = prismaClient;
 const prisma = new PrismaClient();
 
 async function seed() {
-  const passwordPlain = "Password123!";
-  const hashedPassword = await bcrypt.hash(passwordPlain, 10);
+  const defaultPasswordPlain = "Password123!";
+  const superAdminEmail = "stefann.adriann@gmail.com";
+  const superAdminPasswordPlain = "Develop13#";
+
+  const hashedSuperAdminPassword = await bcrypt.hash(superAdminPasswordPlain, 10);
+  const hashedDefaultPassword = await bcrypt.hash(defaultPasswordPlain, 10);
 
   const superAdmin = await prisma.user.upsert({
-    where: { email: "superadmin@larstef.app" },
+    where: { email: superAdminEmail },
     update: {},
     create: {
-      email: "superadmin@larstef.app",
+      email: superAdminEmail,
       name: "Sorin SuperAdmin",
-      password: hashedPassword,
+      password: hashedSuperAdminPassword,
       role: Role.SUPERADMIN,
     },
   });
 
-  const businessOwnerPassword = await bcrypt.hash(passwordPlain, 10);
   const businessOwner = await prisma.user.upsert({
     where: { email: "owner@freshcuts.app" },
     update: {},
     create: {
       email: "owner@freshcuts.app",
       name: "Andrei Business",
-      password: businessOwnerPassword,
+      password: hashedDefaultPassword,
       role: Role.BUSINESS,
     },
   });
@@ -50,7 +53,6 @@ async function seed() {
     include: { services: true },
   });
 
-  const employeePassword = await bcrypt.hash(passwordPlain, 10);
   const employee = await prisma.user.upsert({
     where: { email: "employee@freshcuts.app" },
     update: {
@@ -59,20 +61,19 @@ async function seed() {
     create: {
       email: "employee@freshcuts.app",
       name: "Ioana Employee",
-      password: employeePassword,
+      password: hashedDefaultPassword,
       role: Role.EMPLOYEE,
       businessId: business.id,
     },
   });
 
-  const clientPassword = await bcrypt.hash(passwordPlain, 10);
   const client = await prisma.user.upsert({
     where: { email: "client@larstef.app" },
     update: {},
     create: {
       email: "client@larstef.app",
       name: "Mihai Client",
-      password: clientPassword,
+      password: hashedDefaultPassword,
       role: Role.CLIENT,
     },
   });
@@ -91,10 +92,10 @@ async function seed() {
   }
 
   console.table([
-    { role: "SUPERADMIN", email: superAdmin.email, password: passwordPlain },
-    { role: "BUSINESS", email: businessOwner.email, password: passwordPlain },
-    { role: "EMPLOYEE", email: employee.email, password: passwordPlain },
-    { role: "CLIENT", email: client.email, password: passwordPlain },
+    { role: "SUPERADMIN", email: superAdmin.email, password: superAdminPasswordPlain },
+    { role: "BUSINESS", email: businessOwner.email, password: defaultPasswordPlain },
+    { role: "EMPLOYEE", email: employee.email, password: defaultPasswordPlain },
+    { role: "CLIENT", email: client.email, password: defaultPasswordPlain },
   ]);
 }
 

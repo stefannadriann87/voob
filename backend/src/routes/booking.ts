@@ -1,8 +1,19 @@
 import express = require("express");
 const prisma = require("../lib/prisma").default;
-import type { Prisma } from "@prisma/client";
+import type { Prisma, BusinessType, BookingStatus } from "@prisma/client";
 
 const router = express.Router();
+
+const CONSENT_REQUIRED_TYPES: BusinessType[] = [
+  "STOMATOLOGIE",
+  "OFTALMOLOGIE",
+  "PSIHOLOGIE",
+  "TERAPIE",
+  "BEAUTY",
+];
+
+const businessNeedsConsent = (type?: BusinessType | null) =>
+  !!type && CONSENT_REQUIRED_TYPES.includes(type);
 
 router.post("/", async (req, res) => {
   const {
@@ -12,7 +23,6 @@ router.post("/", async (req, res) => {
     employeeId,
     date,
     paid,
-    consent,
   }: {
     clientId?: string;
     businessId?: string;
@@ -20,7 +30,6 @@ router.post("/", async (req, res) => {
     employeeId?: string;
     date?: string;
     paid?: boolean;
-    consent?: { pdfUrl: string; signature: string };
   } = req.body;
 
   if (!clientId || !businessId || !serviceId || !date) {
@@ -30,12 +39,27 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const consentPayload = consent
-      ? {
-          pdfUrl: consent.pdfUrl,
-          signature: consent.signature,
-        }
-      : null;
+    const [business, service] = await Promise.all([
+      prisma.business.findUnique({
+        where: { id: businessId },
+        select: { id: true, businessType: true },
+      }),
+      prisma.service.findFirst({
+        where: { id: serviceId, businessId },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    if (!service) {
+      return res.status(404).json({ error: "Serviciul nu a fost găsit pentru acest business." });
+    }
+
+    const needsConsent = businessNeedsConsent(business.businessType);
+    const initialStatus: BookingStatus = needsConsent ? "PENDING_CONSENT" : "CONFIRMED";
 
     const booking = await prisma.booking.create({
       data: {
@@ -45,20 +69,14 @@ router.post("/", async (req, res) => {
         ...(employeeId ? { employee: { connect: { id: employeeId } } } : {}),
         date: new Date(date),
         paid: paid ?? false,
-        ...(consentPayload
-          ? {
-              consent: {
-                create: consentPayload,
-              },
-            }
-          : {}),
+        status: initialStatus,
       },
       include: {
         client: { select: { id: true, name: true, email: true, phone: true } },
-        business: { select: { id: true, name: true } },
+        business: { select: { id: true, name: true, businessType: true } },
         service: true,
         employee: employeeId ? { select: { id: true, name: true, email: true } } : false,
-        consent: true,
+        consentForm: true,
       },
     });
 
@@ -75,10 +93,10 @@ router.get("/", async (_req, res) => {
       orderBy: { date: "desc" },
       include: {
         client: { select: { id: true, name: true, email: true, phone: true } },
-        business: { select: { id: true, name: true } },
+        business: { select: { id: true, name: true, businessType: true } },
         service: true,
         employee: { select: { id: true, name: true, email: true } },
-        consent: true,
+        consentForm: true,
       },
     });
 
@@ -133,10 +151,10 @@ router.put("/:id", async (req, res) => {
       data: updateData,
       include: {
         client: { select: { id: true, name: true, email: true, phone: true } },
-        business: { select: { id: true, name: true } },
+        business: { select: { id: true, name: true, businessType: true } },
         service: true,
         employee: { select: { id: true, name: true, email: true } },
-        consent: true,
+        consentForm: true,
       },
     });
 
@@ -156,7 +174,7 @@ router.delete("/:id", async (req, res) => {
   try {
     const booking = await prisma.booking.findUnique({
       where: { id },
-      include: { consent: true },
+      include: { consentForm: true },
     });
 
     if (!booking) {
@@ -164,8 +182,8 @@ router.delete("/:id", async (req, res) => {
     }
 
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      if (booking.consent) {
-        await tx.consent.delete({ where: { bookingId: id } });
+      if (booking.consentForm) {
+        await tx.consentForm.delete({ where: { bookingId: id } });
       }
       await tx.booking.delete({ where: { id } });
     });

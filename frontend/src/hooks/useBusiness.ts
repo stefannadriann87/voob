@@ -1,6 +1,7 @@
 import { AxiosError } from "axios";
 import { useCallback, useState } from "react";
 import useApi from "./useApi";
+import type { BusinessTypeValue } from "../constants/businessTypes";
 
 export interface Service {
   id: string;
@@ -24,6 +25,9 @@ export interface Business {
   name: string;
   domain: string;
   email?: string | null;
+  phone?: string | null;
+  qrCodeUrl?: string | null;
+  businessType: BusinessTypeValue;
   ownerId?: string;
   owner?: { id: string; name: string; email: string };
   services: Service[];
@@ -53,17 +57,22 @@ interface CreateEmployeeInput {
   specialization?: string;
 }
 
+interface FetchBusinessesOptions {
+  scope?: "all" | "linked";
+}
+
 export default function useBusiness() {
   const api = useApi();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchBusinesses = useCallback(async () => {
+  const fetchBusinesses = useCallback(async (options?: FetchBusinessesOptions) => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.get<Business[]>("/business");
+      const endpoint = options?.scope === "linked" ? "/client/businesses" : "/business";
+      const { data } = await api.get<Business[]>(endpoint);
       setBusinesses(data);
       return data;
     } catch (err) {
@@ -292,6 +301,64 @@ export default function useBusiness() {
     [api]
   );
 
+  const linkClientToBusiness = useCallback(
+    async (businessId: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data } = await api.post<Business>("/client/link", { businessId });
+        setBusinesses((prev) => {
+          const exists = prev.some((business) => business.id === data.id);
+          if (exists) {
+            return prev.map((business) => (business.id === data.id ? data : business));
+          }
+          return [data, ...prev];
+        });
+        return data;
+      } catch (err) {
+        const axiosError = err as AxiosError<{ error?: string }>;
+        const message =
+          axiosError.response?.data?.error ??
+          axiosError.message ??
+          (err instanceof Error ? err.message : "Eroare la conectarea la business.");
+        setError(message);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [api]
+  );
+
+  const regenerateBusinessQr = useCallback(
+    async (businessId: string) => {
+      setError(null);
+      try {
+        const { data } = await api.post<{ qrCodeUrl?: string | null }>(`/business/${businessId}/generate-qr`);
+        setBusinesses((prev) =>
+          prev.map((business) =>
+            business.id === businessId
+              ? {
+                  ...business,
+                  qrCodeUrl: data.qrCodeUrl ?? business.qrCodeUrl ?? null,
+                }
+              : business
+          )
+        );
+        return data.qrCodeUrl ?? null;
+      } catch (err) {
+        const axiosError = err as AxiosError<{ error?: string }>;
+        const message =
+          axiosError.response?.data?.error ??
+          axiosError.message ??
+          (err instanceof Error ? err.message : "Nu am putut regenera codul QR.");
+        setError(message);
+        throw err;
+      }
+    },
+    [api]
+  );
+
   return {
     businesses,
     loading,
@@ -304,6 +371,8 @@ export default function useBusiness() {
     addEmployee,
     updateEmployee,
     deleteEmployee,
+    linkClientToBusiness,
+    regenerateBusinessQr,
   };
 }
 

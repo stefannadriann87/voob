@@ -29,6 +29,9 @@ model User {
   employeeBookings Booking[] @relation("EmployeeBookings")
   ownedBusinesses Business[] @relation("BusinessOwner")
   employeeHolidays EmployeeHoliday[]
+  clientLinks   ClientBusinessLink[] @relation("ClientLinks")
+  consentForms  ConsentForm[]
+  consentDocuments ConsentDocument[]
   resetTokens   PasswordResetToken[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -39,15 +42,33 @@ model Business {
   name          String
   email         String?   @unique
   domain        String    @unique
+  businessType  BusinessType @default(GENERAL)
   ownerId       String
   owner         User      @relation("BusinessOwner", fields: [ownerId], references: [id])
   employees     User[]
   services      Service[]
   bookings      Booking[]
+  consentDocuments ConsentDocument[]
   workingHours  Json?     // Program de lucru: { "monday": { "enabled": true, "hours": ["09:00", "18:00"] }, ... }
   holidays      Holiday[] // Perioade de concediu/blocare
+  qrCodeUrl     String?
+  clientLinks   ClientBusinessLink[] @relation("BusinessLinks")
+  consentForms  ConsentForm[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+model ClientBusinessLink {
+  id         String   @id @default(cuid())
+  clientId   String
+  businessId String
+  createdAt  DateTime @default(now())
+
+  client   User     @relation("ClientLinks", fields: [clientId], references: [id])
+  business Business @relation("BusinessLinks", fields: [businessId], references: [id])
+
+  @@unique([clientId, businessId])
+  @@index([businessId])
 }
 
 model Holiday {
@@ -77,6 +98,12 @@ model Service {
   updatedAt  DateTime @updatedAt
 }
 
+enum BookingStatus {
+  PENDING_CONSENT
+  CONFIRMED
+  CANCELLED
+}
+
 model Booking {
   id         String   @id @default(cuid())
   clientId   String
@@ -89,18 +116,46 @@ model Booking {
   employee   User?    @relation("EmployeeBookings", fields: [employeeId], references: [id])
   date       DateTime
   paid       Boolean  @default(false)
-  consent    Consent?
+  status     BookingStatus @default(CONFIRMED)
+  consentForm ConsentForm? @relation("BookingConsent")
+  consentDocuments ConsentDocument[]
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
 
-model Consent {
-  id        String   @id @default(cuid())
-  bookingId String   @unique
-  booking   Booking  @relation(fields: [bookingId], references: [id])
-  signedAt  DateTime @default(now())
-  pdfUrl    String
-  signature String
+model ConsentForm {
+  id         String   @id @default(cuid())
+  bookingId  String   @unique
+  clientId   String
+  businessId String
+  pdfUrl     String
+  signature  String
+  templateType BusinessType?
+  formData   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  booking    Booking  @relation("BookingConsent", fields: [bookingId], references: [id], onDelete: Cascade)
+  client     User     @relation(fields: [clientId], references: [id])
+  business   Business @relation(fields: [businessId], references: [id])
+}
+
+model ConsentDocument {
+  id         String   @id @default(cuid())
+  bookingId  String
+  clientId   String
+  businessId String
+  pdfUrl     String
+  fileName   String?
+  source     ConsentDocumentSource
+  createdAt  DateTime @default(now())
+
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  client     User     @relation(fields: [clientId], references: [id])
+  business   Business @relation(fields: [businessId], references: [id])
+
+  @@index([clientId, businessId])
+  @@index([bookingId])
 }
 
 model EmployeeHoliday {
@@ -131,4 +186,18 @@ enum Role {
   BUSINESS
   EMPLOYEE
   CLIENT
+}
+
+enum BusinessType {
+  GENERAL
+  STOMATOLOGIE
+  BEAUTY
+  OFTALMOLOGIE
+  PSIHOLOGIE
+  TERAPIE
+}
+
+enum ConsentDocumentSource {
+  DIGITAL_SIGNATURE
+  BUSINESS_UPLOAD
 }

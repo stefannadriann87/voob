@@ -1,78 +1,561 @@
 import express = require("express");
+import type { Prisma } from "@prisma/client";
+const pdfLib = require("pdf-lib") as typeof import("pdf-lib");
+const { PDFDocument, StandardFonts } = pdfLib;
 const prisma = require("../lib/prisma").default;
+const { verifyJWT } = require("../middleware/auth");
+
+interface AuthenticatedRequest extends express.Request {
+  user?: {
+    userId: string;
+    role: string;
+  };
+}
+
+type ConsentDocumentWithBooking = Awaited<
+  ReturnType<typeof prisma.consentDocument.findMany>
+>[number];
+
+type BookingWithConsentForm = Awaited<
+  ReturnType<typeof prisma.booking.findMany>
+>[number];
 
 const router = express.Router();
 
-router.post("/", async (req, res) => {
-  const {
-    bookingId,
-    pdfUrl,
-    signature,
-  }: { bookingId?: number; pdfUrl?: string; signature?: string } = req.body;
+type BusinessType =
+  | "GENERAL"
+  | "STOMATOLOGIE"
+  | "BEAUTY"
+  | "OFTALMOLOGIE"
+  | "PSIHOLOGIE"
+  | "TERAPIE";
 
-  if (!bookingId || !pdfUrl || !signature) {
-    return res.status(400).json({
-      error: "bookingId, pdfUrl și signature sunt obligatorii.",
-    });
+const CONSENT_REQUIRED_TYPES: BusinessType[] = [
+  "STOMATOLOGIE",
+  "OFTALMOLOGIE",
+  "PSIHOLOGIE",
+  "TERAPIE",
+  "BEAUTY",
+];
+
+const consentTemplate = {
+  title: "Formular de informare și consimțământ stomatologic",
+  description:
+    "Prin completarea și semnarea acestui formular, confirmi că ai înțeles natura procedurii, riscurile și alternativele propuse.",
+  fields: [
+    { id: "patientName", label: "Numele complet al pacientului", type: "text", required: true },
+    { id: "birthDate", label: "Data nașterii", type: "date", required: true },
+    { id: "procedure", label: "Procedura recomandată", type: "text", required: true },
+    {
+      id: "treatmentDetails",
+      label: "Descriere tratament și alternative",
+      type: "textarea",
+      required: true,
+      placeholder:
+        "Include detalii despre tratamentul recomandat și alte opțiuni discutate (ex: obturație, extracție, implant).",
+    },
+    {
+      id: "risks",
+      label: "Riscuri discutate (sângerare, sensibilitate, infecții etc.)",
+      type: "textarea",
+      required: true,
+    },
+    {
+      id: "medicalNotes",
+      label: "Afecțiuni medicale / medicamente curente",
+      type: "textarea",
+      required: false,
+    },
+    {
+      id: "patientAgreement",
+      label: "Declar că am înțeles procedura și îmi dau acordul pentru efectuarea tratamentului.",
+      type: "checkbox",
+      required: true,
+    },
+  ],
+};
+
+const normalizeSignature = (signature: string) => {
+  if (!signature.startsWith("data:image")) {
+    throw new Error("Semnătura trebuie să fie în format base64 image data URL.");
+  }
+  const [, base64] = signature.split(",");
+  if (!base64) {
+    throw new Error("Semnătura nu conține date base64.");
+  }
+  return Buffer.from(base64, "base64");
+};
+
+const convertImageDataUrlToPdf = async (dataUrl: string) => {
+  const [meta, base64] = dataUrl.split(",");
+  if (!meta || !base64) {
+    throw new Error("Fișierul încărcat nu conține date valide.");
+  }
+  const mimeMatch = meta.match(/data:(.*?);base64/);
+  const mimeType = mimeMatch?.[1];
+  if (!mimeType || !mimeType.startsWith("image/")) {
+    throw new Error("Format imagine invalid.");
+  }
+  const imageBytes = Buffer.from(base64, "base64");
+  const pdfDoc = await PDFDocument.create();
+  let embeddedImage;
+  if (mimeType === "image/png") {
+    embeddedImage = await pdfDoc.embedPng(imageBytes);
+  } else {
+    embeddedImage = await pdfDoc.embedJpg(imageBytes);
+  }
+  const page = pdfDoc.addPage([embeddedImage.width, embeddedImage.height]);
+  page.drawImage(embeddedImage, {
+    x: 0,
+    y: 0,
+    width: embeddedImage.width,
+    height: embeddedImage.height,
+  });
+  const pdfBytes = await pdfDoc.save();
+  return `data:application/pdf;base64,${Buffer.from(pdfBytes).toString("base64")}`;
+};
+
+const sanitizeForPdf = (value: unknown) => {
+  if (value === undefined || value === null) {
+    return "-";
+  }
+  try {
+    const normalized = String(value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    return normalized.replace(/[^\x20-\x7E\n]/g, "?");
+  } catch {
+    return String(value);
+  }
+};
+
+const businessNeedsConsent = (type?: BusinessType | null) =>
+  !!type && CONSENT_REQUIRED_TYPES.includes(type);
+
+router.get("/template", (_req, res) => {
+  return res.json({ template: consentTemplate });
+});
+
+router.post("/sign", verifyJWT, async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const { bookingId, clientId, signature, formData } = req.body as {
+    bookingId?: string;
+    clientId?: string;
+    signature?: string;
+    formData?: Record<string, unknown>;
+  };
+
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  if (!bookingId || !clientId || !signature || !formData) {
+    return res.status(400).json({ error: "bookingId, clientId, signature și formData sunt obligatorii." });
   }
 
   try {
-    const consent = await prisma.consent.upsert({
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        client: { select: { id: true, name: true, email: true } },
+        business: { select: { id: true, name: true, businessType: true } },
+        service: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: "Booking-ul nu există." });
+    }
+
+    if (!booking.business) {
+      return res.status(404).json({ error: "Business-ul asociat nu mai există." });
+    }
+
+    if (!booking.service) {
+      return res.status(422).json({
+        error: "Serviciul asociat programării nu mai există. Reîncearcă selecția serviciului.",
+      });
+    }
+
+    if (!booking.client) {
+      return res.status(403).json({ error: "Nu am putut identifica clientul programării." });
+    }
+
+    if (booking.clientId !== clientId) {
+      return res.status(403).json({ error: "Nu poți semna pentru o programare care nu îți aparține." });
+    }
+
+    if (businessNeedsConsent(booking.business.businessType) === false) {
+      return res.status(400).json({ error: "Acest business nu necesită consimțământ digital." });
+    }
+
+    const signatureBytes = normalizeSignature(signature);
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595.28, 841.89]); // A4
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontSize = 11;
+
+    const drawText = (text: string, x: number, y: number, options: { size?: number } = {}) => {
+      page.drawText(text, { x, y, size: options.size ?? fontSize, font });
+    };
+    const drawSafeText = (value: unknown, x: number, y: number, options: { size?: number } = {}) => {
+      drawText(sanitizeForPdf(value), x, y, options);
+    };
+
+    let cursorY = 800;
+    drawSafeText("Formular informare și consimțământ stomatologic", 40, cursorY, { size: 14 });
+    cursorY -= 30;
+    drawSafeText(`Pacient: ${formData["patientName"] ?? booking.client.name ?? "-"}`, 40, cursorY);
+    cursorY -= 20;
+    drawSafeText(`Data nașterii: ${formData["birthDate"] ?? "-"}`, 40, cursorY);
+    cursorY -= 20;
+    drawSafeText(`Procedură: ${formData["procedure"] ?? booking.service.name ?? "-"}`, 40, cursorY);
+    cursorY -= 20;
+    drawSafeText(`Business: ${booking.business.name ?? "-"}`, 40, cursorY);
+    cursorY -= 20;
+    const bookingDateLabel =
+      booking.date instanceof Date ? booking.date.toLocaleString("ro-RO") : new Date(booking.date).toLocaleString("ro-RO");
+    drawSafeText(`Dată programare: ${bookingDateLabel}`, 40, cursorY);
+    cursorY -= 30;
+    drawSafeText("Descriere tratament și alternative:", 40, cursorY);
+    cursorY -= 18;
+    const wrapText = (value: unknown) => {
+      const sanitized = sanitizeForPdf(value ?? "-");
+      return sanitized.match(/.{1,90}/g) ?? [sanitized];
+    };
+    wrapText(formData["treatmentDetails"]).forEach((line) => {
+      drawSafeText(line, 40, cursorY);
+      cursorY -= 16;
+    });
+    cursorY -= 10;
+    drawSafeText("Riscuri discutate:", 40, cursorY);
+    cursorY -= 18;
+    wrapText(formData["risks"]).forEach((line) => {
+      drawSafeText(line, 40, cursorY);
+      cursorY -= 16;
+    });
+    cursorY -= 10;
+    drawSafeText("Mențiuni medicale:", 40, cursorY);
+    cursorY -= 18;
+    wrapText(formData["medicalNotes"]).forEach((line) => {
+      drawSafeText(line, 40, cursorY);
+      cursorY -= 16;
+    });
+    cursorY -= 40;
+    drawSafeText("Semnătură pacient:", 40, cursorY + 60);
+
+    try {
+      const signatureImage = await pdfDoc.embedPng(signatureBytes);
+      page.drawImage(signatureImage, {
+        x: 40,
+        y: cursorY,
+        width: 200,
+        height: 60,
+      });
+    } catch (error) {
+      console.warn("Nu am putut insera semnătura în PDF:", error);
+    }
+
+    cursorY -= 80;
+    drawSafeText(`Data semnării: ${new Date().toLocaleDateString("ro-RO")}`, 40, cursorY);
+
+    const pdfBytes = await pdfDoc.save();
+    const pdfBase64 = Buffer.from(pdfBytes).toString("base64");
+    const pdfUrl = `data:application/pdf;base64,${pdfBase64}`;
+
+    const consentForm = await prisma.consentForm.upsert({
       where: { bookingId },
       update: {
         pdfUrl,
         signature,
+        templateType: booking.business.businessType,
+        formData,
       },
       create: {
-        booking: { connect: { id: bookingId } },
+        bookingId,
+        clientId: booking.clientId,
+        businessId: booking.businessId,
         pdfUrl,
         signature,
+        templateType: booking.business.businessType,
+        formData,
       },
       include: {
         booking: {
           select: {
             id: true,
             date: true,
-            client: { select: { id: true, name: true, email: true } },
-            business: { select: { id: true, name: true } },
+            status: true,
             service: { select: { id: true, name: true } },
+            business: { select: { id: true, name: true, businessType: true } },
+            client: { select: { id: true, name: true, email: true } },
           },
         },
       },
     });
 
-    return res.status(201).json(consent);
+    await prisma.consentDocument.create({
+      data: {
+        bookingId,
+        clientId: booking.clientId,
+        businessId: booking.businessId,
+        pdfUrl,
+        fileName: null,
+        source: "DIGITAL_SIGNATURE",
+      },
+    });
+
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { status: "CONFIRMED" },
+    });
+
+    return res.status(201).json({ consentForm });
   } catch (error) {
-    console.error("Consent create error:", error);
-    return res.status(500).json({ error: "Eroare la salvarea consimțământului." });
+    console.error("Consent sign error:", error);
+    const response: { error: string; details?: string } = {
+      error: "Nu am putut genera consimțământul.",
+    };
+    if (process.env.NODE_ENV !== "production" && error instanceof Error) {
+      response.details = error.message;
+    }
+    return res.status(500).json(response);
   }
 });
 
-router.get("/:bookingId", async (req, res) => {
-  const bookingId = Number(req.params.bookingId);
+router.post("/upload", verifyJWT, async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const { bookingId, pdfDataUrl, fileName } = req.body as { bookingId?: string; pdfDataUrl?: string; fileName?: string };
 
-  if (Number.isNaN(bookingId)) {
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  if (!bookingId || !pdfDataUrl) {
+    return res.status(400).json({ error: "bookingId și pdfDataUrl sunt obligatorii." });
+  }
+
+  try {
+    let storedPdfUrl = pdfDataUrl;
+    if (pdfDataUrl.startsWith("data:image/")) {
+      storedPdfUrl = await convertImageDataUrlToPdf(pdfDataUrl);
+    } else if (!pdfDataUrl.startsWith("data:application/pdf")) {
+      return res
+        .status(400)
+        .json({ error: "Formatul fișierului trebuie să fie PDF sau imagine (PNG/JPG) în format base64." });
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        business: { select: { id: true, ownerId: true } },
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: "Booking-ul nu există." });
+    }
+
+    const employees = await prisma.user.findMany({
+      where: { businessId: booking.businessId, role: "EMPLOYEE" },
+      select: { id: true },
+    });
+
+    const isOwner = booking.business.ownerId === authReq.user.userId;
+    const isEmployee = employees.some((employee: { id: string }) => employee.id === authReq.user?.userId);
+    const isSuperAdmin = authReq.user.role === "SUPERADMIN";
+
+    if (!isOwner && !isEmployee && !isSuperAdmin) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a încărca documente pentru această rezervare." });
+    }
+
+    const consentForm = await prisma.consentForm.upsert({
+      where: { bookingId },
+      update: {
+        pdfUrl: storedPdfUrl,
+        signature: "BUSINESS_UPLOAD",
+        templateType: booking.business.businessType,
+        formData: {
+          uploadFileName: fileName ?? null,
+        },
+      },
+      create: {
+        bookingId,
+        clientId: booking.clientId,
+        businessId: booking.businessId,
+        pdfUrl: storedPdfUrl,
+        signature: "BUSINESS_UPLOAD",
+        templateType: booking.business.businessType,
+        formData: {
+          uploadFileName: fileName ?? null,
+        },
+      },
+    });
+
+    await prisma.consentDocument.create({
+      data: {
+        bookingId,
+        clientId: booking.clientId,
+        businessId: booking.businessId,
+        pdfUrl: storedPdfUrl,
+        fileName: fileName ?? null,
+        source: "BUSINESS_UPLOAD",
+      },
+    });
+
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { status: "CONFIRMED" },
+    });
+
+    return res.status(201).json({ consentForm });
+  } catch (error) {
+    console.error("Consent upload error:", error);
+    return res.status(500).json({ error: "Nu am putut încărca documentul." });
+  }
+});
+
+router.get("/client/:clientId", verifyJWT, async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const { clientId } = req.params;
+  const { businessId } = req.query as { businessId?: string };
+
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  if (!clientId || !businessId) {
+    return res.status(400).json({ error: "clientId și businessId sunt obligatorii." });
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { ownerId: true, employees: { select: { id: true } } },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    const isOwner = business.ownerId === authReq.user.userId;
+    const isEmployee = business.employees.some((employee: { id: string }) => employee.id === authReq.user!.userId);
+    const isSuperAdmin = authReq.user.role === "SUPERADMIN";
+
+    if (!isOwner && !isEmployee && !isSuperAdmin) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza documentele acestui client." });
+    }
+
+    const documents = await prisma.consentDocument.findMany({
+      where: { businessId, clientId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        booking: {
+          select: {
+            id: true,
+            date: true,
+            service: { select: { id: true, name: true } },
+            employee: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    const bookingIdsWithDocuments = new Set(
+      documents.map((doc: ConsentDocumentWithBooking) => doc.bookingId)
+    );
+
+    const legacyBookings = await prisma.booking.findMany({
+      where: {
+        businessId,
+        clientId,
+        consentForm: {
+          isNot: null,
+        },
+      },
+      include: {
+        consentForm: {
+          select: { id: true, pdfUrl: true, createdAt: true },
+        },
+        service: { select: { id: true, name: true } },
+        employee: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    const legacyDocuments = legacyBookings
+      .filter(
+        (booking: BookingWithConsentForm) =>
+          booking.consentForm?.pdfUrl && !bookingIdsWithDocuments.has(booking.id)
+      )
+      .map((booking: BookingWithConsentForm) => ({
+        id: `legacy-${booking.id}`,
+        bookingId: booking.id,
+        clientId: booking.clientId,
+        businessId: booking.businessId,
+        pdfUrl: booking.consentForm?.pdfUrl ?? "",
+        fileName: `consent-${booking.service?.name ?? "document"}.pdf`,
+        source: "DIGITAL_SIGNATURE" as const,
+        createdAt: booking.consentForm?.createdAt ?? booking.createdAt,
+        booking: {
+          id: booking.id,
+          date: booking.date,
+          service: booking.service ? { id: booking.service.id, name: booking.service.name } : null,
+          employee: booking.employee ? { id: booking.employee.id, name: booking.employee.name, email: booking.employee.email } : null,
+        },
+      }));
+
+    const mergedDocuments = [...documents, ...legacyDocuments].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    return res.json({ documents: mergedDocuments });
+  } catch (error) {
+    console.error("Consent client documents error:", error);
+    const response: { error: string; details?: string } = {
+      error: "Nu am putut prelua documentele clientului.",
+    };
+    if (process.env.NODE_ENV !== "production" && error instanceof Error) {
+      response.details = error.message;
+    }
+    return res.status(500).json(response);
+  }
+});
+
+router.get("/:bookingId", verifyJWT, async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const bookingId = req.params.bookingId;
+
+  if (!bookingId) {
     return res.status(400).json({ error: "bookingId invalid." });
   }
 
   try {
-    const consent = await prisma.consent.findUnique({
+    const consent = await prisma.consentForm.findUnique({
       where: { bookingId },
       include: {
         booking: {
           select: {
             id: true,
             date: true,
-            client: { select: { id: true, name: true, email: true } },
-            business: { select: { id: true, name: true } },
+            status: true,
             service: { select: { id: true, name: true } },
+            business: { select: { id: true, name: true, businessType: true, ownerId: true } },
+            client: { select: { id: true, name: true, email: true } },
           },
         },
       },
     });
 
     if (!consent) {
-      return res.status(404).json({ error: "Consimțământ inexistent pentru booking." });
+      return res.status(404).json({ error: "Consimțământ inexistent pentru această rezervare." });
+    }
+
+    const isOwner = consent.booking.business.ownerId === authReq.user?.userId;
+    const isClient = consent.booking.client.id === authReq.user?.userId;
+    const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
+
+    if (!isOwner && !isClient && !isSuperAdmin) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a accesa acest consimțământ." });
     }
 
     return res.json(consent);
@@ -82,5 +565,83 @@ router.get("/:bookingId", async (req, res) => {
   }
 });
 
-export = router;
+router.get("/", verifyJWT, async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const { businessId, date, search } = req.query as { businessId?: string; date?: string; search?: string };
 
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: {
+        ownerId: true,
+        employees: { select: { id: true } },
+      },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    const isOwner = business.ownerId === authReq.user.userId;
+    const isEmployee = business.employees.some((employee: { id: string }) => employee.id === authReq.user!.userId);
+    const isSuperAdmin = authReq.user.role === "SUPERADMIN";
+
+    if (!isOwner && !isEmployee && !isSuperAdmin) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza consimțămintele acestui business." });
+    }
+
+    const referenceDate = date ? new Date(date) : new Date();
+    if (Number.isNaN(referenceDate.getTime())) {
+      return res.status(400).json({ error: "Data selectată nu este validă." });
+    }
+
+    const dayStart = new Date(referenceDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    const whereClause: Prisma.BookingWhereInput = {
+      businessId,
+      date: {
+        gte: dayStart,
+        lt: dayEnd,
+      },
+    };
+
+    const trimmedSearch = search?.trim();
+    if (trimmedSearch) {
+      whereClause.OR = [
+        { client: { name: { contains: trimmedSearch, mode: "insensitive" } } },
+        { client: { email: { contains: trimmedSearch, mode: "insensitive" } } },
+      ];
+    }
+
+    const bookings = await prisma.booking.findMany({
+      where: whereClause,
+      orderBy: { date: "asc" },
+      include: {
+        client: { select: { id: true, name: true, email: true, phone: true } },
+        service: { select: { id: true, name: true, duration: true, price: true } },
+        employee: { select: { id: true, name: true, email: true } },
+        consentForm: {
+          select: { id: true, pdfUrl: true, templateType: true, createdAt: true },
+        },
+      },
+    });
+
+    return res.json({ bookings });
+  } catch (error) {
+    console.error("Consent list error:", error);
+    return res.status(500).json({ error: "Nu am putut prelua consimțămintele." });
+  }
+});
+
+export = router;

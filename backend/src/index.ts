@@ -7,6 +7,7 @@ import bookingRouter = require("./routes/booking");
 import consentRouter = require("./routes/consent");
 import employeeRouter = require("./routes/employee");
 const aiRouter = require("./ai/router");
+import clientRouter = require("./routes/client");
 
 dotenv.config();
 const app = express();
@@ -16,7 +17,8 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
-app.use(express.json());
+app.use(express.json({ limit: "12mb" }));
+app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 
 app.get("/", (req, res) => {
   res.json({ message: "LARSTEF API running ✅" });
@@ -27,6 +29,7 @@ app.use("/business", businessRouter);
 app.use("/booking", bookingRouter);
 app.use("/consent", consentRouter);
 app.use("/employee", employeeRouter);
+app.use("/client", clientRouter);
 app.use("/api/ai", aiRouter);
 
 const PORT = process.env.PORT || 4000;

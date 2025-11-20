@@ -2,8 +2,32 @@ import express = require("express");
 import bcrypt = require("bcryptjs");
 const prisma = require("../lib/prisma").default;
 import type { Prisma } from "@prisma/client";
+const { BusinessType } = require("@prisma/client");
+const { verifyJWT } = require("../middleware/auth");
+const {
+  generateBusinessQrDataUrl,
+  generateBusinessQrBuffer,
+  generateBusinessQrSvg,
+} = require("../lib/qr");
 
 const router = express.Router();
+
+const defaultBusinessInclude = {
+  owner: {
+    select: { id: true, email: true, name: true },
+  },
+  services: true,
+  employees: {
+    select: { id: true, name: true, email: true, phone: true, specialization: true, avatar: true },
+  },
+};
+
+interface AuthenticatedRequest extends express.Request {
+  user?: {
+    userId: string;
+    role: string;
+  };
+}
 
 router.post("/", async (req, res) => {
   const {
@@ -12,17 +36,24 @@ router.post("/", async (req, res) => {
     ownerId,
     services,
     employeeIds,
+    businessType,
   }: {
     name?: string;
     domain?: string;
     ownerId?: string;
     services?: { name: string; duration: number; price: number }[];
     employeeIds?: string[];
+    businessType?: string;
   } = req.body;
 
   if (!name || !domain || !ownerId) {
     return res.status(400).json({ error: "name, domain și ownerId sunt obligatorii." });
   }
+
+  const normalizedBusinessType =
+    typeof businessType === "string" && Object.values(BusinessType).includes(businessType.toUpperCase())
+      ? (businessType.toUpperCase() as typeof BusinessType[keyof typeof BusinessType])
+      : BusinessType.GENERAL;
 
   try {
     const servicePayload =
@@ -34,11 +65,12 @@ router.post("/", async (req, res) => {
 
     const employeeConnect = employeeIds?.map((id) => ({ id })) ?? [];
 
-    const business = await prisma.business.create({
+    const createdBusiness = await prisma.business.create({
       data: {
         name,
         domain,
         owner: { connect: { id: ownerId } },
+        businessType: normalizedBusinessType,
         ...(servicePayload.length > 0
           ? {
               services: {
@@ -54,15 +86,21 @@ router.post("/", async (req, res) => {
             }
           : {}),
       },
-      include: {
-        owner: {
-          select: { id: true, email: true, name: true },
-        },
-        services: true,
-        employees: {
-          select: { id: true, name: true, email: true, phone: true, specialization: true, avatar: true },
-        },
-      },
+    });
+
+    try {
+      const { dataUrl } = await generateBusinessQrDataUrl(createdBusiness.id);
+      await prisma.business.update({
+        where: { id: createdBusiness.id },
+        data: { qrCodeUrl: dataUrl },
+      });
+    } catch (qrError) {
+      console.error("Business QR generation error:", qrError);
+    }
+
+    const business = await prisma.business.findUnique({
+      where: { id: createdBusiness.id },
+      include: defaultBusinessInclude,
     });
 
     return res.status(201).json(business);
@@ -75,21 +113,95 @@ router.post("/", async (req, res) => {
 router.get("/", async (_req, res) => {
   try {
     const businesses = await prisma.business.findMany({
-      include: {
-        services: true,
-        owner: {
-          select: { id: true, name: true, email: true },
-        },
-        employees: {
-          select: { id: true, name: true, email: true, phone: true, specialization: true, avatar: true },
-        },
-      },
+      include: defaultBusinessInclude,
     });
 
     return res.json(businesses);
   } catch (error) {
     console.error("Business list error:", error);
     return res.status(500).json({ error: "Eroare la listarea business-urilor." });
+  }
+});
+
+router.post("/:businessId/generate-qr", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const authReq = req as AuthenticatedRequest;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, ownerId: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    if (
+      !authReq.user ||
+      (authReq.user.role !== "SUPERADMIN" && authReq.user.userId !== business.ownerId)
+    ) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a regenera acest QR." });
+    }
+
+    const { dataUrl } = await generateBusinessQrDataUrl(businessId);
+    const updated = await prisma.business.update({
+      where: { id: businessId },
+      data: { qrCodeUrl: dataUrl },
+      select: { id: true, qrCodeUrl: true },
+    });
+
+    return res.json({ qrCodeUrl: updated.qrCodeUrl });
+  } catch (error) {
+    console.error("Regenerate QR error:", error);
+    return res.status(500).json({ error: "Nu am putut regenera codul QR." });
+  }
+});
+
+router.get("/:businessId/qr", async (req, res) => {
+  const { businessId } = req.params;
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, name: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    const formatParam = typeof req.query.format === "string" ? req.query.format.toLowerCase() : "png";
+    const format = formatParam === "svg" ? "svg" : "png";
+    const downloadParam = typeof req.query.download === "string" ? req.query.download.toLowerCase() : "";
+    const download = ["1", "true", "yes"].includes(downloadParam);
+    const fileName = `larstef-${business.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-") || business.id.slice(0, 8)}.${format}`;
+
+    if (format === "svg") {
+      const { svg } = await generateBusinessQrSvg(businessId);
+      res.setHeader("Content-Type", "image/svg+xml");
+      if (download) {
+        res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      }
+      return res.send(svg);
+    }
+
+    const { buffer } = await generateBusinessQrBuffer(businessId);
+    res.setHeader("Content-Type", "image/png");
+    if (download) {
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    }
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Business QR download error:", error);
+    return res.status(500).json({ error: "Nu am putut genera codul QR." });
   }
 });
 

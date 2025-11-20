@@ -4,9 +4,10 @@ import jwt = require("jsonwebtoken");
 import nodemailer = require("nodemailer");
 const { randomBytes } = require("node:crypto");
 const prisma = require("../lib/prisma").default;
-const { Role } = require("@prisma/client");
-import type { Role as RoleType } from "@prisma/client";
+const { Role, BusinessType } = require("@prisma/client");
+import type { Role as RoleType, BusinessType as BusinessTypeType } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
+const { generateBusinessQrDataUrl } = require("../lib/qr");
 
 const router = express.Router();
 
@@ -87,6 +88,7 @@ router.post("/register", async (req, res) => {
     phone,
     role,
     businessName,
+    businessType,
   }: {
     email?: string;
     password?: string;
@@ -94,6 +96,7 @@ router.post("/register", async (req, res) => {
     phone?: string;
     role?: RoleType | string;
     businessName?: string;
+    businessType?: BusinessTypeType | string;
   } = req.body;
 
   if (!email || !password || !name) {
@@ -114,6 +117,19 @@ router.post("/register", async (req, res) => {
 
   if (normalizedRole === Role.BUSINESS && !businessName?.trim()) {
     return res.status(400).json({ error: "Numele businessului este obligatoriu pentru conturile Business." });
+  }
+
+  let normalizedBusinessType: BusinessTypeType = BusinessType.GENERAL;
+  if (businessType) {
+    const candidate =
+      typeof businessType === "string" ? businessType.toUpperCase() : (businessType as BusinessTypeType);
+    if (Object.values(BusinessType).includes(candidate as BusinessTypeType)) {
+      normalizedBusinessType = candidate as BusinessTypeType;
+    } else {
+      return res
+        .status(400)
+        .json({ error: `Tipul de business trebuie să fie unul dintre: ${Object.values(BusinessType).join(", ")}.` });
+    }
   }
 
   try {
@@ -142,6 +158,7 @@ router.post("/register", async (req, res) => {
             email,
             domain: slugify(businessName!),
             ownerId: createdUser.id,
+            businessType: normalizedBusinessType,
             employees: {
               connect: { id: createdUser.id },
             },
@@ -155,7 +172,18 @@ router.post("/register", async (req, res) => {
           },
         });
 
-        return { user: createdUser, business };
+        let businessWithQr = business;
+        try {
+          const { dataUrl } = await generateBusinessQrDataUrl(business.id);
+          businessWithQr = await tx.business.update({
+            where: { id: business.id },
+            data: { qrCodeUrl: dataUrl },
+          });
+        } catch (qrError) {
+          console.error("Register QR generation error:", qrError);
+        }
+
+        return { user: createdUser, business: businessWithQr };
       }
 
       return { user: createdUser, business: null };

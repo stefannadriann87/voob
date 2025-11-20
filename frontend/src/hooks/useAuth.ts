@@ -2,6 +2,7 @@ import { AxiosError } from "axios";
 import { useCallback, useEffect, useState } from "react";
 import { jwtDecode } from "jwt-decode";
 import useApi from "./useApi";
+import type { BusinessTypeValue } from "../constants/businessTypes";
 
 export type Role = "CLIENT" | "BUSINESS" | "EMPLOYEE" | "SUPERADMIN";
 
@@ -35,6 +36,7 @@ interface RegisterPayload {
   phone?: string;
   role?: Role;
   businessName?: string;
+  businessType?: BusinessTypeValue;
 }
 
 interface JwtPayload {
@@ -108,7 +110,7 @@ export default function useAuth() {
   );
 
   const register = useCallback(
-    async ({ email, password, name, phone, role, businessName }: RegisterPayload) => {
+    async ({ email, password, name, phone, role, businessName, businessType }: RegisterPayload) => {
       setLoading(true);
       setError(null);
       try {
@@ -119,6 +121,7 @@ export default function useAuth() {
           phone,
           role,
           businessName,
+          businessType,
         });
         return data.user;
       } catch (err) {

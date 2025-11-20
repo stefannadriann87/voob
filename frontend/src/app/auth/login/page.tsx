@@ -3,12 +3,13 @@
 import { FormEvent, useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "../../../components/Navbar";
 import useAuth, { Role } from "../../../hooks/useAuth";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, error, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,6 +28,11 @@ export default function LoginPage() {
         : { email, password, role };
       
       const loggedUser = await login(loginPayload);
+      const redirectTo = searchParams.get("redirect");
+      if (redirectTo) {
+        router.push(redirectTo);
+        return;
+      }
       switch (loggedUser.role) {
         case "BUSINESS":
           router.push("/business/dashboard");

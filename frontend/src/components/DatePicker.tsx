@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 
 interface DatePickerProps {
   value: string; // Format: YYYY-MM-DD
@@ -11,19 +11,38 @@ interface DatePickerProps {
   placeholder?: string;
 }
 
+const parseDateString = (dateString: string) => {
+  const [year, month, day] = dateString.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+};
+
+const formatDateString = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export default function DatePicker({ value, onChange, minDate, maxDate, label, placeholder }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() => {
     if (value) {
-      const date = new Date(value);
+      const date = parseDateString(value);
       return new Date(date.getFullYear(), date.getMonth(), 1);
     }
     return new Date();
   });
 
-  const selectedDate = value ? new Date(value) : null;
-  const minDateObj = minDate ? new Date(minDate) : null;
-  const maxDateObj = maxDate ? new Date(maxDate) : null;
+  const selectedDate = value ? parseDateString(value) : null;
+  const minDateObj = minDate ? parseDateString(minDate) : null;
+  const maxDateObj = maxDate ? parseDateString(maxDate) : null;
+
+  useEffect(() => {
+    if (value) {
+      const date = parseDateString(value);
+      setViewMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    }
+  }, [value]);
 
   const currentMonth = viewMonth.getMonth();
   const currentYear = viewMonth.getFullYear();
@@ -55,7 +74,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     (day: number) => {
       const date = new Date(currentYear, currentMonth, day);
       date.setHours(0, 0, 0, 0);
-      const dateString = date.toISOString().split("T")[0];
+      const dateString = formatDateString(date);
 
       // Check if date is within min/max range
       if (minDateObj) {
@@ -88,7 +107,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     setViewMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     if (!minDateObj || today >= minDateObj) {
       if (!maxDateObj || today <= maxDateObj) {
-        onChange(today.toISOString().split("T")[0]);
+        onChange(formatDateString(today));
         setIsOpen(false);
       }
     }
@@ -134,7 +153,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     if (!selectedDate) {
       const today = new Date();
       today.setDate(today.getDate() - 7);
-      const dateString = today.toISOString().split("T")[0];
+      const dateString = formatDateString(today);
       if (!minDateObj || today >= minDateObj) {
         if (!maxDateObj || today <= maxDateObj) {
           onChange(dateString);
@@ -144,7 +163,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     }
     const newDate = new Date(selectedDate);
     newDate.setDate(newDate.getDate() - 7);
-    const dateString = newDate.toISOString().split("T")[0];
+    const dateString = formatDateString(newDate);
     
     // Check if date is within min/max range
     if (minDateObj) {
@@ -165,7 +184,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     if (!selectedDate) {
       const today = new Date();
       today.setDate(today.getDate() + 7);
-      const dateString = today.toISOString().split("T")[0];
+      const dateString = formatDateString(today);
       if (!minDateObj || today >= minDateObj) {
         if (!maxDateObj || today <= maxDateObj) {
           onChange(dateString);
@@ -175,7 +194,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     }
     const newDate = new Date(selectedDate);
     newDate.setDate(newDate.getDate() + 7);
-    const dateString = newDate.toISOString().split("T")[0];
+    const dateString = formatDateString(newDate);
     
     // Check if date is within min/max range
     if (minDateObj) {

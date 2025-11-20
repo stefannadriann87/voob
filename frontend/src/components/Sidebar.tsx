@@ -13,6 +13,7 @@ import {
   LogOut,
   User,
   DollarSign,
+  QrCode,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import useAuth, { Role } from "../hooks/useAuth";
@@ -37,6 +38,7 @@ const menuConfig: Record<Role, MenuItem[]> = {
     { label: "Programări", path: "/business/bookings", icon: CalendarDays },
     { label: "Consimțăminte", path: "/business/consents", icon: FileText },
     { label: "Setări", path: "/business/settings", icon: Settings },
+    { label: "Profil", path: "/business/profile", icon: User },
   ],
   EMPLOYEE: [
     { label: "Dashboard", path: "/employee/dashboard", icon: LayoutDashboard },
@@ -48,6 +50,7 @@ const menuConfig: Record<Role, MenuItem[]> = {
   CLIENT: [
     { label: "Dashboard", path: "/client/dashboard", icon: LayoutDashboard },
     { label: "Rezervări", path: "/client/bookings", icon: CalendarDays },
+    { label: "Scanează QR", path: "/client/scan-qr", icon: QrCode },
     { label: "Profil", path: "/client/profile", icon: User },
   ],
 };

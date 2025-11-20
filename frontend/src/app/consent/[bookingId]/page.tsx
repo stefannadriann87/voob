@@ -3,15 +3,34 @@
 import { AxiosError } from "axios";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Head from "next/head";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Navbar from "../../../components/Navbar";
 import useAuth from "../../../hooks/useAuth";
 import useBookings, { Booking } from "../../../hooks/useBookings";
 import useApi from "../../../hooks/useApi";
 
+type BaseField = {
+  id: string;
+  label: string;
+  required?: boolean;
+  helperText?: string;
+};
+
+type ConsentTemplateField =
+  | (BaseField & { type: "text" | "date"; placeholder?: string })
+  | (BaseField & { type: "textarea"; placeholder?: string })
+  | (BaseField & { type: "checkbox" });
+
+interface ConsentTemplate {
+  title: string;
+  description: string;
+  fields: ConsentTemplateField[];
+}
+
 export default function ConsentPage() {
   const router = useRouter();
   const params = useParams<{ bookingId: string }>();
+  const searchParams = useSearchParams();
   const { user, hydrated } = useAuth();
   const { getBooking } = useBookings();
   const api = useApi();
@@ -20,8 +39,11 @@ export default function ConsentPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pdfUrl, setPdfUrl] = useState("");
   const [success, setSuccess] = useState<string | null>(null);
+  const [formValues, setFormValues] = useState<Record<string, boolean | string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [template, setTemplate] = useState<ConsentTemplate | null>(null);
+  const [templateLoading, setTemplateLoading] = useState(true);
 
   useEffect(() => {
     if (!hydrated) {
@@ -37,7 +59,6 @@ export default function ConsentPage() {
       try {
         const result = await getBooking(params.bookingId);
         setBooking(result);
-        setPdfUrl(result.consent?.pdfUrl ?? "");
       } catch (error) {
         setError(error instanceof Error ? error.message : "Rezervarea nu a fost găsită.");
       } finally {
@@ -47,6 +68,25 @@ export default function ConsentPage() {
 
     void fetch();
   }, [hydrated, user, params, getBooking, router]);
+
+  useEffect(() => {
+    const fetchTemplate = async () => {
+      try {
+        const { data } = await api.get<{ template: ConsentTemplate }>("/consent/template");
+        setTemplate(data.template);
+      } catch (err) {
+        const axiosError = err as AxiosError<{ error?: string }>;
+        const message =
+          axiosError.response?.data?.error ??
+          axiosError.message ??
+          (err instanceof Error ? err.message : "Nu am putut încărca formularul de consimțământ.");
+        setError(message);
+      } finally {
+        setTemplateLoading(false);
+      }
+    };
+    void fetchTemplate();
+  }, [api]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -110,24 +150,62 @@ export default function ConsentPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!booking || !template) return;
+    const existing = (booking.consentForm?.formData as Record<string, unknown> | null) ?? {};
+    const initial: Record<string, boolean | string> = {};
+    template.fields.forEach((field) => {
+      const storedValue = existing[field.id];
+      if (field.type === "checkbox") {
+        initial[field.id] = storedValue !== undefined ? Boolean(storedValue) : false;
+      } else if (typeof storedValue === "string") {
+        initial[field.id] = storedValue;
+      } else if (field.id === "patientName") {
+        initial[field.id] = booking.client.name;
+      } else if (field.id === "procedure") {
+        initial[field.id] = booking.service.name;
+      } else {
+        initial[field.id] = "";
+      }
+    });
+    setFormValues(initial);
+  }, [booking, template]);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!booking) return;
+    if (!booking || !template) return;
+    setFormError(null);
+
+    const missingField = template.fields.find((field) => {
+      if (!field.required) return false;
+      const value = formValues[field.id];
+      if (field.type === "checkbox") {
+        return !value;
+      }
+      return !(typeof value === "string" && value.trim().length > 0);
+    });
+
+    if (missingField) {
+      setFormError("Te rugăm să completezi toate câmpurile obligatorii înainte de semnătură.");
+      return;
+    }
 
     try {
       const canvas = canvasRef.current;
       if (!canvas) throw new Error("Semnătura nu este disponibilă.");
       const signature = canvas.toDataURL("image/png");
 
-      await api.post("/consent", {
+      await api.post("/consent/sign", {
         bookingId: booking.id,
-        pdfUrl: pdfUrl || "https://larstef-storage.local/consent-placeholder.pdf",
+        clientId: booking.clientId,
         signature,
+        formData: formValues,
       });
 
       setSuccess("Consimțământul a fost salvat. Mulțumim!");
       setTimeout(() => {
-        router.push("/client/bookings");
+        const redirect = searchParams?.get("redirect");
+        router.push(redirect ?? "/client/bookings");
       }, 1500);
     } catch (error) {
       const axiosError = error as AxiosError<{ error?: string }>;
@@ -176,17 +254,87 @@ export default function ConsentPage() {
             </p>
           )}
 
-          {!loading && booking && (
+          {!loading && !templateLoading && booking && template && (
             <form onSubmit={handleSubmit} className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-white/5 p-6">
-              <label className="flex flex-col gap-3 text-sm">
-                <span className="text-white/70">Link către PDF generat</span>
-                <input
-                  value={pdfUrl}
-                  onChange={(event) => setPdfUrl(event.target.value)}
-                  placeholder="https://..."
-                  className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                />
-              </label>
+              {template && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                  <h2 className="text-lg font-semibold text-white">{template.title}</h2>
+                  <p className="mt-1 text-white/60">{template.description}</p>
+                </div>
+              )}
+              <section className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <h2 className="text-lg font-semibold text-white">{template.title}</h2>
+                <p className="mt-1 text-sm text-white/60">{template.description}</p>
+                <div className="mt-4 flex flex-col gap-4">
+                  {template.fields.map((field) => {
+                    if (field.type === "checkbox") {
+                      return (
+                        <label key={field.id} className="flex items-start gap-3 text-sm text-white/80">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(formValues[field.id])}
+                            onChange={(event) => {
+                              setFormError(null);
+                              setFormValues((prev) => ({ ...prev, [field.id]: event.target.checked }));
+                            }}
+                            className="mt-1 h-4 w-4 rounded border-white/30 text-[#6366F1] focus:ring-[#6366F1]"
+                          />
+                          <span>
+                            {field.label}
+                            {field.required && <span className="ml-1 text-[#F59E0B]">*</span>}
+                            {"helperText" in field && field.helperText && (
+                              <p className="text-xs text-white/50">{field.helperText}</p>
+                            )}
+                          </span>
+                        </label>
+                      );
+                    }
+
+                    if (field.type === "textarea") {
+                      return (
+                        <label key={field.id} className="flex flex-col gap-2 text-sm text-white/80">
+                          <span>
+                            {field.label}
+                            {field.required && <span className="ml-1 text-[#F59E0B]">*</span>}
+                          </span>
+                          <textarea
+                            rows={4}
+                            placeholder={"placeholder" in field ? field.placeholder : undefined}
+                            value={(formValues[field.id] as string) ?? ""}
+                            onChange={(event) => {
+                              setFormError(null);
+                              setFormValues((prev) => ({ ...prev, [field.id]: event.target.value }));
+                            }}
+                            className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                          />
+                          {"helperText" in field && field.helperText && (
+                            <span className="text-xs text-white/50">{field.helperText}</span>
+                          )}
+                        </label>
+                      );
+                    }
+
+                    return (
+                      <label key={field.id} className="flex flex-col gap-2 text-sm text-white/80">
+                        <span>
+                          {field.label}
+                          {field.required && <span className="ml-1 text-[#F59E0B]">*</span>}
+                        </span>
+                        <input
+                          type={field.type === "date" ? "date" : "text"}
+                          placeholder={"placeholder" in field ? field.placeholder : undefined}
+                          value={(formValues[field.id] as string) ?? ""}
+                          onChange={(event) => {
+                            setFormError(null);
+                            setFormValues((prev) => ({ ...prev, [field.id]: event.target.value }));
+                          }}
+                          className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </section>
 
               <div>
                 <div className="flex items-center justify-between">
@@ -215,6 +363,12 @@ export default function ConsentPage() {
                   Semnează direct cu degetul sau cu mouse-ul. Semnătura este salvată în format criptat (base64).
                 </p>
               </div>
+
+              {formError && (
+                <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+                  {formError}
+                </p>
+              )}
 
               {success && (
                 <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200">

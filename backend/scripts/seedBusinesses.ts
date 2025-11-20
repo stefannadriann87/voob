@@ -1,7 +1,7 @@
 import bcrypt = require("bcryptjs");
 import prismaClient = require("@prisma/client");
 
-const { PrismaClient, Role } = prismaClient;
+const { PrismaClient, Role, BusinessType } = prismaClient;
 const prisma = new PrismaClient();
 
 async function seedBusinesses() {
@@ -22,11 +22,12 @@ async function seedBusinesses() {
 
   const dentistBusiness = await prisma.business.upsert({
     where: { domain: "cabinet-stomatologic-dentist" },
-    update: {},
+    update: { businessType: BusinessType.STOMATOLOGIE },
     create: {
       name: "Cabinet Stomatologic Dr. Popescu",
       email: "contact@dentist.ro",
       domain: "cabinet-stomatologic-dentist",
+      businessType: BusinessType.STOMATOLOGIE,
       owner: { connect: { id: dentistOwner.id } },
       services: {
         create: [
@@ -98,11 +99,12 @@ async function seedBusinesses() {
 
   const lawyerBusiness = await prisma.business.upsert({
     where: { domain: "cabinet-avocat-ionescu" },
-    update: {},
+    update: { businessType: BusinessType.GENERAL },
     create: {
       name: "Cabinet Avocat Ionescu",
       email: "contact@avocat.ro",
       domain: "cabinet-avocat-ionescu",
+      businessType: BusinessType.GENERAL,
       owner: { connect: { id: lawyerOwner.id } },
       services: {
         create: [
@@ -158,11 +160,12 @@ async function seedBusinesses() {
 
   const psychologistBusiness = await prisma.business.upsert({
     where: { domain: "cabinet-psiholog-maria" },
-    update: {},
+    update: { businessType: BusinessType.PSIHOLOGIE },
     create: {
       name: "Cabinet Psiholog Maria",
       email: "contact@psiholog.ro",
       domain: "cabinet-psiholog-maria",
+      businessType: BusinessType.PSIHOLOGIE,
       owner: { connect: { id: psychologistOwner.id } },
       services: {
         create: [
@@ -218,11 +221,12 @@ async function seedBusinesses() {
 
   const cosmetologyBusiness = await prisma.business.upsert({
     where: { domain: "salon-beauty-cosmetica" },
-    update: {},
+    update: { businessType: BusinessType.BEAUTY },
     create: {
       name: "Salon Beauty Cosmetica",
       email: "contact@cosmetica.ro",
       domain: "salon-beauty-cosmetica",
+      businessType: BusinessType.BEAUTY,
       owner: { connect: { id: cosmetologyOwner.id } },
       services: {
         create: [
@@ -281,8 +285,68 @@ async function seedBusinesses() {
     },
   });
 
-  console.log("✅ Business-uri create cu succes:");
-  console.table([
+  // 5. Salon Hair Cut
+  const hairOwner = await prisma.user.upsert({
+    where: { email: "haircut@larstef.app" },
+    update: {},
+    create: {
+      email: "haircut@larstef.app",
+      name: "Hair Cut Studio",
+      password: hashedPassword,
+      role: Role.BUSINESS,
+    },
+  });
+
+  const hairBusiness = (await prisma.business.upsert({
+    where: { domain: "salon-haircut-studio" },
+    update: { businessType: BusinessType.BEAUTY },
+    create: {
+      name: "Hair Cut Studio",
+      email: "contact@haircut.ro",
+      domain: "salon-haircut-studio",
+      businessType: BusinessType.BEAUTY,
+      owner: { connect: { id: hairOwner.id } },
+      services: {
+        create: [
+          { name: "Tuns clasic", duration: 45, price: 130 },
+          { name: "Tuns + aranjat", duration: 60, price: 160 },
+          { name: "Barbierit", duration: 30, price: 90 },
+          { name: "Spalat si styling", duration: 25, price: 70 },
+          { name: "Tratament par", duration: 40, price: 120 },
+        ],
+      },
+    },
+    include: { services: true, employees: true },
+  })) as typeof dentistBusiness;
+
+  const hairEmployee = await prisma.user.upsert({
+    where: { email: "andrei@haircut.ro" },
+    update: {
+      businessId: hairBusiness.id,
+    },
+    create: {
+      email: "andrei@haircut.ro",
+      name: "Andrei Barber",
+      password: hashedPassword,
+      role: Role.EMPLOYEE,
+      phone: "+40 745 333 222",
+      businessId: hairBusiness.id,
+    },
+  });
+
+  await prisma.business.update({
+    where: { id: hairBusiness.id },
+    data: {
+      employees: {
+        connect: [
+          { id: hairOwner.id },
+          { id: hairEmployee.id },
+        ],
+      },
+    },
+  });
+
+  const summary = [
     {
       Business: dentistBusiness.name,
       Domain: dentistBusiness.domain,
@@ -311,7 +375,17 @@ async function seedBusinesses() {
       Employees: cosmetologyBusiness.employees.length,
       Owner: cosmetologyOwner.email,
     },
-  ]);
+    {
+      Business: hairBusiness.name,
+      Domain: hairBusiness.domain,
+      Services: hairBusiness.services.length,
+      Employees: hairBusiness.employees.length,
+      Owner: hairOwner.email,
+    },
+  ];
+
+  console.log("✅ Business-uri create cu succes:");
+  console.table(summary);
 
   console.log("\n📧 Credentiale pentru login:");
   console.table([
@@ -319,6 +393,7 @@ async function seedBusinesses() {
     { Business: "Cabinet Avocat", Email: lawyerOwner.email, Password: passwordPlain },
     { Business: "Cabinet Psiholog", Email: psychologistOwner.email, Password: passwordPlain },
     { Business: "Salon Beauty", Email: cosmetologyOwner.email, Password: passwordPlain },
+    { Business: "Hair Cut Studio", Email: hairOwner.email, Password: passwordPlain },
   ]);
 }
 
