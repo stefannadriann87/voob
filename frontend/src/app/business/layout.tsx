@@ -55,7 +55,7 @@ export default function BusinessLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
       <NotificationBell />
-      <AIChatWidget />
+      <AIChatWidget onBookingCreated={undefined} />
     </div>
   );
 }

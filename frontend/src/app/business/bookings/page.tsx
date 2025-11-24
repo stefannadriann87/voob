@@ -77,6 +77,7 @@ export default function BusinessBookingsPage() {
   });
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
+  const [hoveredAvailableSlot, setHoveredAvailableSlot] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [tooltipBooking, setTooltipBooking] = useState<Booking | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number; showAbove: boolean } | null>(null);
@@ -159,6 +160,19 @@ export default function BusinessBookingsPage() {
     }
     void Promise.all([fetchBookings(), fetchBusinesses()]);
   }, [hydrated, user, fetchBookings, fetchBusinesses, router]);
+
+  // Listen for booking created events from AI chat
+  useEffect(() => {
+    const handleBookingCreated = () => {
+      console.log("🔄 Refreshing bookings after AI created a booking");
+      void fetchBookings();
+    };
+
+    window.addEventListener("larstef:booking-created", handleBookingCreated);
+    return () => {
+      window.removeEventListener("larstef:booking-created", handleBookingCreated);
+    };
+  }, [fetchBookings]);
 
   // Fetch clients when modal opens or search query changes
   useEffect(() => {
@@ -438,25 +452,35 @@ export default function BusinessBookingsPage() {
                         const slotStartMs = slotDate.getTime();
                         const hoveredStartMs = hoveredSlot ? new Date(hoveredSlot).getTime() : null;
                         const hoveredDayString = hoveredSlot ? new Date(hoveredSlot).toDateString() : null;
+                        const isHoveredAvailable = hoveredAvailableSlot === slot.iso && slot.status === "available";
 
                         let stateClasses =
-                          "bg-[#0B0E17]/60 text-white/70  border-white/10 hover:brightness-110";
+                          "bg-[#0B0E17]/60 text-white/70 border border-white/10 transition-all duration-200";
                         if (slot.status === "blocked") {
                           stateClasses =
-                            "bg-red-500/20 text-white/40  border-red-500/30 cursor-not-allowed hover:brightness-110";
+                            "bg-red-500/20 text-white/40 border border-red-500/30 cursor-not-allowed";
                         } else if (slot.status === "booked") {
                           // Use client-specific color if available
                           if (slot.clientColor) {
                             // Keep the same color on hover, just make it slightly brighter
-                            stateClasses = `${slot.clientColor.bg} text-white ${slot.clientColor.border} cursor-pointer hover:brightness-110`;
+                            stateClasses = `${slot.clientColor.bg} text-white border ${slot.clientColor.border} cursor-pointer transition-all duration-200`;
                           } else {
                             // Fallback to default purple if no client color
                             stateClasses =
-                              "bg-[#6366F1]/50 text-white border-[#6366F1]/70 cursor-pointer hover:bg-[#6366F1]/60";
+                              "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 cursor-pointer transition-all duration-200";
                           }
                         } else if (slot.status === "past") {
                           stateClasses =
-                            "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed hover:brightness-110";
+                            "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed";
+                        } else if (slot.status === "available") {
+                          // Enhanced hover styles for available slots
+                          if (isHoveredAvailable) {
+                            stateClasses =
+                              "bg-[#6366F1]/40 text-white border border-[#6366F1] cursor-pointer shadow-lg shadow-[#6366F1]/50 scale-[1.02] transition-all duration-200 z-10";
+                          } else {
+                            stateClasses =
+                              "bg-[#0B0E17]/60 text-white/70 border border-white/10 hover:bg-[#6366F1]/20 hover:border-[#6366F1]/50 hover:text-white cursor-pointer transition-all duration-200";
+                          }
                         }
 
                         // Highlight all slots that belong to the same booking when hovering
@@ -625,7 +649,7 @@ export default function BusinessBookingsPage() {
                                 setTooltipPosition(null);
                               }
                             }}
-                            className={`flex h-[52px] w-full flex-col items-center justify-center rounded-2xl px-2 text-xs font-semibold transition ${stateClasses}`}
+                            className={`flex h-[52px] w-full flex-col items-center justify-center rounded-2xl px-2 text-xs font-semibold ${stateClasses}`}
                             style={{
                               cursor: slot.booking ? "pointer" : slot.status === "past" ? "not-allowed" : "pointer",
                               pointerEvents: "auto",
@@ -635,12 +659,16 @@ export default function BusinessBookingsPage() {
                               if (isBooked) {
                                 e.stopPropagation();
                                 handleMouseEnter(e);
+                              } else if (slot.status === "available") {
+                                setHoveredAvailableSlot(slot.iso);
                               }
                             }}
                             onMouseLeave={(e) => {
                               if (isBooked) {
                                 e.stopPropagation();
                                 handleMouseLeave();
+                              } else if (slot.status === "available") {
+                                setHoveredAvailableSlot(null);
                               }
                             }}
                           >

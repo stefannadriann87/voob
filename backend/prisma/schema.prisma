@@ -62,6 +62,7 @@ model ClientBusinessLink {
   id         String   @id @default(cuid())
   clientId   String
   businessId String
+  method     String?  // Method of attachment: "QR", "MANUAL", etc.
   createdAt  DateTime @default(now())
 
   client   User     @relation("ClientLinks", fields: [clientId], references: [id])

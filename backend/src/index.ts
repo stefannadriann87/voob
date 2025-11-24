@@ -6,8 +6,9 @@ import businessRouter = require("./routes/business");
 import bookingRouter = require("./routes/booking");
 import consentRouter = require("./routes/consent");
 import employeeRouter = require("./routes/employee");
-const aiRouter = require("./ai/router");
+const aiRouter = require("./routes/ai.routes");
 import clientRouter = require("./routes/client");
+import userRouter = require("./routes/user");
 
 dotenv.config();
 const app = express();
@@ -30,6 +31,7 @@ app.use("/booking", bookingRouter);
 app.use("/consent", consentRouter);
 app.use("/employee", employeeRouter);
 app.use("/client", clientRouter);
+app.use("/api/user", userRouter);
 app.use("/api/ai", aiRouter);
 
 const PORT = process.env.PORT || 4000;

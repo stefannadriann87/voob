@@ -1,297 +1,186 @@
-const OpenAI = require("openai");
-const { buildSystemMessage } = require("./contextBuilder");
-const { toolsByRole, isToolAllowed } = require("./permissions");
-const { executeTool } = require("./tools");
+/**
+ * AI Agent - Wrapper OpenAI cu function calling
+ */
 
-// Type pentru AIContext
-interface AIContext {
-  userId: string;
-  role: any;
-  businessId?: string;
-}
+const OpenAI = require("openai");
+const fs = require("fs");
+const path = require("path");
+const { bookingTools, bookingToolExecutors } = require("./tools/bookingTools");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// Inițializează OpenAI client (dacă API key este disponibil)
-const openai = OPENAI_API_KEY
+if (!OPENAI_API_KEY) {
+  console.warn("⚠️  OPENAI_API_KEY nu este setat. AI Agent nu va funcționa complet.");
+}
+
+const client = OPENAI_API_KEY
   ? new OpenAI({
       apiKey: OPENAI_API_KEY,
     })
   : null;
 
 /**
- * Construiește definițiile de tools pentru OpenAI
+ * Încarcă system prompt-ul
  */
-function buildToolDefinitions(availableTools: string[]): any[] {
-  const tools: any[] = [];
-
-  if (availableTools.includes("viewBookings")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "viewBookings",
-        description: "Vizualizează rezervările. Pentru clienți: rezervările proprii. Pentru business: rezervările business-ului.",
-        parameters: {
-          type: "object",
-          properties: {},
-        },
-      },
-    });
+function loadSystemPrompt(): string {
+  try {
+    const promptPath = path.join(__dirname, "prompts", "systemPrompt.txt");
+    return fs.readFileSync(promptPath, "utf-8");
+  } catch (error) {
+    console.warn("Nu s-a putut încărca system prompt, folosind default.");
+    return "Ești AI-ul platformei LARSTEF CRM. Răspunde în română, fii concis și util.";
   }
-
-  if (availableTools.includes("cancelOwnBooking")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "cancelOwnBooking",
-        description: "Anulează o rezervare proprie (doar pentru clienți)",
-        parameters: {
-          type: "object",
-          properties: {
-            bookingId: {
-              type: "string",
-              description: "ID-ul rezervării de anulat",
-            },
-          },
-          required: ["bookingId"],
-        },
-      },
-    });
-  }
-
-  if (availableTools.includes("createBooking")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "createBooking",
-        description: "Creează o nouă rezervare (doar pentru business/employee)",
-        parameters: {
-          type: "object",
-          properties: {
-            clientId: { type: "string", description: "ID-ul clientului" },
-            serviceId: { type: "string", description: "ID-ul serviciului" },
-            employeeId: { type: "string", description: "ID-ul angajatului (opțional)" },
-            date: { type: "string", description: "Data și ora rezervării (ISO format)" },
-            paid: { type: "boolean", description: "Dacă este plătită" },
-          },
-          required: ["clientId", "serviceId", "date"],
-        },
-      },
-    });
-  }
-
-  if (availableTools.includes("cancelBooking")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "cancelBooking",
-        description: "Anulează o rezervare (doar pentru business/employee)",
-        parameters: {
-          type: "object",
-          properties: {
-            bookingId: { type: "string", description: "ID-ul rezervării de anulat" },
-          },
-          required: ["bookingId"],
-        },
-      },
-    });
-  }
-
-  if (availableTools.includes("generateReport")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "generateReport",
-        description: "Generează un raport de activitate pentru business",
-        parameters: {
-          type: "object",
-          properties: {
-            period: {
-              type: "object",
-              properties: {
-                start: { type: "string", description: "Data de început (ISO format)" },
-                end: { type: "string", description: "Data de sfârșit (ISO format)" },
-              },
-              required: ["start", "end"],
-            },
-          },
-          required: ["period"],
-        },
-      },
-    });
-  }
-
-  if (availableTools.includes("viewAllBusinesses")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "viewAllBusinesses",
-        description: "Vizualizează toate business-urile (doar pentru superadmin)",
-        parameters: {
-          type: "object",
-          properties: {},
-        },
-      },
-    });
-  }
-
-  if (availableTools.includes("viewTransactions")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "viewTransactions",
-        description: "Vizualizează tranzacțiile (doar pentru superadmin)",
-        parameters: {
-          type: "object",
-          properties: {
-            period: {
-              type: "object",
-              properties: {
-                start: { type: "string", description: "Data de început (ISO format)" },
-                end: { type: "string", description: "Data de sfârșit (ISO format)" },
-              },
-              required: ["start", "end"],
-            },
-          },
-          required: ["period"],
-        },
-      },
-    });
-  }
-
-  if (availableTools.includes("generateGlobalReport")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "generateGlobalReport",
-        description: "Generează un raport global (doar pentru superadmin)",
-        parameters: {
-          type: "object",
-          properties: {
-            period: {
-              type: "object",
-              properties: {
-                start: { type: "string", description: "Data de început (ISO format)" },
-                end: { type: "string", description: "Data de sfârșit (ISO format)" },
-              },
-              required: ["start", "end"],
-            },
-          },
-          required: ["period"],
-        },
-      },
-    });
-  }
-
-  return tools;
 }
 
 /**
- * Gestionează o cerere AI
+ * Determină ce tools sunt disponibile pentru un rol
  */
-async function handleAIRequest(
-  context: AIContext,
-  userMessage: string,
-  conversationHistory: any[] = []
-): Promise<string> {
-  const availableTools = toolsByRole[context.role];
-  const systemMessage = buildSystemMessage(context, availableTools);
-  const tools = buildToolDefinitions(availableTools);
+function getAvailableToolsForRole(role: string): any[] {
+  // Toate tools-urile sunt disponibile pentru toate rolurile
+  // RBAC este verificat în fiecare tool executor
+  return bookingTools;
+}
 
-  // Construiește mesajele pentru OpenAI
-  const messages: any[] = [
-    { role: "system", content: systemMessage },
-    ...conversationHistory.map((msg: any) => ({
-      role: msg.role === "user" ? "user" : "assistant",
-      content: msg.content,
-    })),
-    { role: "user", content: userMessage },
-  ];
+/**
+ * Execută un tool bazat pe nume
+ */
+async function executeTool(
+  toolName: string,
+  args: any,
+  context: any
+): Promise<any> {
+  const executor = bookingToolExecutors[toolName];
 
-  if (!openai || tools.length === 0) {
-    // Fallback dacă OpenAI nu este configurat
-    return `Înțeleg că vrei: "${userMessage}". Pentru funcționalitate completă, configurează OPENAI_API_KEY în variabilele de mediu.`;
+  if (!executor) {
+    throw new Error(`Tool necunoscut: ${toolName}`);
   }
 
+  return await executor(args, context);
+}
+
+/**
+ * Rulează AI Agent-ul
+ */
+async function runAIAgent({
+  message,
+  context,
+}: {
+  message: string;
+  context: any;
+}): Promise<{ reply: string; toolCalls?: any[] }> {
+  if (!client) {
+    return {
+      reply: "AI Agent nu este configurat. Verifică OPENAI_API_KEY în variabilele de mediu.",
+    };
+  }
+
+  const systemPrompt = loadSystemPrompt();
+  
+  // Construiește un system prompt extins cu informații despre user și business-uri
+  let enhancedSystemPrompt = systemPrompt;
+  if (context.userName) {
+    enhancedSystemPrompt += `\n\nUtilizatorul se numește ${context.userName} (ID: ${context.userId}).`;
+  }
+  if (context.role === "CLIENT" && context.linkedBusinesses && context.linkedBusinesses.length > 0) {
+    enhancedSystemPrompt += `\n\nBusiness-uri conectate: ${context.linkedBusinesses.map((b: any) => `"${b.name}" (ID: ${b.id})`).join(", ")}.`;
+    enhancedSystemPrompt += `\nPentru a crea o rezervare, poți folosi numele business-ului în loc de ID.`;
+  }
+  
+  const tools = getAvailableToolsForRole(context.role);
+
   try {
-    // Apelează OpenAI cu function calling
-    const completion = await openai.chat.completions.create({
+    // Prima apelare - OpenAI decide dacă să apeleze tools
+    const response = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      messages,
+      messages: [
+        { role: "system", content: enhancedSystemPrompt },
+        { role: "user", content: message },
+      ],
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? "auto" : undefined,
     });
 
-    const assistantMessage = completion.choices[0]?.message;
+    const assistantMessage = response.choices[0]?.message;
 
-    if (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
-      // Execută tool calls
-      const toolCalls = assistantMessage.tool_calls;
-      const toolResults: any[] = [];
+    // Dacă nu sunt tool calls, returnează răspunsul direct
+    if (!assistantMessage?.tool_calls || assistantMessage.tool_calls.length === 0) {
+      return {
+        reply: assistantMessage?.content || "Nu am putut genera un răspuns.",
+      };
+    }
 
-      for (const toolCall of toolCalls) {
-        const toolName = toolCall.function.name;
-        let toolArgs: any = {};
-        try {
-          toolArgs = JSON.parse(toolCall.function.arguments || "{}");
-        } catch (e) {
-          console.error("Failed to parse tool arguments:", e);
-        }
+    // Execută tool calls
+    const toolCalls = assistantMessage.tool_calls;
+    const toolResults: any[] = [];
 
-        // Verifică permisiunile
-        if (!isToolAllowed(context.role, toolName)) {
-          toolResults.push({
-            tool_call_id: toolCall.id,
-            role: "tool",
-            name: toolName,
-            content: JSON.stringify({ error: "Action not allowed for this role" }),
-          });
-          continue;
-        }
+    for (const toolCall of toolCalls) {
+      const toolName = toolCall.function.name;
+      let toolArgs: any = {};
 
-        try {
-          console.log(`🔧 Executing tool: ${toolName}`, toolArgs);
-          const result = await executeTool(toolName, toolArgs, context);
-          toolResults.push({
-            tool_call_id: toolCall.id,
-            role: "tool",
-            name: toolName,
-            content: JSON.stringify(result),
-          });
-          console.log(`✅ Tool ${toolName} executed successfully`);
-        } catch (error: any) {
-          console.error(`❌ Tool ${toolName} failed:`, error);
-          toolResults.push({
-            tool_call_id: toolCall.id,
-            role: "tool",
-            name: toolName,
-            content: JSON.stringify({ error: error.message || "Eroare la executarea tool-ului" }),
-          });
-        }
+      try {
+        toolArgs = JSON.parse(toolCall.function.arguments || "{}");
+      } catch (e) {
+        console.error("Failed to parse tool arguments:", e);
+        toolResults.push({
+          tool_call_id: toolCall.id,
+          role: "tool",
+          name: toolName,
+          content: JSON.stringify({ error: "Argumente invalide" }),
+        });
+        continue;
       }
 
-      // Trimite rezultatele înapoi la OpenAI pentru răspuns final
-      const finalMessages: any[] = [
-        ...messages,
-        { role: "assistant", content: assistantMessage.content || null, tool_calls: toolCalls },
-        ...toolResults,
-      ];
-
-      const finalCompletion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: finalMessages,
-      });
-
-      return finalCompletion.choices[0]?.message?.content || "Nu am putut genera un răspuns.";
-    } else {
-      return assistantMessage?.content || "Nu am putut genera un răspuns.";
+      try {
+        console.log(`🔧 Executing tool: ${toolName}`, toolArgs);
+        const result = await executeTool(toolName, toolArgs, context);
+        toolResults.push({
+          tool_call_id: toolCall.id,
+          role: "tool",
+          name: toolName,
+          content: JSON.stringify({ success: true, result }),
+        });
+        console.log(`✅ Tool ${toolName} executed successfully`);
+      } catch (error: any) {
+        console.error(`❌ Tool ${toolName} failed:`, error);
+        toolResults.push({
+          tool_call_id: toolCall.id,
+          role: "tool",
+          name: toolName,
+          content: JSON.stringify({ error: error.message || "Eroare la executarea tool-ului" }),
+        });
+      }
     }
+
+    // Trimite rezultatele înapoi la OpenAI pentru răspuns final
+    const finalMessages: any[] = [
+      { role: "system", content: enhancedSystemPrompt },
+      { role: "user", content: message },
+      {
+        role: "assistant",
+        content: assistantMessage.content || null,
+        tool_calls: toolCalls,
+      },
+      ...toolResults,
+    ];
+
+    const finalCompletion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: finalMessages,
+    });
+
+    return {
+      reply: finalCompletion.choices[0]?.message?.content || "Nu am putut genera un răspuns.",
+      toolCalls: toolCalls.map((tc: any) => ({
+        name: tc.function.name,
+        args: JSON.parse(tc.function.arguments || "{}"),
+      })),
+    };
   } catch (error: any) {
     console.error("OpenAI API error:", error);
-    // Fallback la răspuns simplu dacă OpenAI eșuează
-    return `Înțeleg că vrei: "${userMessage}". ${error.message || "Eroare la comunicarea cu AI-ul."}`;
+    return {
+      reply: `Eroare la comunicarea cu AI-ul: ${error.message || "Eroare necunoscută"}`,
+    };
   }
 }
 
-module.exports = { handleAIRequest };
-
+module.exports = { runAIAgent };

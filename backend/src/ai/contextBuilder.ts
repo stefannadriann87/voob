@@ -16,12 +16,57 @@ interface AIContext {
 /**
  * Construiește contextul pentru AI din informațiile utilizatorului
  */
-async function buildAIContext(user: AuthUser): Promise<AIContext> {
-  const context: AIContext = {
+async function buildAIContext(user: AuthUser): Promise<any> {
+  const context: any = {
     userId: user.userId,
     role: user.role,
     ...(user.businessId && { businessId: user.businessId }),
   };
+
+  // Încarcă informații despre user
+  const userData = await prisma.user.findUnique({
+    where: { id: user.userId },
+    select: { id: true, name: true, email: true, phone: true },
+  });
+
+  if (userData) {
+    context.userName = userData.name;
+    context.userEmail = userData.email;
+    context.userPhone = userData.phone;
+  }
+
+  // Dacă utilizatorul este CLIENT, încarcă business-urile conectate
+  if (user.role === "CLIENT") {
+    const links = await prisma.clientBusinessLink.findMany({
+      where: { clientId: user.userId },
+      include: {
+        business: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            services: {
+              select: {
+                id: true,
+                name: true,
+                duration: true,
+                price: true,
+              },
+            },
+            employees: {
+              select: {
+                id: true,
+                name: true,
+                specialization: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    context.linkedBusinesses = links.map((link: any) => link.business);
+  }
 
   // Dacă nu avem businessId dar utilizatorul este BUSINESS sau EMPLOYEE, îl căutăm
   if (!context.businessId && (user.role === "BUSINESS" || user.role === "EMPLOYEE")) {
@@ -29,8 +74,30 @@ async function buildAIContext(user: AuthUser): Promise<AIContext> {
       where: {
         OR: [{ ownerId: user.userId }, { employees: { some: { id: user.userId } } }],
       },
+      include: {
+        services: {
+          select: {
+            id: true,
+            name: true,
+            duration: true,
+            price: true,
+          },
+        },
+        employees: {
+          select: {
+            id: true,
+            name: true,
+            specialization: true,
+          },
+        },
+      },
     });
-    context.businessId = business?.id;
+    if (business) {
+      context.businessId = business.id;
+      context.businessName = business.name;
+      context.businessServices = business.services;
+      context.businessEmployees = business.employees;
+    }
   }
 
   return context;

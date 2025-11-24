@@ -11,8 +11,15 @@ interface AuthUser {
   businessId?: string;
 }
 
+interface AIContext {
+  userId: string;
+  role: "CLIENT" | "BUSINESS" | "EMPLOYEE" | "SUPERADMIN";
+  businessId?: string | null;
+}
+
 interface AuthenticatedRequest extends express.Request {
   user?: AuthUser;
+  aiContext?: AIContext;
 }
 
 const verifyJWT = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -27,6 +34,14 @@ const verifyJWT = (req: express.Request, res: express.Response, next: express.Ne
   try {
     const payload = jwt.verify(token, JWT_SECRET) as unknown as AuthUser;
     (req as AuthenticatedRequest).user = payload;
+    
+    // Set AI context
+    (req as AuthenticatedRequest).aiContext = {
+      userId: payload.userId,
+      role: payload.role as "CLIENT" | "BUSINESS" | "EMPLOYEE" | "SUPERADMIN",
+      businessId: payload.businessId || null,
+    };
+    
     next();
   } catch (error) {
     console.error("JWT verify error:", error);

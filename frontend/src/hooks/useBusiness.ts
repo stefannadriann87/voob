@@ -302,19 +302,35 @@ export default function useBusiness() {
   );
 
   const linkClientToBusiness = useCallback(
-    async (businessId: string) => {
+    async (businessId: string, attachedVia: string = "QR") => {
       setLoading(true);
       setError(null);
       try {
-        const { data } = await api.post<Business>("/client/link", { businessId });
-        setBusinesses((prev) => {
-          const exists = prev.some((business) => business.id === data.id);
-          if (exists) {
-            return prev.map((business) => (business.id === data.id ? data : business));
-          }
-          return [data, ...prev];
-        });
-        return data;
+        // Try new endpoint first, fallback to old one
+        let response;
+        try {
+          const { data } = await api.post<{
+            success: boolean;
+            business: Business;
+            businesses: Business[];
+            timestamp: string;
+          }>("/api/user/attach-business", { businessId, attachedVia });
+          response = data;
+          // Update businesses list with the returned list
+          setBusinesses(response.businesses);
+          return response.business;
+        } catch (newEndpointError) {
+          // Fallback to old endpoint
+          const { data } = await api.post<Business>("/client/link", { businessId, method: attachedVia });
+          setBusinesses((prev) => {
+            const exists = prev.some((business) => business.id === data.id);
+            if (exists) {
+              return prev.map((business) => (business.id === data.id ? data : business));
+            }
+            return [data, ...prev];
+          });
+          return data;
+        }
       } catch (err) {
         const axiosError = err as AxiosError<{ error?: string }>;
         const message =

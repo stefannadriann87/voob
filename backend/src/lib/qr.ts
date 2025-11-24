@@ -2,10 +2,10 @@ import QRCode = require("qrcode");
 
 const FRONTEND_BASE =
   (process.env.FRONTEND_URL || "http://localhost:3001").replace(/\/$/, "");
-const QR_JOIN_PATH = process.env.QR_JOIN_PATH || "/qr/join";
+const QR_LINK_PATH = process.env.QR_LINK_PATH || "/link";
 
 const buildBusinessQrPayload = (businessId: string) => {
-  return `${FRONTEND_BASE}${QR_JOIN_PATH}?businessId=${businessId}`;
+  return `${FRONTEND_BASE}${QR_LINK_PATH}?biz=${businessId}`;
 };
 
 const generateBusinessQrDataUrl = async (businessId: string) => {

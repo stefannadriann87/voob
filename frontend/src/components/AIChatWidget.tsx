@@ -1,11 +1,13 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useEffect } from "react";
 import { X, Send, Bot } from "lucide-react";
 import useApi from "../hooks/useApi";
+import { usePathname } from "next/navigation";
 
 interface AIChatWidgetProps {
   initialOpen?: boolean;
+  onBookingCreated?: () => void;
 }
 
 interface Message {
@@ -13,8 +15,9 @@ interface Message {
   text: string;
 }
 
-export default function AIChatWidget({ initialOpen = false }: AIChatWidgetProps) {
+export default function AIChatWidget({ initialOpen = false, onBookingCreated }: AIChatWidgetProps) {
   const api = useApi();
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(initialOpen);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -24,6 +27,20 @@ export default function AIChatWidget({ initialOpen = false }: AIChatWidgetProps)
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Refresh bookings when on bookings page and booking is created
+  useEffect(() => {
+    if (pathname?.includes("/bookings") && onBookingCreated) {
+      // Listen for custom event that indicates a booking was created
+      const handleBookingCreated = () => {
+        onBookingCreated();
+      };
+      window.addEventListener("larstef:booking-created", handleBookingCreated);
+      return () => {
+        window.removeEventListener("larstef:booking-created", handleBookingCreated);
+      };
+    }
+  }, [pathname, onBookingCreated]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,7 +59,7 @@ export default function AIChatWidget({ initialOpen = false }: AIChatWidgetProps)
 
       console.log("📤 Sending AI request:", { message: userMessage, historyLength: conversationHistory.length });
 
-      const { data } = await api.post<{ response: string; tools?: string[] }>("/api/ai/agent", {
+      const { data } = await api.post<{ response: string; tools?: string[]; toolCalls?: any[] }>("/api/ai/agent", {
         message: userMessage,
         conversationHistory,
       });
@@ -50,6 +67,26 @@ export default function AIChatWidget({ initialOpen = false }: AIChatWidgetProps)
       console.log("✅ AI response received:", data);
 
       setMessages((prev) => [...prev, { from: "ai", text: data.response }]);
+
+      // Check if a booking was created (detect createBooking tool call or success message)
+      const hasBookingCreated =
+        data.toolCalls?.some((tc: any) => tc.name === "createBooking") ||
+        data.response?.toLowerCase().includes("rezervare creată") ||
+        data.response?.toLowerCase().includes("rezervarea a fost creată") ||
+        data.response?.toLowerCase().includes("booking created") ||
+        data.response?.toLowerCase().includes("rezervarea") && data.response?.toLowerCase().includes("succes");
+
+      if (hasBookingCreated) {
+        // Trigger refresh after a short delay to allow backend to process
+        setTimeout(() => {
+          if (onBookingCreated) {
+            onBookingCreated();
+          }
+          // Dispatch custom event for other components (e.g., bookings page)
+          window.dispatchEvent(new Event("larstef:booking-created"));
+          console.log("🔄 Booking created event dispatched");
+        }, 1000);
+      }
     } catch (error: any) {
       console.error("❌ AI Agent error:", error);
       console.error("Error details:", {

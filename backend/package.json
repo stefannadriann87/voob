@@ -7,6 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "seed:auth": "ts-node scripts/seedAuth.ts",
     "seed:superadmin": "ts-node scripts/seedSuperAdmin.ts",
+    "reminder:sms": "ts-node scripts/sendBookingReminders.ts",
+    "test:sms": "ts-node scripts/testSms.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

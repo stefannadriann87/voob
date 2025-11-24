@@ -23,12 +23,16 @@ const businessInclude = {
   },
 };
 
-router.post("/link", verifyJWT, async (req, res) => {
+/**
+ * Attach business to user account (for QR code flow)
+ * POST /api/user/attach-business
+ */
+router.post("/attach-business", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const { businessId, method }: { businessId?: string; method?: string } = req.body ?? {};
+  const { businessId, attachedVia }: { businessId?: string; attachedVia?: string } = req.body ?? {};
 
   if (!authReq.user || authReq.user.role !== "CLIENT") {
-    return res.status(403).json({ error: "Doar clienții pot scana QR-ul unui business." });
+    return res.status(403).json({ error: "Doar clienții pot atașa business-uri." });
   }
 
   if (!businessId) {
@@ -45,6 +49,7 @@ router.post("/link", verifyJWT, async (req, res) => {
       return res.status(404).json({ error: "Business-ul nu a fost găsit." });
     }
 
+    // Upsert to avoid duplicates
     await prisma.clientBusinessLink.upsert({
       where: {
         clientId_businessId: {
@@ -53,30 +58,16 @@ router.post("/link", verifyJWT, async (req, res) => {
         },
       },
       update: {
-        method: method || "MANUAL",
+        method: attachedVia || "QR",
       },
       create: {
         clientId: authReq.user.userId,
         businessId,
-        method: method || "MANUAL",
+        method: attachedVia || "QR",
       },
     });
 
-    return res.status(201).json(business);
-  } catch (error) {
-    console.error("Client link error:", error);
-    return res.status(500).json({ error: "Nu am putut conecta clientul la acest business." });
-  }
-});
-
-router.get("/businesses", verifyJWT, async (req, res) => {
-  const authReq = req as AuthenticatedRequest;
-
-  if (!authReq.user || authReq.user.role !== "CLIENT") {
-    return res.status(403).json({ error: "Doar clienții pot accesa lista de business-uri conectate." });
-  }
-
-  try {
+    // Fetch updated business list
     const links = await prisma.clientBusinessLink.findMany({
       where: { clientId: authReq.user.userId },
       include: {
@@ -88,13 +79,18 @@ router.get("/businesses", verifyJWT, async (req, res) => {
     });
 
     const businesses = links.map((link) => link.business);
-    return res.json(businesses);
+
+    return res.status(201).json({
+      success: true,
+      business,
+      businesses, // Return updated list
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
-    console.error("Client linked businesses error:", error);
-    return res.status(500).json({ error: "Nu am putut încărca business-urile conectate." });
+    console.error("Attach business error:", error);
+    return res.status(500).json({ error: "Nu am putut atașa business-ul la cont." });
   }
 });
 
 export = router;
-
 
