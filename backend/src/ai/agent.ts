@@ -6,8 +6,10 @@ const OpenAI = require("openai");
 const fs = require("fs");
 const path = require("path");
 const { bookingTools, bookingToolExecutors } = require("./tools/bookingTools");
+const { recordAiUsage } = require("../services/usageService");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_COST_PER_1K_TOKENS = Number(process.env.OPENAI_COST_PER_1K_TOKENS || "0.015");
 
 if (!OPENAI_API_KEY) {
   console.warn("⚠️  OPENAI_API_KEY nu este setat. AI Agent nu va funcționa complet.");
@@ -101,6 +103,7 @@ async function runAIAgent({
     });
 
     const assistantMessage = response.choices[0]?.message;
+    let totalTokens = response.usage?.total_tokens ?? 0;
 
     // Dacă nu sunt tool calls, returnează răspunsul direct
     if (!assistantMessage?.tool_calls || assistantMessage.tool_calls.length === 0) {
@@ -167,6 +170,24 @@ async function runAIAgent({
       model: "gpt-4o-mini",
       messages: finalMessages,
     });
+    totalTokens += finalCompletion.usage?.total_tokens ?? 0;
+
+    const costEstimate = Number(((totalTokens / 1000) * OPENAI_COST_PER_1K_TOKENS).toFixed(6));
+
+    recordAiUsage({
+      businessId: context.businessId ?? null,
+      userId: context.userId ?? null,
+      userRole: context.role,
+      toolName: toolCalls.length > 0 ? toolCalls.map((tc: any) => tc.function.name).join(",") : "chat_only",
+      tokensUsed: totalTokens || undefined,
+      costEstimate: costEstimate || undefined,
+      statusCode: 200,
+      metadata: {
+        toolCalls: toolCalls.length,
+      },
+    }).catch((error: unknown) => {
+      console.error("Failed to record AI usage:", error);
+    });
 
     return {
       reply: finalCompletion.choices[0]?.message?.content || "Nu am putut genera un răspuns.",
@@ -177,6 +198,18 @@ async function runAIAgent({
     };
   } catch (error: any) {
     console.error("OpenAI API error:", error);
+    recordAiUsage({
+      businessId: context.businessId ?? null,
+      userId: context.userId ?? null,
+      userRole: context.role,
+      toolName: "chat_completion",
+      statusCode: error?.status ?? 500,
+      metadata: {
+        error: error?.message,
+      },
+    }).catch((logError: unknown) => {
+      console.error("Failed to record AI error usage:", logError);
+    });
     return {
       reply: `Eroare la comunicarea cu AI-ul: ${error.message || "Eroare necunoscută"}`,
     };

@@ -39,7 +39,7 @@ export default function ClientScanQrPage() {
   const { businesses, fetchBusinesses, linkClientToBusiness } = useBusiness();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
   const processingRef = useRef(false);
   const lastScanRef = useRef<{ id: string; at: number } | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);

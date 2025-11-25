@@ -3,6 +3,9 @@
  * Trimite SMS-uri automate către clienți pentru rezervări
  */
 
+const { SmsUsageType } = require("@prisma/client");
+const { recordSmsUsage } = require("./usageService");
+
 interface SmsAdvertResponse {
   success: boolean;
   message?: string;
@@ -16,6 +19,10 @@ interface SendSmsOptions {
   startDate?: number; // Unix timestamp pentru programare
   endDate?: number; // Unix timestamp pentru programare
   callback?: string; // URL pentru callback de livrare
+  businessId?: string;
+  usageType?: typeof SmsUsageType[keyof typeof SmsUsageType];
+  metadata?: Record<string, unknown>;
+  costEstimate?: number;
 }
 
 /**
@@ -58,7 +65,7 @@ function formatPhoneNumber(phone: string | null | undefined): string | null {
  * @returns Promise cu răspunsul de la API
  */
 async function sendSms(options: SendSmsOptions): Promise<SmsAdvertResponse> {
-  const { phone, message, startDate, endDate, callback } = options;
+  const { phone, message, startDate, endDate, callback, businessId, usageType, metadata, costEstimate } = options;
 
   const apiToken = process.env.SMSADVERT_API_TOKEN;
   if (!apiToken) {
@@ -136,10 +143,23 @@ async function sendSms(options: SendSmsOptions): Promise<SmsAdvertResponse> {
       };
     }
 
+    const messageId = data.messageId || data.id;
+
+    recordSmsUsage({
+      businessId,
+      type: usageType,
+      messageId,
+      phone: formattedPhone,
+      cost: costEstimate ?? undefined,
+      metadata,
+    }).catch((error: unknown) => {
+      console.error("Failed to record SMS usage:", error);
+    });
+
     return {
       success: true,
       message: "SMS trimis cu succes",
-      messageId: data.messageId || data.id,
+      messageId,
     };
   } catch (error) {
     console.error("Error sending SMS:", error);
@@ -158,7 +178,8 @@ async function sendBookingConfirmationSms(
   clientPhone: string | null | undefined,
   businessName: string,
   bookingDate: Date,
-  serviceName?: string
+  serviceName?: string,
+  businessId?: string
 ): Promise<SmsAdvertResponse> {
   if (!clientPhone) {
     return {
@@ -183,6 +204,13 @@ async function sendBookingConfirmationSms(
   return sendSms({
     phone: clientPhone,
     message,
+    businessId,
+    usageType: SmsUsageType.CONFIRMATION,
+    metadata: {
+      bookingDate: bookingDate.toISOString(),
+      serviceName,
+      businessName,
+    },
   });
 }
 
@@ -195,7 +223,8 @@ async function sendBookingReminderSms(
   businessName: string,
   bookingDate: Date,
   serviceName?: string,
-  reminderHours: number = 24
+  reminderHours: number = 24,
+  businessId?: string
 ): Promise<SmsAdvertResponse> {
   if (!clientPhone) {
     return {
@@ -227,6 +256,14 @@ async function sendBookingReminderSms(
   const smsOptions: SendSmsOptions = {
     phone: clientPhone,
     message,
+    businessId,
+    usageType: SmsUsageType.REMINDER,
+    metadata: {
+      bookingDate: bookingDate.toISOString(),
+      serviceName,
+      businessName,
+      reminderHours,
+    },
   };
   
   if (reminderTime > now) {
@@ -243,7 +280,8 @@ async function sendBookingCancellationSms(
   clientName: string,
   clientPhone: string | null | undefined,
   businessName: string,
-  bookingDate: Date
+  bookingDate: Date,
+  businessId?: string
 ): Promise<SmsAdvertResponse> {
   if (!clientPhone) {
     return {
@@ -268,6 +306,12 @@ async function sendBookingCancellationSms(
   return sendSms({
     phone: clientPhone,
     message,
+    businessId,
+    usageType: SmsUsageType.CANCELLATION,
+    metadata: {
+      bookingDate: bookingDate.toISOString(),
+      businessName,
+    },
   });
 }
 

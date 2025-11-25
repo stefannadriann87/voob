@@ -7,10 +7,18 @@ import bookingRouter = require("./routes/booking");
 import consentRouter = require("./routes/consent");
 import employeeRouter = require("./routes/employee");
 const aiRouter = require("./routes/ai.routes");
+const adminRouter = require("./admin/routes");
 import clientRouter = require("./routes/client");
 import userRouter = require("./routes/user");
+const landingRouter = require("./routes/landing");
+const paymentsRouter = require("./routes/payments");
+const stripeWebhookRouter = require("./routes/stripeWebhook");
 
 dotenv.config();
+const rawBodySaver = (req: express.Request, _res: express.Response, buf: Buffer) => {
+  (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+};
+
 const app = express();
 app.use(cors({
   origin: process.env.FRONTEND_URL || "http://localhost:3001",
@@ -18,7 +26,7 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
-app.use(express.json({ limit: "12mb" }));
+app.use(express.json({ limit: "12mb", verify: rawBodySaver }));
 app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 
 app.get("/", (req, res) => {
@@ -33,6 +41,10 @@ app.use("/employee", employeeRouter);
 app.use("/client", clientRouter);
 app.use("/api/user", userRouter);
 app.use("/api/ai", aiRouter);
+app.use("/landing", landingRouter);
+app.use("/admin", adminRouter);
+app.use("/payments", paymentsRouter);
+app.post("/webhooks/stripe", stripeWebhookRouter);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`✅ API running on port ${PORT}`));

@@ -25,7 +25,8 @@ async function testDirectSms() {
     "0748293830",
     "Test Business",
     testDate,
-    "Test Service"
+    "Test Service",
+    undefined
   );
 
   if (result.success) {

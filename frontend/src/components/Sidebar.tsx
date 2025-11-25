@@ -14,9 +14,15 @@ import {
   User,
   DollarSign,
   QrCode,
+  CreditCard,
+  Cpu,
+  Activity,
+  ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import useAuth, { Role } from "../hooks/useAuth";
+import type { BusinessTypeValue } from "../constants/businessTypes";
+import { requiresConsentForBusiness } from "../constants/consentTemplates";
 
 interface MenuItem {
   label: string;
@@ -28,10 +34,12 @@ const menuConfig: Record<Role, MenuItem[]> = {
   SUPERADMIN: [
     { label: "Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
     { label: "Business-uri", path: "/admin/businesses", icon: Building2 },
-    { label: "Analytics", path: "/admin/analytics", icon: BarChart3 },
-    { label: "Setări", path: "/admin/settings", icon: Settings },
-    { label: "Încasări", path: "/admin/revenue", icon: DollarSign },
-    { label: "Profil", path: "/admin/profile", icon: User },
+    { label: "Abonamente & Facturare", path: "/admin/subscriptions", icon: CreditCard },
+    { label: "Plăți Platformă", path: "/admin/payments", icon: DollarSign },
+    { label: "AI & Consum resurse", path: "/admin/ai", icon: Cpu },
+    { label: "Raportare & Analytics", path: "/admin/analytics", icon: BarChart3 },
+    { label: "Configurări Platformă", path: "/admin/settings", icon: Settings },
+    { label: "System Logs & Audit", path: "/admin/logs", icon: ShieldCheck },
   ],
   BUSINESS: [
     { label: "Dashboard", path: "/business/dashboard", icon: LayoutDashboard },
@@ -75,7 +83,24 @@ export default function Sidebar({ collapsed = false, isOpen = true, onClose }: S
     router.push("/auth/login");
   };
 
-  const items = menuConfig[user.role] ?? [];
+  const baseItems = menuConfig[user.role] ?? [];
+  const businessType = user.business?.businessType as BusinessTypeValue | undefined;
+  const shouldHideConsents =
+    (user.role === "BUSINESS" || user.role === "EMPLOYEE") && !requiresConsentForBusiness(businessType);
+
+  const items =
+    shouldHideConsents && (user.role === "BUSINESS" || user.role === "EMPLOYEE")
+      ? baseItems.filter((item) => {
+          if (user.role === "BUSINESS") {
+            return item.path !== "/business/consents";
+          }
+          if (user.role === "EMPLOYEE") {
+            return item.path !== "/employee/consents";
+          }
+          return true;
+        })
+      : baseItems;
+
   const homePath = items[0]?.path ?? "/";
 
   const handleLinkClick = () => {

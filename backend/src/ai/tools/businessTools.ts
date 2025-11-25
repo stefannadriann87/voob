@@ -1,5 +1,14 @@
 const prisma = require("../../lib/prisma").default;
 
+const HOUR_IN_MS = 60 * 60 * 1000;
+const MIN_BOOKING_LEAD_MS = 2 * HOUR_IN_MS;
+const CANCELLATION_LIMIT_MS = 23 * HOUR_IN_MS;
+const REMINDER_GRACE_MS = 1 * HOUR_IN_MS;
+
+const MIN_LEAD_MESSAGE = "Rezervările se pot face cu minim 2 ore înainte.";
+const CANCELLATION_LIMIT_MESSAGE = "Rezervarea nu mai poate fi anulată. Ai depășit limita de anulare.";
+const REMINDER_LIMIT_MESSAGE = "Timpul de anulare după reminder a expirat.";
+
 // Type pentru AIContext
 interface AIContext {
   userId: string;
@@ -55,13 +64,22 @@ async function createBooking(
     throw new Error("Business ID required");
   }
 
+  const bookingDate = new Date(args.date);
+  if (Number.isNaN(bookingDate.getTime())) {
+    throw new Error("Data rezervării este invalidă.");
+  }
+
+  if (bookingDate.getTime() - Date.now() < MIN_BOOKING_LEAD_MS) {
+    throw new Error(MIN_LEAD_MESSAGE);
+  }
+
   const booking = await prisma.booking.create({
     data: {
       clientId: args.clientId,
       businessId: context.businessId,
       serviceId: args.serviceId,
       employeeId: args.employeeId,
-      date: new Date(args.date),
+      date: bookingDate,
       paid: args.paid || false,
     },
     include: {
@@ -92,6 +110,20 @@ async function cancelBooking(context: AIContext, args: { bookingId: string }) {
 
   if (!booking) {
     throw new Error("Rezervarea nu a fost găsită sau nu aparține acestui business.");
+  }
+
+  const now = new Date();
+  const bookingDate = new Date(booking.date);
+
+  if (booking.reminderSentAt) {
+    const reminderDate = new Date(booking.reminderSentAt);
+    if (!Number.isNaN(reminderDate.getTime()) && now.getTime() > reminderDate.getTime() + REMINDER_GRACE_MS) {
+      throw new Error(REMINDER_LIMIT_MESSAGE);
+    }
+  }
+
+  if (bookingDate.getTime() - now.getTime() < CANCELLATION_LIMIT_MS) {
+    throw new Error(CANCELLATION_LIMIT_MESSAGE);
   }
 
   await prisma.booking.delete({ where: { id: args.bookingId } });

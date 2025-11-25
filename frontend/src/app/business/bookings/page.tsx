@@ -7,6 +7,12 @@ import useAuth from "../../../hooks/useAuth";
 import useBookings, { Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import useApi from "../../../hooks/useApi";
+import {
+  getBookingCancellationStatus,
+  isBookingTooSoon,
+  MIN_LEAD_MESSAGE,
+  MIN_BOOKING_LEAD_MS,
+} from "../../../utils/bookingRules";
 
 const HOURS = [
   "08:00",
@@ -100,6 +106,26 @@ export default function BusinessBookingsPage() {
   const [newClientEmail, setNewClientEmail] = useState("");
   const [newClientPhone, setNewClientPhone] = useState("");
   const [creatingClient, setCreatingClient] = useState(false);
+  const selectedSlotTooSoon = useMemo(
+    () => (selectedSlotDate ? isBookingTooSoon(selectedSlotDate) : false),
+    [selectedSlotDate]
+  );
+  const bypassCancellationLimits = user?.role === "BUSINESS" || user?.role === "EMPLOYEE";
+  const tooltipCancellationStatus = useMemo(() => {
+    if (!tooltipBooking) return null;
+    if (bypassCancellationLimits) return { canCancel: true };
+    return getBookingCancellationStatus(tooltipBooking.date, tooltipBooking.reminderSentAt);
+  }, [tooltipBooking, bypassCancellationLimits]);
+  const selectedBookingCancellationStatus = useMemo(() => {
+    if (!selectedBooking) return null;
+    if (bypassCancellationLimits) return { canCancel: true };
+    return getBookingCancellationStatus(selectedBooking.date, selectedBooking.reminderSentAt);
+  }, [selectedBooking, bypassCancellationLimits]);
+  const bookingToCancelCancellationStatus = useMemo(() => {
+    if (!bookingToCancel) return null;
+    if (bypassCancellationLimits) return { canCancel: true };
+    return getBookingCancellationStatus(bookingToCancel.date, bookingToCancel.reminderSentAt);
+  }, [bookingToCancel, bypassCancellationLimits]);
   const [workingHours, setWorkingHours] = useState<any>(null);
   const [holidays, setHolidays] = useState<Array<{ id: string; startDate: string; endDate: string; reason: string | null }>>([]);
 
@@ -274,6 +300,8 @@ export default function BusinessBookingsPage() {
   }, [workingHours, slotDurationMinutes]);
 
   const slotsMatrix = useMemo(() => {
+    const now = Date.now();
+    const minBookingTime = now + MIN_BOOKING_LEAD_MS;
     return weekDays.map((day) => {
       const availableHours = getAvailableHoursForDay(day);
       return availableHours.map((hour: string) => {
@@ -282,7 +310,8 @@ export default function BusinessBookingsPage() {
         slotDate.setHours(h, m, 0, 0);
         const slotStartMs = slotDate.getTime();
         const iso = slotDate.toISOString();
-        const isPast = slotStartMs < Date.now();
+        const isPast = slotStartMs < now;
+        const isTooSoon = !isPast && slotStartMs < minBookingTime;
         const slotEndMs = slotStartMs + slotDurationMinutes * 60 * 1000;
 
         // Check if slot is in a holiday period and get the holiday
@@ -308,7 +337,7 @@ export default function BusinessBookingsPage() {
 
         let status: "available" | "booked" | "past" | "blocked" = "available";
         if (isPast) status = "past";
-        if (isBlocked) status = "blocked";
+        if (isBlocked || isTooSoon) status = "blocked";
         if (booking) status = "booked";
 
         // Check if this is the first slot of the booking (to show details only on the first slot)
@@ -828,17 +857,28 @@ export default function BusinessBookingsPage() {
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (!tooltipCancellationStatus?.canCancel) {
+                      return;
+                    }
                     setBookingToCancel(tooltipBooking);
                     setTooltipBooking(null);
                     setTooltipPosition(null);
                   }}
-                  className="flex-1 rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400 transition hover:bg-red-500/20"
-                  title="Anulează rezervarea"
+                  disabled={!tooltipCancellationStatus?.canCancel}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                    tooltipCancellationStatus?.canCancel
+                      ? "border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                      : "cursor-not-allowed border-white/10 bg-white/5 text-white/40"
+                  }`}
+                  title={tooltipCancellationStatus?.canCancel ? "Anulează rezervarea" : tooltipCancellationStatus?.message}
                 >
                   <i className="fas fa-times mr-1" />
                   Anulează
                 </button>
               </div>
+              {tooltipCancellationStatus && !tooltipCancellationStatus.canCancel && tooltipCancellationStatus.message && (
+                <p className="mt-2 text-xs text-red-300">{tooltipCancellationStatus.message}</p>
+              )}
             </div>
             {/* Arrow pointer */}
             {tooltipPosition.showAbove ? (
@@ -898,6 +938,7 @@ export default function BusinessBookingsPage() {
                   type="button"
                   onClick={async () => {
                     if (!bookingToCancel) return;
+                    if (!bookingToCancelCancellationStatus?.canCancel) return;
                     setCancellingId(bookingToCancel.id);
                     try {
                       await cancelBooking(bookingToCancel.id);
@@ -909,12 +950,15 @@ export default function BusinessBookingsPage() {
                       setCancellingId(null);
                     }
                   }}
-                  disabled={cancellingId === bookingToCancel.id}
+                  disabled={cancellingId === bookingToCancel.id || !bookingToCancelCancellationStatus?.canCancel}
                   className="rounded-2xl bg-red-500/80 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {cancellingId === bookingToCancel.id ? "Se anulează..." : "Anulează rezervarea"}
                 </button>
               </div>
+              {bookingToCancelCancellationStatus && !bookingToCancelCancellationStatus.canCancel && bookingToCancelCancellationStatus.message && (
+                <p className="mt-3 text-sm text-red-300">{bookingToCancelCancellationStatus.message}</p>
+              )}
             </div>
           </div>
         )}
@@ -1011,13 +1055,22 @@ export default function BusinessBookingsPage() {
                 <button
                   type="button"
                   onClick={() => {
+                    if (!selectedBooking || !selectedBookingCancellationStatus?.canCancel) return;
                     setBookingToCancel(selectedBooking);
                   }}
-                  className="flex-1 rounded-lg bg-red-500/80 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500"
+                  disabled={!selectedBookingCancellationStatus?.canCancel}
+                  className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                    selectedBookingCancellationStatus?.canCancel
+                      ? "bg-red-500/80 text-white hover:bg-red-500"
+                      : "cursor-not-allowed border border-white/10 bg-white/5 text-white/40"
+                  }`}
                 >
                   Anulează rezervarea
                 </button>
               </div>
+              {selectedBookingCancellationStatus && !selectedBookingCancellationStatus.canCancel && selectedBookingCancellationStatus.message && (
+                <p className="mt-2 text-sm text-red-300">{selectedBookingCancellationStatus.message}</p>
+              )}
             </div>
           </section>
         )}
@@ -1077,6 +1130,9 @@ export default function BusinessBookingsPage() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!selectedClientId || !selectedServiceId || !selectedSlotDate || !businessId) {
+                  return;
+                }
+                if (selectedSlotTooSoon) {
                   return;
                 }
 
@@ -1343,12 +1399,21 @@ export default function BusinessBookingsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={creatingBooking || !selectedClientId || !selectedServiceId || !selectedSlotDate}
+                  disabled={
+                    creatingBooking ||
+                    !selectedClientId ||
+                    !selectedServiceId ||
+                    !selectedSlotDate ||
+                    selectedSlotTooSoon
+                  }
                   className="flex-1 rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {creatingBooking ? "Se creează..." : "Creează rezervare"}
                 </button>
               </div>
+              {selectedSlotTooSoon && (
+                <p className="text-sm text-red-300">{MIN_LEAD_MESSAGE}</p>
+              )}
             </form>
           </div>
         </div>

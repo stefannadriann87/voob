@@ -168,13 +168,7 @@ export const CONSENT_TEMPLATES: Record<BusinessTypeValue, ConsentTemplate> = {
   },
 };
 
-export const CONSENT_REQUIRED_TYPES: BusinessTypeValue[] = [
-  "STOMATOLOGIE",
-  "BEAUTY",
-  "OFTALMOLOGIE",
-  "PSIHOLOGIE",
-  "TERAPIE",
-];
+export const CONSENT_REQUIRED_TYPES: BusinessTypeValue[] = ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"];
 
 export const getConsentTemplate = (type?: BusinessTypeValue | null): ConsentTemplate => {
   if (!type) return CONSENT_TEMPLATES.GENERAL;

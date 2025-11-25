@@ -197,6 +197,9 @@ export default function EmployeeDashboardPage() {
                     onReschedule={handleRescheduleBooking}
                     onCancel={handleCancelBooking}
                     cancelling={cancellingBookingId === booking.id}
+                    reminderSentAt={booking.reminderSentAt}
+                    currentTime={currentTime}
+                    ignoreCancellationLimits
                   />
                 );
               })

@@ -162,6 +162,140 @@ router.post("/:businessId/generate-qr", verifyJWT, async (req, res) => {
   }
 });
 
+router.get("/:businessId/insights", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const authReq = req as AuthenticatedRequest;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { ownerId: true, employees: { select: { id: true } } },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    const userId = authReq.user?.userId;
+    const role = authReq.user?.role;
+    const isOwner = !!userId && business.ownerId === userId;
+    const isEmployee =
+      !!userId && business.employees.some((employee: { id: string }) => employee.id === userId);
+    const isSuperAdmin = role === "SUPERADMIN";
+    let isLinkedClient = false;
+
+    if (!isOwner && !isEmployee && !isSuperAdmin && role === "CLIENT" && userId) {
+      const link = await prisma.clientBusinessLink.findFirst({
+        where: { businessId, clientId: userId },
+        select: { id: true },
+      });
+      isLinkedClient = !!link;
+    }
+
+    if (!isOwner && !isEmployee && !isSuperAdmin && !isLinkedClient) {
+      return res.status(403).json({ error: "Nu ai acces la aceste insight-uri." });
+    }
+
+    const bookings = await prisma.booking.findMany({
+      where: { businessId },
+      include: {
+        client: { select: { id: true, name: true, email: true } },
+        service: { select: { name: true } },
+      },
+    });
+
+    if (bookings.length === 0) {
+      return res.json({
+        topSlots: [],
+        inactiveClients: [],
+      });
+    }
+
+    type SlotStat = {
+      day: string;
+      hour: string;
+      count: number;
+      examples: { client: string; service: string; date: string }[];
+    };
+
+    const slotStats = new Map<string, SlotStat>();
+    const lastBookingPerClient = new Map<
+      string,
+      { name: string; email: string; lastBooking: Date }
+    >();
+
+    for (const booking of bookings) {
+      const bookingDate = new Date(booking.date);
+      const weekday = bookingDate.toLocaleDateString("ro-RO", {
+        weekday: "long",
+      });
+      const hour = `${bookingDate.getHours().toString().padStart(2, "0")}:00`;
+      const slotKey = `${weekday}-${hour}`;
+
+      if (!slotStats.has(slotKey)) {
+        slotStats.set(slotKey, {
+          day: weekday,
+          hour,
+          count: 0,
+          examples: [],
+        });
+      }
+
+      const slot = slotStats.get(slotKey)!;
+      slot.count += 1;
+      if (slot.examples.length < 3) {
+        slot.examples.push({
+          client: booking.client?.name ?? "Client",
+          service: booking.service?.name ?? "Serviciu",
+          date: bookingDate.toLocaleString("ro-RO"),
+        });
+      }
+
+      if (booking.client?.id) {
+        const clientId = booking.client.id;
+        const existing = lastBookingPerClient.get(clientId);
+        if (!existing || existing.lastBooking < bookingDate) {
+          lastBookingPerClient.set(clientId, {
+            name: booking.client.name ?? "Client",
+            email: booking.client.email ?? "",
+            lastBooking: bookingDate,
+          });
+        }
+      }
+    }
+
+    const topSlots = Array.from(slotStats.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const INACTIVE_THRESHOLD_DAYS = 90;
+    const threshold = Date.now() - INACTIVE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+    const inactiveClients = Array.from(lastBookingPerClient.values())
+      .filter((entry) => entry.lastBooking.getTime() < threshold)
+      .sort((a, b) => a.lastBooking.getTime() - b.lastBooking.getTime())
+      .slice(0, 5)
+      .map((entry) => ({
+        name: entry.name,
+        email: entry.email,
+        lastBooking: entry.lastBooking,
+        daysSince: Math.floor((Date.now() - entry.lastBooking.getTime()) / (1000 * 60 * 60 * 24)),
+      }));
+
+    return res.json({
+      topSlots,
+      inactiveClients,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Business insights error:", error);
+    return res.status(500).json({ error: "Nu am putut genera insight-urile." });
+  }
+});
+
 router.get("/:businessId/qr", async (req, res) => {
   const { businessId } = req.params;
   if (!businessId) {

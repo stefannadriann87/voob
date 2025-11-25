@@ -30,13 +30,7 @@ type BusinessType =
   | "PSIHOLOGIE"
   | "TERAPIE";
 
-const CONSENT_REQUIRED_TYPES: BusinessType[] = [
-  "STOMATOLOGIE",
-  "OFTALMOLOGIE",
-  "PSIHOLOGIE",
-  "TERAPIE",
-  "BEAUTY",
-];
+const CONSENT_REQUIRED_TYPES: BusinessType[] = ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"];
 
 const consentTemplate = {
   title: "Formular de informare și consimțământ stomatologic",

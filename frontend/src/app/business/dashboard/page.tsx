@@ -8,12 +8,34 @@ import ServiceCard from "../../../components/ServiceCard";
 import useAuth from "../../../hooks/useAuth";
 import useBookings, { type Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
+import useApi from "../../../hooks/useApi";
+
+type InsightSlot = {
+  day: string;
+  hour: string;
+  count: number;
+  examples: Array<{ client: string; service: string; date: string }>;
+};
+
+type InactiveClientInsight = {
+  name: string;
+  email: string;
+  lastBooking: string;
+  daysSince: number;
+};
+
+type BusinessInsights = {
+  topSlots: InsightSlot[];
+  inactiveClients: InactiveClientInsight[];
+  generatedAt?: string;
+};
 
 export default function BusinessDashboardPage() {
   const router = useRouter();
   const { user, hydrated } = useAuth();
   const { bookings, fetchBookings, cancelBooking } = useBookings();
   const { businesses, fetchBusinesses, addService, updateService, deleteService, addEmployee, updateEmployee, deleteEmployee } = useBusiness();
+  const api = useApi();
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
@@ -35,6 +57,9 @@ export default function BusinessDashboardPage() {
   const [employeeToDelete, setEmployeeToDelete] = useState<{ id: string; name: string } | null>(null);
   const [deletingEmployeeId, setDeletingEmployeeId] = useState<string | null>(null);
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
+  const [insights, setInsights] = useState<BusinessInsights | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 60000);
@@ -241,6 +266,41 @@ export default function BusinessDashboardPage() {
     void Promise.all([fetchBookings(), fetchBusinesses()]);
   }, [hydrated, user, router, fetchBookings, fetchBusinesses]);
 
+  useEffect(() => {
+    if (!hydrated || !business?.id || user?.role === "CLIENT") {
+      setInsights(null);
+      return;
+    }
+
+    let isActive = true;
+    setInsightsLoading(true);
+    setInsightsError(null);
+
+    api
+      .get<BusinessInsights>(`/business/${business.id}/insights`)
+      .then((response) => {
+        if (!isActive) return;
+        setInsights(response.data);
+      })
+      .catch((error: any) => {
+        if (!isActive) return;
+        const message =
+          error?.response?.data?.error ??
+          error?.message ??
+          "Nu am putut încărca insight-urile.";
+        setInsightsError(message);
+      })
+      .finally(() => {
+        if (isActive) {
+          setInsightsLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [api, business?.id, hydrated, user?.role]);
+
   if (!hydrated) {
     return null;
   }
@@ -333,6 +393,9 @@ export default function BusinessDashboardPage() {
                     onReschedule={handleRescheduleBooking}
                     onCancel={handleCancelBooking}
                     cancelling={cancellingBookingId === booking.id}
+                    reminderSentAt={booking.reminderSentAt}
+                    currentTime={currentTime}
+                    ignoreCancellationLimits
                   />
                 );
               })
@@ -618,14 +681,70 @@ export default function BusinessDashboardPage() {
             <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-3 desktop:p-5">
               <p className="text-sm font-semibold">Ore recomandate pentru promoții</p>
               <p className="mt-2 text-sm text-white/70">
-                Joi și vineri între 17:00 - 19:00 ai zone cu disponibilitate ridicată. Trimite notificări automate pentru upgrade-uri.
+                {insightsLoading
+                  ? "Analizăm tiparele de rezervări pentru a evidenția ferestrele fierbinți..."
+                  : insightsError
+                  ? insightsError
+                  : insights && insights.topSlots.length > 0
+                  ? `Cele mai active ferestre: ${insights.topSlots
+                      .slice(0, 2)
+                      .map((slot) => `${slot.day} ${slot.hour} (${slot.count} rezervări)`)
+                      .join(" • ")}. Trimite campanii în aceste intervale pentru a maximiza upsell-ul.`
+                  : "Încă nu avem suficiente date pentru a recomanda ore de promoții. Revin-o după ce acumulezi câteva rezervări."}
               </p>
+              {!insightsLoading && !insightsError && insights && insights.topSlots.length > 0 && (
+                <ul className="mt-4 space-y-2 text-xs text-white/80">
+                  {insights.topSlots.slice(0, 3).map((slot) => (
+                    <li key={`${slot.day}-${slot.hour}`} className="flex items-start gap-2">
+                      <span className="mt-1 block h-1.5 w-1.5 rounded-full bg-[#A5B4FC]" />
+                      <span>
+                        {slot.day} • {slot.hour} — {slot.count} rezervări
+                        {slot.examples.length > 0 && (
+                          <span className="block text-white/50">
+                            Exemple:{" "}
+                            {slot.examples
+                              .map((example) => `${example.client} (${example.service})`)
+                              .join(", ")}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-5">
               <p className="text-sm font-semibold">Clienți în risc de inactivitate</p>
               <p className="mt-2 text-sm text-white/70">
-                5 clienți nu au mai rezervat în ultimele 3 luni. Trimite-le un voucher de revenire.
+                {insightsLoading
+                  ? "Identificăm clienții care nu au mai revenit recent..."
+                  : insightsError
+                  ? insightsError
+                  : insights && insights.inactiveClients.length > 0
+                  ? `${insights.inactiveClients.length} ${
+                      insights.inactiveClients.length === 1 ? "client" : "clienți"
+                    } nu au mai rezervat în ultimele 3 luni. Trimite-le un voucher sau un SMS personalizat.`
+                  : "Toți clienții activi au revenit în ultimele 90 de zile. Continuă să menții ritmul!"}
               </p>
+              {!insightsLoading && !insightsError && insights && insights.inactiveClients.length > 0 && (
+                <ul className="mt-4 space-y-2 text-xs text-white/80">
+                  {insights.inactiveClients.map((client) => (
+                    <li key={`${client.email}-${client.lastBooking}`} className="flex items-start gap-2">
+                      <span className="mt-1 block h-1.5 w-1.5 rounded-full bg-white/60" />
+                      <span>
+                        {client.name} ({client.email || "—"}) — ultima vizită{" "}
+                        {new Date(client.lastBooking).toLocaleDateString("ro-RO", {
+                          day: "2-digit",
+                          month: "short",
+                        })}
+                        <span className="block text-white/50">
+                          {client.daysSince} zile fără rezervare
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </section>

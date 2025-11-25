@@ -459,11 +459,11 @@ h1 {
 }
 
 section {
-  padding: 40px;
+  /* padding: 40px; */
   position: relative;
 }
 
-#despre, #ai-section, #pricing, #contact, #cum-functioneaza-client, #aws-section, #pachete-preturi, #demo-preview, #cum-functioneaza-afacere {
+#despre, #ai-section, #contact-business, #demo, #pricing, #contact, #cum-functioneaza-client, #aws-section, #pachete-preturi, #demo-preview, #cum-functioneaza-afacere {
   padding: 120px 40px;
 }
 
@@ -545,11 +545,11 @@ section {
 }
 
 .card ul li {
-  padding: 10px 0;
+  padding: 0 0 10px;
   color: rgba(255, 255, 255, 0.7);
   font-size: 15px;
   display: flex;
-  align-items: center;
+  align-items: left;
   gap: 10px;
 }
 
@@ -560,6 +560,25 @@ section {
 
 .pricing-section {
   background: linear-gradient(180deg, #0b0e17 0%, #1a1541 100%);
+}
+
+.pricing-grid-compact {
+  gap: 1.5rem;
+}
+
+.pricing-grid-compact {
+  width: 100%;
+}
+
+@media (min-width: 1024px) {
+  .pricing-grid-compact {
+    max-width: 1024px;
+    margin: 0 auto;
+  }
+}
+
+.pricing-card-compact {
+  padding: 32px 28px !important;
 }
 
 .pricing-card {
@@ -708,6 +727,175 @@ section {
   grid-template-columns: 1fr;
   gap: 24px;
   margin-bottom: 24px;
+}
+
+.slot-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.slot-grid-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.slot-button {
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #fff;
+  font-weight: 600;
+  transition: border 0.2s, background 0.2s, transform 0.2s;
+  cursor: pointer;
+}
+
+.slot-button:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.12);
+  transform: translateY(-1px);
+}
+
+.slot-button.active {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.2);
+  box-shadow: 0 10px 20px rgba(99, 102, 241, 0.25);
+}
+
+.date-picker {
+  position: relative;
+}
+
+.date-picker-trigger {
+  width: 100%;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.9);
+  color: #fff;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  transition: border 0.2s, background 0.2s;
+}
+
+.date-picker-trigger:hover,
+.date-picker-trigger.open {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.date-picker-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  width: 100%;
+  background: #0f172a;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 16px;
+  z-index: 15;
+  box-shadow: 0 25px 60px rgba(3, 7, 18, 0.55);
+}
+
+.date-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.date-picker-header button {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, border 0.2s;
+}
+
+.date-picker-header button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.date-picker-header button:not(:disabled):hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.date-picker-title {
+  text-transform: capitalize;
+  font-weight: 600;
+  color: #fff;
+}
+
+.date-picker-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 6px;
+}
+
+.date-picker-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.date-picker-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.date-picker-cell {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 0;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.date-picker-cell.empty {
+  background: transparent;
+  cursor: default;
+}
+
+.date-picker-cell.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.date-picker-cell:not(.disabled):hover {
+  background: rgba(99, 102, 241, 0.25);
+}
+
+.date-picker-cell.selected {
+  background: rgba(99, 102, 241, 0.9);
+  color: #fff;
+}
+
+.date-picker-hint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
 }
 
 @media (min-width: 768px) {
@@ -1227,7 +1415,7 @@ section.ai-section {
     background: none;
   }
 
-  #despre, #ai-section, #pricing, #contact, #cum-functioneaza-client, #aws-section, #pachete-preturi, #demo-preview, #cum-functioneaza-afacere {
+  #despre, #ai-section, #contact-business, #demo, #pricing, #contact, #cum-functioneaza-client, #aws-section, #pachete-preturi, #demo-preview, #cum-functioneaza-afacere {
     padding: 60px 20px;
   }
 

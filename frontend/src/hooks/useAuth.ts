@@ -19,6 +19,7 @@ export interface AuthUser {
     name: string;
     domain?: string | null;
     email?: string | null;
+    businessType?: BusinessTypeValue;
   } | null;
   createdAt?: string;
 }

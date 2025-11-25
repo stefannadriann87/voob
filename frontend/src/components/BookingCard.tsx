@@ -1,4 +1,6 @@
 
+import { getBookingCancellationStatus, CANCELLATION_LIMIT_MESSAGE } from "../utils/bookingRules";
+
 export interface BookingCardProps {
   id: string;
   serviceName: string;
@@ -13,6 +15,9 @@ export interface BookingCardProps {
   onRequestCancel?: (id: string) => void;
   onDetails?: (id: string) => void;
   cancelling?: boolean;
+  reminderSentAt?: string | null;
+  currentTime?: string | number | Date;
+  ignoreCancellationLimits?: boolean;
 }
 
 export default function BookingCard({
@@ -29,11 +34,24 @@ export default function BookingCard({
   onRequestCancel,
   onDetails,
   cancelling = false,
+  reminderSentAt,
+  currentTime,
+  ignoreCancellationLimits = false,
 }: BookingCardProps) {
   const badgeColor =
     status === "completed" ? "bg-emerald-500/10 text-emerald-300" : status === "cancelled" ? "bg-red-500/10 text-red-300" : "bg-[#6366F1]/20 text-[#6366F1]";
 
   const isCompleted = status === "completed";
+  const resolvedNow =
+    currentTime instanceof Date ? currentTime : currentTime ? new Date(currentTime) : new Date();
+  const cancellationStatus = getBookingCancellationStatus(date, reminderSentAt, resolvedNow);
+  const cancelDisabled =
+    cancelling || isCompleted || (!ignoreCancellationLimits && !cancellationStatus.canCancel);
+  const rescheduleDisabled =
+    isCompleted ||
+    (!ignoreCancellationLimits &&
+      !cancellationStatus.canCancel &&
+      cancellationStatus.message === CANCELLATION_LIMIT_MESSAGE);
 
   return (
     <div
@@ -65,44 +83,56 @@ export default function BookingCard({
         </div>
 
         {showActions && (
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={isCompleted}
-              onClick={() => onDetails?.(id)}
-              className={`rounded-lg px-2 py-2 text-sm font-semibold transition ${
-                isCompleted
-                  ? "cursor-not-allowed bg-white/5 text-white/40"
-                  : "bg-[#6366F1] hover:bg-[#7C3AED]"
-              }`}
-            >
-              Detalii
-            </button>
-            <button
-              type="button"
-              disabled={isCompleted}
-              onClick={() => onReschedule?.(id)}
-              className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
-                isCompleted
-                  ? "cursor-not-allowed border-white/10 bg-white/5 text-white/40"
-                  : "border-white/10 text-white/80 hover:border-[#6366F1] hover:bg-[#6366F1]/20 hover:text-white"
-              }`}
-            >
-              Reprogramează
-            </button>
-            <button
-              type="button"
-              disabled={cancelling || isCompleted}
-              onClick={() => (onRequestCancel ? onRequestCancel(id) : onCancel?.(id))}
-              className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
-                cancelling || isCompleted
-                  ? "cursor-not-allowed border-white/10 bg-white/5 text-white/40"
-                  : "border-white/10 text-white/80 hover:border-red-400/40 hover:bg-red-500/15 hover:text-red-200"
-              }`}
-            >
-              {cancelling ? "Se anulează..." : "Anulează"}
-            </button>
-          </div>
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              {onDetails && (
+                <button
+                  type="button"
+                  disabled={isCompleted}
+                  onClick={() => onDetails(id)}
+                  className={`rounded-lg px-2 py-2 text-sm font-semibold transition ${
+                    isCompleted
+                      ? "cursor-not-allowed bg-white/5 text-white/40"
+                      : "bg-[#6366F1] hover:bg-[#7C3AED]"
+                  }`}
+                >
+                  Detalii
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={rescheduleDisabled}
+                onClick={() => onReschedule?.(id)}
+                className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
+                  rescheduleDisabled
+                    ? "cursor-not-allowed border-white/10 bg-white/5 text-white/40"
+                    : "border-white/10 text-white/80 hover:border-[#6366F1] hover:bg-[#6366F1]/20 hover:text-white"
+                }`}
+              >
+                Reprogramează
+              </button>
+              <button
+                type="button"
+                disabled={cancelDisabled}
+                onClick={() => (onRequestCancel ? onRequestCancel(id) : onCancel?.(id))}
+                className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
+                  cancelDisabled
+                    ? "cursor-not-allowed border-white/10 bg-white/5 text-white/40"
+                    : "border-white/10 text-white/80 hover:border-red-400/40 hover:bg-red-500/15 hover:text-red-200"
+                }`}
+                title={
+                  !ignoreCancellationLimits && !cancellationStatus.canCancel
+                    ? cancellationStatus.message
+                    : undefined
+                }
+              >
+                {cancelling ? "Se anulează..." : "Anulează"}
+              </button>
+            </div>
+            {!ignoreCancellationLimits && !cancellationStatus?.canCancel && cancellationStatus?.message && (
+              <p className="text-xs text-red-300">{cancellationStatus.message}</p>
+            )}
+          </>
         )}
       </div>
     </div>

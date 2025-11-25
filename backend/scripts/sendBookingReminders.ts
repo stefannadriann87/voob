@@ -22,6 +22,7 @@ interface BookingWithDetails {
     phone: string | null;
   } | null;
   business: {
+    id: string | null;
     name: string | null;
   } | null;
   service: {
@@ -72,6 +73,7 @@ async function sendReminders() {
         },
         business: {
           select: {
+            id: true,
             name: true,
           },
         },
@@ -101,7 +103,8 @@ async function sendReminders() {
           booking.business?.name || "Business",
           booking.date,
           booking.service?.name,
-          24 // 24 ore înainte
+          24, // 24 ore înainte
+          booking.business?.id || undefined
         );
 
         if (result.success) {

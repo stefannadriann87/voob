@@ -6,6 +6,15 @@
 const prisma = require("../../lib/prisma").default;
 const { sendBookingCancellationSms } = require("../../services/smsService");
 
+const HOUR_IN_MS = 60 * 60 * 1000;
+const MIN_BOOKING_LEAD_MS = 2 * HOUR_IN_MS;
+const CANCELLATION_LIMIT_MS = 23 * HOUR_IN_MS;
+const REMINDER_GRACE_MS = 1 * HOUR_IN_MS;
+
+const MIN_LEAD_MESSAGE = "Rezervările se pot face cu minim 2 ore înainte.";
+const CANCELLATION_LIMIT_MESSAGE = "Rezervarea nu mai poate fi anulată. Ai depășit limita de anulare.";
+const REMINDER_LIMIT_MESSAGE = "Timpul de anulare după reminder a expirat.";
+
 /**
  * Anulează o rezervare cu verificare RBAC
  */
@@ -39,6 +48,20 @@ async function cancelBooking(
 
   // SUPERADMIN poate anula orice rezervare (nu are restricții)
 
+  // Verifică regulile de anulare înainte de ștergere
+  const now = new Date();
+  const bookingDateObj = new Date(booking.date);
+  if (booking.reminderSentAt) {
+    const reminderDate = new Date(booking.reminderSentAt);
+    if (!Number.isNaN(reminderDate.getTime()) && now.getTime() > reminderDate.getTime() + REMINDER_GRACE_MS) {
+      throw new Error(REMINDER_LIMIT_MESSAGE);
+    }
+  }
+
+  if (bookingDateObj.getTime() - now.getTime() < CANCELLATION_LIMIT_MS) {
+    throw new Error(CANCELLATION_LIMIT_MESSAGE);
+  }
+
   // Salvează datele pentru SMS înainte de ștergere
   const clientName = booking.client?.name || "Client";
   const clientPhone = booking.client?.phone;
@@ -52,7 +75,13 @@ async function cancelBooking(
 
   // Trimite SMS de anulare dacă clientul are telefon
   if (clientPhone) {
-    sendBookingCancellationSms(clientName, clientPhone, businessName, bookingDate).catch(
+    sendBookingCancellationSms(
+      clientName,
+      clientPhone,
+      businessName,
+      bookingDate,
+      booking.business?.id
+    ).catch(
       (error: unknown) => {
         console.error("Failed to send cancellation SMS:", error);
       }
@@ -200,6 +229,9 @@ async function createBooking(
   ]);
 
   if (!business) throw new Error("Business-ul nu a fost găsit.");
+  if (business.status === "SUSPENDED") {
+    throw new Error("Business-ul este suspendat. Rezervările sunt oprite temporar.");
+  }
   if (!service) throw new Error("Serviciul nu a fost găsit.");
   if (!client) throw new Error("Clientul nu a fost găsit.");
 
@@ -211,19 +243,28 @@ async function createBooking(
     }
   }
 
+  const bookingDateObj = new Date(date);
+  if (Number.isNaN(bookingDateObj.getTime())) {
+    throw new Error("Data rezervării este invalidă.");
+  }
+
+  if (bookingDateObj.getTime() - Date.now() < MIN_BOOKING_LEAD_MS) {
+    throw new Error(MIN_LEAD_MESSAGE);
+  }
+
   const booking = await prisma.booking.create({
     data: {
       clientId: finalClientId,
       businessId: finalBusinessId,
       serviceId: finalServiceId,
       employeeId: finalEmployeeId || null,
-      date: new Date(date),
+      date: bookingDateObj,
       paid: paid ?? false,
       status: "CONFIRMED",
     },
     include: {
       client: { select: { id: true, name: true, phone: true } },
-      business: { select: { name: true } },
+      business: { select: { id: true, name: true } },
       service: { select: { name: true } },
     },
   });
@@ -236,7 +277,8 @@ async function createBooking(
       booking.client.phone,
       booking.business.name || "Business",
       booking.date,
-      booking.service?.name
+      booking.service?.name,
+      booking.business.id
     ).catch((error: unknown) => {
       console.error("Failed to send confirmation SMS:", error);
     });

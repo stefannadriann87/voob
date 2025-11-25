@@ -1,18 +1,65 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import { useRouter } from "next/navigation";
 import useAuth from "../../../hooks/useAuth";
-import useBusiness from "../../../hooks/useBusiness";
-import useBookings from "../../../hooks/useBookings";
+import useApi from "../../../hooks/useApi";
+
+type DashboardSummary = {
+  totalBusinesses: number;
+  activeBusinesses: number;
+  totalBookings: number;
+  totalRevenue: number;
+  platformRevenue: number;
+  smsUsage: {
+    totalMessages: number;
+    estimatedCost: number;
+  };
+  aiUsage: {
+    totalRequests: number;
+    estimatedCost: number;
+  };
+  paymentDistribution: Record<string, number>;
+  slaPercent: number;
+  generatedAt: string;
+};
+
+type AnalyticsOverview = {
+  bookingsDaily: Array<{ date: string; count: number }>;
+  serviceMix: Array<{ serviceName: string; count: number }>;
+  paymentSplit: Array<{ method: string | null; amount: number }>;
+  cancellationRate: number;
+};
+
+const currencyFormatter = (value: number) =>
+  value.toLocaleString("ro-RO", { style: "currency", currency: "RON" });
 
 export default function AdminDashboardPage() {
   const router = useRouter();
+  const api = useApi();
   const { user, hydrated } = useAuth();
-  const { businesses, fetchBusinesses, loading: businessLoading } = useBusiness();
-  const { bookings, fetchBookings, loading: bookingsLoading } = useBookings();
-  const [now] = useState(() => Date.now());
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [summaryResponse, analyticsResponse] = await Promise.all([
+        api.get("/admin/dashboard/summary"),
+        api.get("/admin/dashboard/analytics"),
+      ]);
+      setSummary(summaryResponse.data);
+      setAnalytics(analyticsResponse.data);
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? err?.message ?? "Nu am putut încărca datele.");
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
 
   useEffect(() => {
     if (!hydrated) {
@@ -22,199 +69,168 @@ export default function AdminDashboardPage() {
       router.replace("/auth/login");
       return;
     }
-    if (user && user.role !== "SUPERADMIN") {
-      switch (user.role) {
-        case "CLIENT":
-          router.replace("/client/dashboard");
-          break;
-        case "BUSINESS":
-          router.replace("/business/dashboard");
-          break;
-        case "EMPLOYEE":
-          router.replace("/employee/dashboard");
-          break;
-        default:
-          router.replace("/client/dashboard");
-      }
+    if (user.role !== "SUPERADMIN") {
+      router.replace("/dashboard");
       return;
     }
-    if (user.role === "SUPERADMIN") {
-      void Promise.all([fetchBusinesses(), fetchBookings()]);
-    }
-  }, [hydrated, user, router, fetchBusinesses, fetchBookings]);
+    void fetchData();
+  }, [hydrated, user, router, fetchData]);
 
-  const totalRevenue = useMemo(
-    () =>
-      bookings
-        .filter((booking) => booking.paid)
-        .reduce((acc, booking) => acc + booking.service.price, 0),
-    [bookings]
-  );
+  const paymentEntries = useMemo(() => {
+    if (!summary) return [];
+    return Object.entries(summary.paymentDistribution).filter(([, amount]) => amount > 0);
+  }, [summary]);
 
-  const activeBusinesses = useMemo(
-    () => businesses.filter((business) => business.services.length > 0).length,
-    [businesses]
-  );
-
-  const upcomingBookings = useMemo(
-    () => bookings.filter((booking) => new Date(booking.date).getTime() > now).slice(0, 5),
-    [bookings, now]
-  );
-
-  if (!hydrated) {
-    return null;
-  }
-  if (!user || user.role !== "SUPERADMIN") {
+  if (!hydrated || !user || user.role !== "SUPERADMIN") {
     return null;
   }
 
   return (
     <>
       <Head>
-        <title>Admin - LARSTEF</title>
+        <title>SuperAdmin Dashboard - LARSTEF</title>
       </Head>
-      <div className="space-y-10">
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-8">
-          <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-sm uppercase tracking-wide text-[#6366F1]">Admin</p>
-              <h1 className="mt-1 text-3xl font-semibold text-white">Control Center</h1>
-              <p className="text-sm text-white/60">
-                Monitorizează business-urile, rezervările și activitatea generală LARSTEF.
-              </p>
-            </div>
-          </header>
+      <div className="space-y-8">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-[#818CF8]">SuperAdmin</p>
+            <h1 className="mt-1 text-3xl font-semibold text-white">Platform Control Center</h1>
+            <p className="text-sm text-white/60">
+              Monitorizează sănătatea platformei fără a accesa date personale ale clienților.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchData()}
+            className="rounded-2xl border border-white/10 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+          >
+            Reîncarcă datele
+          </button>
+        </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-5">
-              <p className="text-xs uppercase tracking-wide text-white/60">Business-uri totale</p>
-              <p className="mt-3 text-2xl font-semibold">
-                {businessLoading ? "…" : businesses.length}
-              </p>
-              <p className="mt-1 text-xs text-white/60">
-                {activeBusinesses} active cu servicii configurate
-              </p>
-            </div>
+        {error && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {error}
+          </div>
+        )}
 
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <p className="text-xs uppercase tracking-wide text-white/60">Rezervări totale</p>
-              <p className="mt-3 text-2xl font-semibold">{bookingsLoading ? "…" : bookings.length}</p>
-              <p className="mt-1 text-xs text-white/60">Din toate business-urile conectate</p>
-            </div>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <DashboardCard
+            title="Business-uri active"
+            value={loading || !summary ? "…" : summary.activeBusinesses}
+            description={`${summary?.totalBusinesses ?? 0} în total`}
+          />
+          <DashboardCard
+            title="Rezervări în platformă"
+            value={loading || !summary ? "…" : summary.totalBookings}
+            description="Agregat, fără PII"
+          />
+          <DashboardCard
+            title="Venit procesat"
+            value={loading || !summary ? "…" : currencyFormatter(summary.totalRevenue)}
+            description={`Platform fee: ${
+              summary ? currencyFormatter(summary.platformRevenue) : "…"
+            }`}
+          />
+          <DashboardCard
+            title="SLA lunar"
+            value={loading || !summary ? "…" : `${summary.slaPercent.toFixed(2)}%`}
+            description="Disponibilitate raportată"
+          />
+        </section>
 
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <p className="text-xs uppercase tracking-wide text-white/60">Venit procesat</p>
-              <p className="mt-3 text-2xl font-semibold text-[#6366F1]">
-                {bookingsLoading
-                  ? "…"
-                  : totalRevenue.toLocaleString("ro-RO", { style: "currency", currency: "RON" })}
-              </p>
-              <p className="mt-1 text-xs text-white/60">Stripe + Klarna (rezervări marcate ca plătite)</p>
+        <section className="grid gap-6 lg:grid-cols-2 py-6">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <header className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-white/60">Costuri operaționale</p>
+                <h2 className="text-lg font-semibold text-white">SMS & AI consum</h2>
+              </div>
+            </header>
+            <div className="mt-6 space-y-4 text-sm text-white/80">
+              <div className="rounded-2xl border border-white/10 bg-[#111827]/60 p-4">
+                <p className="text-xs uppercase tracking-wide text-white/60">Mesaje SMS</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {loading || !summary
+                    ? "…"
+                    : `${summary.smsUsage.totalMessages} mesaje`}
+                </p>
+                <p className="text-xs text-white/50">
+                  Cost estimat: {summary ? currencyFormatter(summary.smsUsage.estimatedCost) : "…"}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-[#111827]/60 p-4">
+                <p className="text-xs uppercase tracking-wide text-white/60">Consum AI</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {loading || !summary ? "…" : summary.aiUsage.totalRequests}
+                </p>
+                <p className="text-xs text-white/50">
+                  Cost estimat: {summary ? currencyFormatter(summary.aiUsage.estimatedCost) : "…"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <header className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-white/60">Metode de plată</p>
+                <h2 className="text-lg font-semibold text-white">Distribuție agregată</h2>
+              </div>
+            </header>
+            <div className="mt-6 space-y-3 text-sm text-white/80">
+              {paymentEntries.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-center text-sm text-white/50">
+                  Încă nu există plăți raportate.
+                </p>
+              )}
+              {paymentEntries.map(([method, amount]) => (
+                <div
+                  key={method}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-[#111827]/60 px-4 py-3"
+                >
+                  <span className="text-white">{method}</span>
+                  <span className="text-white/70">{currencyFormatter(amount)}</span>
+                </div>
+              ))}
             </div>
           </div>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Business-uri recente</h2>
-              <span className="text-xs text-white/60">{businesses.length} total</span>
-            </div>
-            <div className="mt-4 space-y-3 text-sm text-white/80">
-              {businesses.slice(0, 6).map((business) => (
-                <div
-                  key={business.id}
-                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-                >
-                  <div>
-                    <p className="font-semibold text-white">{business.name}</p>
-                    <p className="text-xs text-white/50">
-                      {business.domain} • {business.services.length} servicii
-                    </p>
-                  </div>
-                  <span className="rounded-lg bg-[#6366F1]/20 px-3 py-1 text-xs text-[#6366F1]">
-                    {business.employees.length} angajați
-                  </span>
-                </div>
-              ))}
-              {businesses.length === 0 && !businessLoading && (
-                <p className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-center text-sm text-white/60">
-                  Încă nu există business-uri înregistrate.
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <h2 className="text-lg font-semibold text-white">Rezervări viitoare</h2>
-            <div className="mt-4 space-y-3 text-sm text-white/80">
-              {upcomingBookings.map((booking) => (
-                <div
-                  key={booking.id}
-                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-                >
-                  <div>
-                    <p className="font-semibold text-white">{booking.business.name}</p>
-                    <p className="text-xs text-white/60">
-                      {booking.service.name} • {booking.client.name}
-                    </p>
-                  </div>
-                  <span className="text-xs text-white/50">
-                    {new Date(booking.date).toLocaleString("ro-RO", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </span>
-                </div>
-              ))}
-              {upcomingBookings.length === 0 && !bookingsLoading && (
-                <p className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-center text-sm text-white/60">
-                  Nu există rezervări viitoare programate.
-                </p>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-8">
+        <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
           <header className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-white">Monitorizare rapidă</h2>
-              <p className="text-sm text-white/60">
-                Insight-uri cheie pentru sănătatea platformei (placeholder pentru integrare viitoare).
-              </p>
+              <p className="text-xs uppercase tracking-wide text-white/60">Trenduri anonime</p>
+              <h2 className="text-lg font-semibold text-white">Activitate ultimile 30 zile</h2>
             </div>
+            <p className="text-xs text-white/50">
+              Rată anulări: {analytics ? `${analytics.cancellationRate}%` : "…"}
+            </p>
           </header>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-5">
-              <p className="text-xs uppercase tracking-wide text-white/60">Activare businessuri</p>
-              <p className="mt-3 text-2xl font-semibold">
-                {businesses.length === 0
-                  ? "0%"
-                  : Math.round((activeBusinesses / Math.max(businesses.length, 1)) * 100)}%
-              </p>
-              <p className="mt-1 text-xs text-white/60">Business-uri cu cel puțin 1 serviciu</p>
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div className="space-y-3 text-sm text-white/80">
+              <p className="text-xs uppercase tracking-wide text-white/50">Rezervări / zi</p>
+              <div className="rounded-2xl border border-white/5 bg-[#0F172A]/60 p-4 max-h-64 overflow-y-auto">
+                {analytics?.bookingsDaily.map((entry) => (
+                  <div key={entry.date} className="flex items-center justify-between py-1 text-xs">
+                    <span className="text-white/60">{entry.date}</span>
+                    <span className="font-semibold text-white">{entry.count}</span>
+                  </div>
+                ))}
+                {!analytics && <p className="text-white/50">Se încarcă…</p>}
+              </div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <p className="text-xs uppercase tracking-wide text-white/60">Rezervări cu plată</p>
-              <p className="mt-3 text-2xl font-semibold">
-                {bookings.length === 0
-                  ? "0%"
-                  : Math.round(
-                      (bookings.filter((booking) => booking.paid).length /
-                        Math.max(bookings.length, 1)) *
-                        100
-                    )}%
-              </p>
-              <p className="mt-1 text-xs text-white/60">Stripe & Klarna fully processed</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <p className="text-xs uppercase tracking-wide text-white/60">Business-uri fără servicii</p>
-              <p className="mt-3 text-2xl font-semibold">
-                {businessLoading ? "…" : businesses.length - activeBusinesses}
-              </p>
-              <p className="mt-1 text-xs text-white/60">Ținte bune pentru onboarding assist</p>
+            <div className="space-y-3 text-sm text-white/80">
+              <p className="text-xs uppercase tracking-wide text-white/50">Top servicii</p>
+              <div className="rounded-2xl border border-white/5 bg-[#0F172A]/60 p-4 max-h-64 overflow-y-auto">
+                {analytics?.serviceMix.map((service) => (
+                  <div key={service.serviceName} className="flex items-center justify-between py-1 text-xs">
+                    <span className="text-white/70">{service.serviceName}</span>
+                    <span className="font-semibold text-white">{service.count}</span>
+                  </div>
+                ))}
+                {!analytics && <p className="text-white/50">Se încarcă…</p>}
+              </div>
             </div>
           </div>
         </section>
@@ -223,3 +239,20 @@ export default function AdminDashboardPage() {
   );
 }
 
+function DashboardCard({
+  title,
+  value,
+  description,
+}: {
+  title: string;
+  value: string | number;
+  description?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+      <p className="text-xs uppercase tracking-wide text-white/60">{title}</p>
+      <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
+      {description && <p className="mt-1 text-xs text-white/60">{description}</p>}
+    </div>
+  );
+}

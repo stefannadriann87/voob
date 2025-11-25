@@ -43,6 +43,7 @@ model Business {
   email         String?   @unique
   domain        String    @unique
   businessType  BusinessType @default(GENERAL)
+  status        BusinessStatus @default(ACTIVE)
   ownerId       String
   owner         User      @relation("BusinessOwner", fields: [ownerId], references: [id])
   employees     User[]
@@ -54,6 +55,13 @@ model Business {
   qrCodeUrl     String?
   clientLinks   ClientBusinessLink[] @relation("BusinessLinks")
   consentForms  ConsentForm[]
+  currentPlanId String?
+  currentPlan   SubscriptionPlan? @relation("BusinessCurrentPlan", fields: [currentPlanId], references: [id])
+  subscriptions Subscription[]
+  invoices      Invoice[]
+  payments      Payment[]
+  smsUsageLogs  SmsUsageLog[]
+  aiUsageLogs   AiUsageLog[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -105,6 +113,12 @@ enum BookingStatus {
   CANCELLED
 }
 
+enum BookingPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
 model Booking {
   id         String   @id @default(cuid())
   clientId   String
@@ -116,10 +130,15 @@ model Booking {
   employeeId String?
   employee   User?    @relation("EmployeeBookings", fields: [employeeId], references: [id])
   date       DateTime
+  reminderSentAt DateTime?
   paid       Boolean  @default(false)
+  paymentMethod PaymentMethod?
+  paymentStatus BookingPaymentStatus @default(PENDING)
+  paymentReused Boolean @default(false)
   status     BookingStatus @default(CONFIRMED)
   consentForm ConsentForm? @relation("BookingConsent")
   consentDocuments ConsentDocument[]
+  payments    Payment[]
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
@@ -157,6 +176,17 @@ model ConsentDocument {
 
   @@index([clientId, businessId])
   @@index([bookingId])
+}
+
+model DemoBooking {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String
+  email     String
+  phone     String
+  dateTime  DateTime
+  meetLink  String
+  createdAt DateTime @default(now())
 }
 
 model EmployeeHoliday {
@@ -198,7 +228,185 @@ enum BusinessType {
   TERAPIE
 }
 
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 enum ConsentDocumentSource {
   DIGITAL_SIGNATURE
   BUSINESS_UPLOAD
+}
+
+enum PaymentMethod {
+  CARD
+  APPLE_PAY
+  GOOGLE_PAY
+  KLARNA
+  CASH
+  OFFLINE
+}
+
+enum PaymentStatus {
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PENDING
+  CANCELED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum InvoiceStatus {
+  PAID
+  DUE
+  FAILED
+  PENDING
+}
+
+enum SmsUsageType {
+  NOTIFICATION
+  CONFIRMATION
+  REMINDER
+  CANCELLATION
+  DEMO
+  MARKETING
+  OTHER
+}
+
+model SubscriptionPlan {
+  id                 String    @id @default(cuid())
+  name               String    @unique
+  price              Float
+  currency           String    @default("RON")
+  billingCycle       String    @default("MONTHLY")
+  smsIncluded        Int?
+  aiIncluded         Int?
+  description        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  subscriptions      Subscription[]
+  currentBusinesses  Business[] @relation("BusinessCurrentPlan")
+}
+
+model Subscription {
+  id                  String             @id @default(cuid())
+  businessId          String
+  planId              String
+  status              SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  billingMethod       PaymentMethod
+  amount              Float
+  currency            String             @default("RON")
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id])
+  business  Business         @relation(fields: [businessId], references: [id])
+  invoices  Invoice[]
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  subscriptionId String
+  businessId     String
+  amount         Float
+  currency       String        @default("RON")
+  issuedAt       DateTime      @default(now())
+  paidAt         DateTime?
+  paymentMethod  PaymentMethod
+  status         InvoiceStatus @default(PAID)
+  applicationFee Float?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+  business     Business     @relation(fields: [businessId], references: [id])
+  payments     Payment[]
+}
+
+model Payment {
+  id                String         @id @default(cuid())
+  businessId        String
+  bookingId         String?
+  invoiceId         String?
+  amount            Float
+  currency          String         @default("RON")
+  method            PaymentMethod
+  status            PaymentStatus  @default(PENDING)
+  gateway           String         @default("stripe")
+  externalPaymentId String?        @unique
+  installments      Int?
+  amountPerInstallment Float?
+  applicationFee    Float?
+  isCashSelfReported Boolean       @default(false)
+  metadata          Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id])
+  booking  Booking? @relation(fields: [bookingId], references: [id])
+  invoice  Invoice? @relation(fields: [invoiceId], references: [id])
+}
+
+model SmsUsageLog {
+  id         String       @id @default(cuid())
+  businessId String?
+  type       SmsUsageType @default(NOTIFICATION)
+  messageId  String?
+  phoneHash  String?
+  cost       Float?
+  createdAt  DateTime     @default(now())
+  metadata   Json?
+
+  business Business? @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@index([createdAt])
+}
+
+model AiUsageLog {
+  id           String   @id @default(cuid())
+  businessId   String?
+  userId       String?
+  userRole     Role?
+  toolName     String?
+  tokensUsed   Int?
+  costEstimate Float?
+  statusCode   Int?
+  createdAt    DateTime @default(now())
+  metadata     Json?
+
+  business Business? @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@index([createdAt])
+}
+
+model PlatformSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model SystemAuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actorRole Role?
+  action    String
+  entity    String?
+  entityId  String?
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
 }

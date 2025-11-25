@@ -12,6 +12,7 @@ export interface Booking {
   serviceId: string;
   employeeId?: string | null;
   date: string;
+  reminderSentAt?: string | null;
   paid: boolean;
   status: BookingStatus;
   business: { id: string; name: string; businessType: BusinessTypeValue };
@@ -34,6 +35,8 @@ interface CreateBookingInput {
   employeeId?: string;
   date: string;
   paid?: boolean;
+  paymentMethod?: string;
+  paymentReused?: boolean;
 }
 
 export default function useBookings() {

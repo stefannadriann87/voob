@@ -2,12 +2,204 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export default function Home() {
-  const [formSuccess, setFormSuccess] = useState(false);
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const getDefaultDemoDate = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split("T")[0];
+  };
+  const minDemoDate = new Date().toISOString().split("T")[0];
+  const [demoDate, setDemoDate] = useState(getDefaultDemoDate);
+  const [availableSlots, setAvailableSlots] = useState<Array<{ iso: string; label: string }>>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [demoForm, setDemoForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+  });
+  const [demoSubmitting, setDemoSubmitting] = useState(false);
+  const [demoError, setDemoError] = useState<string | null>(null);
+  const [showDemoSuccess, setShowDemoSuccess] = useState(false);
+  const [isDemoCalendarOpen, setIsDemoCalendarOpen] = useState(false);
+  const [demoCalendarMonth, setDemoCalendarMonth] = useState(() => {
+    const initial = new Date(minDemoDate);
+    return new Date(initial.getFullYear(), initial.getMonth(), 1);
+  });
+  const demoCalendarRef = useRef<HTMLDivElement | null>(null);
+  const minDemoDateObj = useMemo(() => new Date(`${minDemoDate}T00:00:00`), [minDemoDate]);
+  const selectedDemoDateObj = useMemo(() => new Date(`${demoDate}T00:00:00`), [demoDate]);
+  const demoDateDisplay = useMemo(() => {
+    return new Intl.DateTimeFormat("ro-RO", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    }).format(selectedDemoDateObj);
+  }, [selectedDemoDateObj]);
+  const demoCalendarTitle = useMemo(
+    () =>
+      new Intl.DateTimeFormat("ro-RO", {
+        month: "long",
+        year: "numeric",
+      }).format(demoCalendarMonth),
+    [demoCalendarMonth]
+  );
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const isWeekend = (date: Date) => {
+    const day = date.getDay();
+    return day === 0 || day === 6;
+  };
+  const calendarWeeks = useMemo(() => {
+    const monthStart = new Date(demoCalendarMonth.getFullYear(), demoCalendarMonth.getMonth(), 1);
+    const daysInMonth = new Date(demoCalendarMonth.getFullYear(), demoCalendarMonth.getMonth() + 1, 0).getDate();
+    const firstWeekday = (monthStart.getDay() + 6) % 7;
+    const weeks: Array<Array<Date | null>> = [];
+    let currentWeek: Array<Date | null> = [];
+    for (let i = 0; i < firstWeekday; i++) {
+      currentWeek.push(null);
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+      const currentDate = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+      currentWeek.push(currentDate);
+      if (currentWeek.length === 7) {
+        weeks.push(currentWeek);
+        currentWeek = [];
+      }
+    }
+    if (currentWeek.length) {
+      while (currentWeek.length < 7) {
+        currentWeek.push(null);
+      }
+      weeks.push(currentWeek);
+    }
+    return weeks;
+  }, [demoCalendarMonth]);
+  const isMinMonth =
+    demoCalendarMonth.getFullYear() === minDemoDateObj.getFullYear() &&
+    demoCalendarMonth.getMonth() === minDemoDateObj.getMonth();
+  const handleDemoDateSelect = (date: Date) => {
+    setDemoDate(date.toISOString().split("T")[0]);
+    setIsDemoCalendarOpen(false);
+  };
+  const handlePrevMonth = () => {
+    if (isMinMonth) return;
+    setDemoCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+  const handleNextMonth = () => {
+    setDemoCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  useEffect(() => {
+    setDemoCalendarMonth((prev) => {
+      if (prev.getFullYear() === selectedDemoDateObj.getFullYear() && prev.getMonth() === selectedDemoDateObj.getMonth()) {
+        return prev;
+      }
+      return new Date(selectedDemoDateObj.getFullYear(), selectedDemoDateObj.getMonth(), 1);
+    });
+  }, [selectedDemoDateObj]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (demoCalendarRef.current && !demoCalendarRef.current.contains(event.target as Node)) {
+        setIsDemoCalendarOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const fetchAvailableSlots = useCallback(
+    async (date: string) => {
+      if (!date) return;
+      setSlotsLoading(true);
+      setSlotsError(null);
+      try {
+        const response = await fetch(`${API_BASE_URL}/landing/available-slots?date=${date}`);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          throw new Error(errorData?.error || "Nu am putut încărca intervalele disponibile.");
+        }
+        const data = await response.json();
+        const slots: Array<{ iso: string; label: string }> = Array.isArray(data?.slots) ? data.slots : [];
+        setAvailableSlots(slots);
+        setSelectedSlot((prev) => {
+          if (prev && slots.some((slot) => slot.iso === prev)) {
+            return prev;
+          }
+          return slots[0]?.iso ?? null;
+        });
+      } catch (error) {
+        console.error("Available slots fetch failed:", error);
+        setSlotsError(error instanceof Error ? error.message : "Nu am putut încărca intervalele.");
+        setAvailableSlots([]);
+        setSelectedSlot(null);
+      } finally {
+        setSlotsLoading(false);
+      }
+    },
+    [API_BASE_URL]
+  );
+
+  useEffect(() => {
+    void fetchAvailableSlots(demoDate);
+  }, [demoDate, fetchAvailableSlots]);
+
+  const handleDemoInputChange =
+    (field: keyof typeof demoForm) => (event: ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.value;
+      setDemoForm((prev) => ({ ...prev, [field]: value }));
+    };
+
+  const handleDemoSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedSlot) {
+      setDemoError("Te rugăm să alegi un interval disponibil.");
+      return;
+    }
+    if (!demoForm.firstName.trim() || !demoForm.lastName.trim() || !demoForm.email.trim() || !demoForm.phone.trim()) {
+      setDemoError("Completează toate câmpurile obligatorii.");
+      return;
+    }
+    setDemoSubmitting(true);
+    setDemoError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/landing/demo-booking`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          firstName: demoForm.firstName.trim(),
+          lastName: demoForm.lastName.trim(),
+          email: demoForm.email.trim(),
+          phone: demoForm.phone.trim(),
+          dateTime: selectedSlot,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || "Nu am putut programa demo-ul.");
+      }
+
+      setShowDemoSuccess(true);
+      setDemoForm({ firstName: "", lastName: "", email: "", phone: "" });
+      void fetchAvailableSlots(demoDate);
+    } catch (error) {
+      console.error("Demo booking failed:", error);
+      setDemoError(error instanceof Error ? error.message : "Nu am putut programa demo-ul.");
+    } finally {
+      setDemoSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     // Lock body scroll when sidebar or video modal is open
@@ -143,14 +335,6 @@ export default function Home() {
       observer.disconnect();
     };
   }, [isSidebarOpen]);
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    form.reset();
-    setFormSuccess(true);
-    window.setTimeout(() => setFormSuccess(false), 5000);
-  };
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -782,28 +966,46 @@ export default function Home() {
 
       <section id="pachete-preturi" className="pricing-section">
         <h2 className="section-title">Alege planul potrivit pentru afacerea ta</h2>
-        <p className="section-subtitle">
-          Poți începe gratuit și face upgrade oricând. Fără costuri ascunse, fără
-          surprize neplăcute.
-        </p>
-        <div className="grid">
-          <div className="pricing-card card">
-            <h3 style={{ textAlign: "left" }}>Starter</h3>
+        <p className="section-subtitle">Două planuri simple. Hosting pe AWS. Fără costuri ascunse.</p>
+        <div className="grid pricing-grid-compact px-10">
+          <div className="pricing-card card pricing-card-compact">
+            <h3 style={{ textAlign: "left" }}>LARSTEF PRO</h3>
             <div className="price" style={{ textAlign: "left" }}>
-              79 lei<span>/lună</span>
+              149 lei<span>/lună</span>
             </div>
             <ul>
               <li>
-                <i className="fas fa-check" /> 1 utilizator
+                <i className="fas fa-check" /> Calendar complet și rezervări
               </li>
               <li>
-                <i className="fas fa-check" /> Booking online
+                <i className="fas fa-check" /> Online booking
               </li>
               <li>
-                <i className="fas fa-check" /> Notificări SMS/WhatsApp
+                <i className="fas fa-check" /> Notificări SMS
               </li>
               <li>
-                <i className="fas fa-check" /> 50 rezervări/lună
+                <i className="fas fa-check" /> AI LARSTEF integrat
+              </li>
+              <li>
+                <i className="fas fa-check" /> Plată card + Apple Pay + Google Pay + Klarna + plată la sediu
+              </li>
+              <li>
+                <i className="fas fa-check" /> Documente PDF + semnătură electronică
+              </li>
+              <li>
+                <i className="fas fa-check" /> QR Code direct pentru business
+              </li>
+              <li>
+                <i className="fas fa-check" /> Hosting pe AWS inclus
+              </li>
+              <li>
+                <i className="fas fa-check" /> 1 utilizator business
+              </li>
+              <li>
+                <i className="fas fa-check" /> 150 SMS / lună
+              </li>
+              <li>
+                <i className="fas fa-check" /> Suport în 24-48h
               </li>
             </ul>
             <Link href="/auth/register" className="btn-pricing">
@@ -811,48 +1013,33 @@ export default function Home() {
             </Link>
           </div>
 
-          <div className="pricing-card popular card">
-            <div className="popular-badge">CEL MAI POPULAR</div>
-            <h3 style={{ textAlign: "left" }}>Pro</h3>
+          <div className="pricing-card popular card pricing-card-compact">
+            <div className="popular-badge">CEA MAI POPULARĂ</div>
+            <h3 style={{ textAlign: "left" }}>LARSTEF BUSINESS</h3>
             <div className="price" style={{ textAlign: "left" }}>
-              129 lei<span>/lună</span>
+              299 lei<span>/lună</span>
             </div>
             <ul>
               <li>
-                <i className="fas fa-check" /> Totul din Starter +
+                <i className="fas fa-check" /> Tot din LARSTEF PRO +
               </li>
               <li>
-                <i className="fas fa-check" /> Utilizatori nelimitați
+                <i className="fas fa-check" /> 5 utilizatori incluși
               </li>
               <li>
-                <i className="fas fa-check" /> Rezervări nelimitate
+                <i className="fas fa-check" /> 500 SMS / lună
               </li>
               <li>
-                <i className="fas fa-check" /> Chat cu AI LARSTEF
+                <i className="fas fa-check" /> Onboarding asistat
               </li>
               <li>
-                <i className="fas fa-check" /> Plata online sau în rate cu Klarna
-              </li>
-            </ul>
-            <Link href="/auth/register" className="btn-pricing">
-              Începe acum
-            </Link>
-          </div>
-
-          <div className="pricing-card card">
-            <h3 style={{ textAlign: "left" }}>Business</h3>
-            <div className="price" style={{ textAlign: "left" }}>
-              169 lei<span>/lună</span>
-            </div>
-            <ul>
-              <li>
-                <i className="fas fa-check" /> Totul din Pro +
+                <i className="fas fa-check" /> Suport prioritar 2-4h
               </li>
               <li>
-                <i className="fas fa-check" /> Account manager
+                <i className="fas fa-check" /> Suport telefonic
               </li>
               <li>
-                <i className="fas fa-check" /> Suport prioritar
+                <i className="fas fa-check" /> Hosting pe AWS inclus
               </li>
             </ul>
             <Link href="/auth/register" className="btn-pricing">
@@ -862,34 +1049,138 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="contact-business" className="contact-form-section">
+      <section id="contact-business" className="contact-form-section py-10">
         <h2 className="section-title">Ești interesat pentru afacerea ta?</h2>
         <p className="section-subtitle">
-          Lasă-ne un mesaj și te vom contacta în cel mai scurt timp pentru a discuta
-          despre cum LARSTEF poate transforma modul în care gestionezi rezervările.
+          Programează un demo live de o oră, de luni până vineri între 15:00 și 19:00. Alegi data, alegi intervalul, iar noi îți trimitem
+          instant linkul de Google Meet plus SMS și email de confirmare.
         </p>
         <div className="form-container">
           <div className="form-card">
-            <form id="business-contact-form" onSubmit={handleSubmit}>
+            <form id="demo-booking-form" onSubmit={handleDemoSubmit}>
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="business-name">Nume business *</label>
+                  <label htmlFor="demo-date">Alege data *</label>
+                  <div className="date-picker" ref={demoCalendarRef}>
+                    <button
+                      type="button"
+                      className={`date-picker-trigger ${isDemoCalendarOpen ? "open" : ""}`}
+                      onClick={() => setIsDemoCalendarOpen((prev) => !prev)}
+                    >
+                      <span>{demoDateDisplay}</span>
+                      <i className="fas fa-calendar-alt" />
+                    </button>
+                    {isDemoCalendarOpen && (
+                      <div className="date-picker-panel">
+                        <div className="date-picker-header">
+                          <button
+                            type="button"
+                            onClick={handlePrevMonth}
+                            disabled={isMinMonth}
+                            aria-label="Luna anterioară"
+                          >
+                            <i className="fas fa-chevron-left" />
+                          </button>
+                          <span className="date-picker-title">{demoCalendarTitle}</span>
+                          <button type="button" onClick={handleNextMonth} aria-label="Luna următoare">
+                            <i className="fas fa-chevron-right" />
+                          </button>
+                        </div>
+                        <div className="date-picker-weekdays">
+                          {["Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"].map((day) => (
+                            <span key={day}>{day}</span>
+                          ))}
+                        </div>
+                        <div className="date-picker-grid">
+                          {calendarWeeks.map((week, weekIndex) => (
+                            <div key={`week-${weekIndex}`} className="date-picker-row">
+                              {week.map((dateCell, cellIndex) => {
+                                if (!dateCell) {
+                                  return <span key={`empty-${weekIndex}-${cellIndex}`} className="date-picker-cell empty" />;
+                                }
+                                const disabled = dateCell < minDemoDateObj || isWeekend(dateCell);
+                                const selected = isSameDay(dateCell, selectedDemoDateObj);
+                                return (
+                                  <button
+                                    key={dateCell.toISOString()}
+                                    type="button"
+                                    className={`date-picker-cell ${selected ? "selected" : ""} ${
+                                      disabled ? "disabled" : ""
+                                    }`}
+                                    onClick={() => handleDemoDateSelect(dateCell)}
+                                    disabled={disabled}
+                                  >
+                                    {dateCell.getDate()}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="date-picker-hint">Programările demo sunt disponibile luni-vineri.</p>
+                      </div>
+                    )}
+                    <input type="hidden" id="demo-date" name="demo-date" value={demoDate} readOnly />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>Interval disponibil *</label>
+                  <div className="slot-grid">
+                    {slotsLoading ? (
+                      <p style={{ color: "rgba(255,255,255,0.7)" }}>Se încarcă intervalele...</p>
+                    ) : slotsError ? (
+                      <p style={{ color: "#f87171" }}>{slotsError}</p>
+                    ) : availableSlots.length === 0 ? (
+                      <p style={{ color: "rgba(255,255,255,0.7)" }}>
+                        Nu există sloturi libere pentru data selectată. Alege altă zi.
+                      </p>
+                    ) : (
+                      <div className="slot-grid-inner gap-2">
+                        {availableSlots.map((slot) => {
+                          const isActive = selectedSlot === slot.iso;
+                          return (
+                            <button
+                              key={slot.iso}
+                              type="button"
+                              onClick={() => setSelectedSlot(slot.iso)}
+                              className={`slot-button ${isActive ? "active" : ""}`}
+                              aria-pressed={isActive}
+                              style={{
+                                flex: "1 0 45%",
+                              }}
+                            >
+                              {slot.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="demo-first-name">Prenume *</label>
                   <input
                     type="text"
-                    id="business-name"
-                    name="business-name"
-                    placeholder="Ex: Salon Beauty, Cabinet Dr. Popescu"
+                    id="demo-first-name"
+                    name="demo-first-name"
+                    placeholder="Prenumele tău"
+                    value={demoForm.firstName}
+                    onChange={handleDemoInputChange("firstName")}
                     required
                   />
                 </div>
-
                 <div className="form-group">
-                  <label htmlFor="contact-name">Nume contact *</label>
+                  <label htmlFor="demo-last-name">Nume *</label>
                   <input
                     type="text"
-                    id="contact-name"
-                    name="contact-name"
-                    placeholder="Numele tău complet"
+                    id="demo-last-name"
+                    name="demo-last-name"
+                    placeholder="Numele tău"
+                    value={demoForm.lastName}
+                    onChange={handleDemoInputChange("lastName")}
                     required
                   />
                 </div>
@@ -897,65 +1188,48 @@ export default function Home() {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="email">Email *</label>
+                  <label htmlFor="demo-email">Email *</label>
                   <input
                     type="email"
-                    id="email"
-                    name="email"
-                    placeholder="contact@business.ro"
+                    id="demo-email"
+                    name="demo-email"
+                    placeholder="adresa@business.ro"
+                    value={demoForm.email}
+                    onChange={handleDemoInputChange("email")}
                     required
                   />
                 </div>
-
                 <div className="form-group">
-                  <label htmlFor="phone">Telefon</label>
+                  <label htmlFor="demo-phone">Telefon *</label>
                   <input
                     type="tel"
-                    id="phone"
-                    name="phone"
+                    id="demo-phone"
+                    name="demo-phone"
                     placeholder="+40 7XX XXX XXX"
+                    value={demoForm.phone}
+                    onChange={handleDemoInputChange("phone")}
+                    required
                   />
                 </div>
               </div>
 
-              <div className="form-row form-row-full">
-                <div className="form-group">
-                  <label htmlFor="business-type">Tip business *</label>
-                  <select id="business-type" name="business-type" required>
-                    <option value="">Selectează tipul de business</option>
-                    <option value="hair-styling">Hair Styling / Barber Shop</option>
-                    <option value="salon">Salon de frumusețe</option>
-                    <option value="stomatolog">Cabinet stomatologic</option>
-                    <option value="psiholog">Cabinet psihologie</option>
-                    <option value="clinica">Clinică estetică</option>
-                    <option value="avocat">Birou de avocatură</option>
-                    <option value="altul">Altul</option>
-                  </select>
-                </div>
-              </div>
+              {demoError && (
+                <p className="form-error" style={{ color: "#f87171", marginBottom: "1rem" }}>
+                  {demoError}
+                </p>
+              )}
 
               <div className="form-row-submit">
                 <div className="form-group form-group-message">
-                  <label htmlFor="message">Mesaj</label>
-                  <textarea
-                    id="message"
-                    name="message"
-                    placeholder="Spune-ne despre nevoile tale, câte rezervări ai lunar, sau orice întrebări ai despre LARSTEF..."
-                  />
+                  <label>Ce se întâmplă după?</label>
+                  <p className="section-subtitle" style={{ marginTop: 8 }}>
+                    Primești email + SMS cu linkul de Meet, iar noi te contactăm pentru detalii. Poți reprograma oricând
+                    răspunzând la email.
+                  </p>
                 </div>
-                <button type="submit" className="btn-submit">
-                  <i className="fas fa-paper-plane" />
-                  Trimite cererea
+                <button type="submit" className="btn-submit" disabled={demoSubmitting || !selectedSlot}>
+                  {demoSubmitting ? "Se programează..." : "Programează demo"}
                 </button>
-              </div>
-
-              <div
-                className={`form-success ${formSuccess ? "show" : ""}`}
-                id="form-success"
-              >
-                <i className="fas fa-check-circle" />
-                Mulțumim! Mesajul tău a fost trimis cu succes. Te vom contacta în
-                cel mai scurt timp.
               </div>
             </form>
           </div>
@@ -1401,6 +1675,52 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {showDemoSuccess && (
+        <div
+          className="demo-success-overlay"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.75)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000,
+            padding: "1.5rem",
+          }}
+        >
+          <div
+            className="demo-success-modal"
+            style={{
+              background: "#0B0E17",
+              borderRadius: "24px",
+              padding: "2rem",
+              border: "1px solid rgba(255,255,255,0.1)",
+              maxWidth: 420,
+              width: "100%",
+              textAlign: "center",
+            }}
+          >
+            <i className="fas fa-check-circle" style={{ color: "#34d399", fontSize: 48 }} />
+            <h3 style={{ marginTop: "1rem", color: "#fff", fontSize: "1.5rem", fontWeight: 600 }}>
+              Programarea este confirmată!
+            </h3>
+            <p style={{ marginTop: "0.75rem", color: "rgba(255,255,255,0.75)", lineHeight: 1.6 }}>
+              Vei primi SMS și email cu linkul de Google Meet în câteva secunde.
+              Dă reply la email dacă vrei să schimbi ora.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowDemoSuccess(false)}
+              className="btn-submit"
+              style={{ marginTop: "1.5rem", width: "100%" }}
+            >
+              Închide
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

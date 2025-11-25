@@ -1,9 +1,11 @@
 "use client";
 
-import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AxiosError } from "axios";
 import Head from "next/head";
 import { useRouter, useSearchParams } from "next/navigation";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import BusinessCard from "../../../components/BusinessCard";
 import ServiceCard from "../../../components/ServiceCard";
 import DatePicker from "../../../components/DatePicker";
@@ -12,6 +14,9 @@ import useBookings, { type Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import { requiresConsentForBusiness } from "../../../constants/consentTemplates";
 import useApi from "../../../hooks/useApi";
+import { isBookingTooSoon, MIN_LEAD_MESSAGE, MIN_BOOKING_LEAD_MS } from "../../../utils/bookingRules";
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
 type PaymentMethod = "applepay" | "googlepay" | "card" | "klarna" | "offline";
 
@@ -60,21 +65,80 @@ const getWeekStart = (date: Date) => {
 const formatDayLabel = (date: Date) =>
   date.toLocaleDateString("ro-RO", { weekday: "short", day: "numeric" });
 
+function PaymentFormComponent({ onSuccess }: { onSuccess: () => void }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!stripe || !elements) return;
+
+    setIsProcessing(true);
+    setError(null);
+
+    const { error: submitError } = await elements.submit();
+    if (submitError) {
+      setError(submitError.message ?? "Eroare la trimiterea formularului.");
+      setIsProcessing(false);
+      return;
+    }
+
+    const { error: confirmError } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/client/bookings?payment=success`,
+      },
+      redirect: "if_required",
+    });
+
+    if (confirmError) {
+      setError(confirmError.message ?? "Plata a eșuat.");
+      setIsProcessing(false);
+    } else {
+      onSuccess();
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      {error && (
+        <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+          {error}
+        </p>
+      )}
+      <button
+        type="submit"
+        disabled={!stripe || isProcessing}
+        className="w-full rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isProcessing ? "Se procesează..." : "Plătește acum"}
+      </button>
+    </form>
+  );
+}
+
 export default function ClientBookingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, hydrated } = useAuth();
   const { businesses, fetchBusinesses } = useBusiness();
-  const { bookings, fetchBookings, createBooking, loading, error } = useBookings();
+  const { bookings, fetchBookings, createBooking, loading } = useBookings();
   const api = useApi();
 
   const [businessIdOverride, setBusinessIdOverride] = useState<string | null>(null);
   const [serviceSelections, setServiceSelections] = useState<Record<string, string>>({});
   const [employeeSelections, setEmployeeSelections] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState<string>("");
+  const bookingTooSoon = useMemo(() => (selectedDate ? isBookingTooSoon(selectedDate) : false), [selectedDate]);
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod>("card");
   const [paymentAlreadyMade, setPaymentAlreadyMade] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
   const [calendarDate, setCalendarDate] = useState<string>(() => {
@@ -92,6 +156,11 @@ export default function ClientBookingsPage() {
   const [consentLoading, setConsentLoading] = useState(false);
   const [consentSubmitting, setConsentSubmitting] = useState(false);
   const consentCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [confirmationStep, setConfirmationStep] = useState<"review" | "success">("review");
+  const [recentBooking, setRecentBooking] = useState<Booking | null>(null);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
+  const [workingHours, setWorkingHours] = useState<any>(null);
   const openConsentModal = useCallback(
     async (newBooking: Booking) => {
       setConsentBooking(newBooking);
@@ -255,6 +324,90 @@ export default function ClientBookingsPage() {
     [selectedBusiness, selectedEmployeeId]
   );
 
+  // Fetch working hours when business is selected
+  useEffect(() => {
+    if (!selectedBusinessId) {
+      setWorkingHours(null);
+      return;
+    }
+    const fetchWorkingHours = async () => {
+      try {
+        const { data } = await api.get<{ workingHours: any }>(`/business/${selectedBusinessId}/working-hours`);
+        setWorkingHours(data.workingHours);
+      } catch (error) {
+        console.error("Failed to fetch working hours:", error);
+        setWorkingHours(null);
+      }
+    };
+    void fetchWorkingHours();
+  }, [selectedBusinessId, api]);
+
+  // Auto-create payment intent when online payment method is selected
+  useEffect(() => {
+    const createPaymentIntent = async () => {
+      // Only create if:
+      // - Online payment method selected (not offline)
+      // - All required data is present
+      // - No existing clientSecret
+      // - Not processing payment already
+      if (
+        !user ||
+        !selectedBusinessId ||
+        !selectedServiceId ||
+        !selectedDate ||
+        selectedPayment === "offline" ||
+        paymentAlreadyMade ||
+        clientSecret ||
+        paymentProcessing ||
+        bookingTooSoon
+      ) {
+        return;
+      }
+
+      try {
+        setPaymentProcessing(true);
+        const slotDate = new Date(selectedDate);
+        const isoDate = slotDate.toISOString();
+
+        const intentResponse = await api.post("/payments/create-intent", {
+          businessId: selectedBusinessId,
+          serviceId: selectedServiceId,
+          employeeId: selectedEmployeeId || undefined,
+          date: isoDate,
+          paymentMethod: selectedPayment,
+        });
+
+        const { clientSecret: secret, paymentIntentId: intentId } = intentResponse.data;
+        setClientSecret(secret);
+        setPaymentIntentId(intentId);
+      } catch (err: any) {
+        console.error("Auto payment intent creation failed:", err);
+        // Don't show error to user, they can retry by clicking submit
+      } finally {
+        setPaymentProcessing(false);
+      }
+    };
+
+    // Small delay to avoid creating intent on every keystroke
+    const timeoutId = setTimeout(() => {
+      void createPaymentIntent();
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    user,
+    selectedBusinessId,
+    selectedServiceId,
+    selectedDate,
+    selectedPayment,
+    paymentAlreadyMade,
+    clientSecret,
+    paymentProcessing,
+    bookingTooSoon,
+    selectedEmployeeId,
+    api,
+  ]);
+
   const weekDays = useMemo(() => {
     const days: Date[] = [];
     for (let i = 0; i < 7; i += 1) {
@@ -322,6 +475,45 @@ export default function ClientBookingsPage() {
   const serviceDurationMs = serviceDurationMinutes * 60 * 1000;
 
   const focusedDate = useMemo(() => (calendarDate ? new Date(calendarDate) : null), [calendarDate]);
+
+  // Get available hours for a specific day based on working hours
+  const getAvailableHoursForDay = useCallback((date: Date): string[] => {
+    if (!workingHours) return HOURS; // Fallback to default hours if no working hours set
+    
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const dayName = dayNames[date.getDay()] as keyof typeof workingHours;
+    const daySchedule = workingHours[dayName];
+    
+    if (!daySchedule || !daySchedule.enabled || !daySchedule.slots || daySchedule.slots.length === 0) {
+      return []; // Day is disabled or has no slots
+    }
+    
+    // Generate all hours from all slots for this day
+    const availableHours: string[] = [];
+    daySchedule.slots.forEach((slot: { start: string; end: string }) => {
+      const [startH, startM] = slot.start.split(":").map(Number);
+      const [endH, endM] = slot.end.split(":").map(Number);
+      
+      let currentH = startH;
+      let currentM = startM;
+      
+      while (currentH < endH || (currentH === endH && currentM < endM)) {
+        const hourStr = `${String(currentH).padStart(2, "0")}:${String(currentM).padStart(2, "0")}`;
+        if (!availableHours.includes(hourStr)) {
+          availableHours.push(hourStr);
+        }
+        
+        // Move to next hour
+        currentM += slotDurationMinutes;
+        if (currentM >= 60) {
+          currentM = 0;
+          currentH += 1;
+        }
+      }
+    });
+    
+    return availableHours.sort();
+  }, [workingHours, slotDurationMinutes]);
 
 useEffect(() => {
   if (!showConsentModal) return;
@@ -409,16 +601,20 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
 
     const selectedStart = selectedDate ? new Date(selectedDate).getTime() : null;
     const selectedEnd = selectedStart !== null ? selectedStart + serviceDurationMs : null;
+    const now = Date.now();
+    const minBookingTime = now + MIN_BOOKING_LEAD_MS;
 
     return weekDays.map((day) => {
-      return HOURS.map((hour) => {
+      const availableHours = getAvailableHoursForDay(day);
+      return availableHours.map((hour: string) => {
         const [h, m] = hour.split(":").map(Number);
         const slotDate = new Date(day);
         slotDate.setHours(h, m, 0, 0);
         const slotStartMs = slotDate.getTime();
         const slotEndMs = slotStartMs + serviceDurationMs;
         const iso = slotDate.toISOString();
-        const isPast = slotStartMs < Date.now();
+        const isPast = slotStartMs < now;
+        const isTooSoon = !isPast && slotStartMs < minBookingTime;
 
         const isBooked = relevantBookings.some((booking) => {
           const bookingStart = new Date(booking.date);
@@ -429,9 +625,10 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
           return sameDay && bookingStartMs < slotEndMs && bookingEndMs > slotStartMs;
         });
 
-        let status: "available" | "booked" | "past" | "selected" = "available";
+        let status: "available" | "booked" | "past" | "selected" | "blocked" = "available";
         if (isPast) status = "past";
         if (isBooked) status = "booked";
+        if (isTooSoon) status = "blocked";
         if (
           selectedStart !== null &&
           selectedEnd !== null &&
@@ -455,7 +652,31 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
     selectedDate,
     serviceDurationMs,
     slotDurationMinutes,
+    getAvailableHoursForDay,
   ]);
+
+  const uniqueHours = useMemo(() => {
+    const allHours = new Set<string>();
+    slotsMatrix?.forEach((daySlots) => {
+      daySlots.forEach((slot) => {
+        const slotDate = new Date(slot.iso);
+        const hourStr = `${String(slotDate.getHours()).padStart(2, "0")}:${String(slotDate.getMinutes()).padStart(2, "0")}`;
+        allHours.add(hourStr);
+      });
+    });
+    const sortedHours = Array.from(allHours).sort();
+    return sortedHours.length > 0 ? sortedHours : HOURS;
+  }, [slotsMatrix]);
+
+  const closeConfirmationModal = useCallback(() => {
+    setShowConfirmationModal(false);
+    setConfirmationStep("review");
+    setRecentBooking(null);
+    setSuccessMessage(null);
+    setConfirmationError(null);
+    setClientSecret(null);
+    setPaymentIntentId(null);
+  }, []);
 
   const resetBookingForm = useCallback(() => {
     setSelectedDate("");
@@ -463,6 +684,10 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
     setEmployeeSelections({});
     setBusinessIdOverride(null);
     setPaymentAlreadyMade(false);
+    setClientSecret(null);
+    setPaymentIntentId(null);
+    setPaymentProcessing(false);
+    setSelectedPayment("card");
   }, []);
 
 const handleConsentModalClose = () => {
@@ -531,11 +756,23 @@ const handleOpenConsentFullPage = () => {
   router.push(`/consent/${consentBooking.id}?redirect=/client/bookings`);
 };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!user || !selectedBusinessId || !selectedServiceId || !selectedDate) return;
+  const handleConfirmBooking = useCallback(async () => {
+    if (!user || !selectedBusinessId || !selectedServiceId || !selectedDate) {
+      setConfirmationError("Selectează businessul, serviciul și intervalul orar.");
+      return;
+    }
 
     const slotDate = new Date(selectedDate);
+    if (Number.isNaN(slotDate.getTime())) {
+      setConfirmationError("Data selectată nu este validă.");
+      return;
+    }
+
+    if (bookingTooSoon) {
+      setConfirmationError(MIN_LEAD_MESSAGE);
+      return;
+    }
+
     const isoDate = slotDate.toISOString();
     const conflict = slotsMatrix?.some((daySlots) =>
       daySlots.some((slot) => {
@@ -550,39 +787,120 @@ const handleOpenConsentFullPage = () => {
     );
 
     if (conflict) {
+      setConfirmationError("Intervalul selectat tocmai a devenit indisponibil. Alege altă oră.");
       return;
     }
 
     try {
-      // If payment already made checkbox is checked, mark as paid without processing payment
-      const isPaid = paymentAlreadyMade || selectedPayment !== "offline";
-      
-      const booking = await createBooking({
-        clientId: user.id,
-        businessId: selectedBusinessId,
-        serviceId: selectedServiceId,
-        employeeId: selectedEmployeeId || undefined,
-        date: isoDate,
-        paid: isPaid,
-      });
+      setConfirmationError(null);
+      setPaymentProcessing(true);
+
+      if (selectedPayment === "offline" || paymentAlreadyMade) {
+        const booking = await createBooking({
+          clientId: user.id,
+          businessId: selectedBusinessId,
+          serviceId: selectedServiceId,
+          employeeId: selectedEmployeeId || undefined,
+          date: isoDate,
+          paid: paymentAlreadyMade,
+          paymentMethod: "OFFLINE",
+          paymentReused: paymentAlreadyMade,
+        });
+        const needsConsent =
+          selectedBusiness != null ? requiresConsentForBusiness(selectedBusiness.businessType) : false;
+
+        if (needsConsent && booking.status === "PENDING_CONSENT") {
+          closeConfirmationModal();
+          await openConsentModal(booking);
+          return;
+        }
+        setRecentBooking(booking);
+        setConfirmationStep("success");
+        setSuccessMessage("Rezervare creată cu succes! Vei primi confirmarea pe email.");
+        resetBookingForm();
+        void fetchBookings();
+        return;
+      }
+
+      if (!clientSecret || !paymentIntentId) {
+        const intentResponse = await api.post("/payments/create-intent", {
+          businessId: selectedBusinessId,
+          serviceId: selectedServiceId,
+          employeeId: selectedEmployeeId || undefined,
+          date: isoDate,
+          paymentMethod: selectedPayment,
+        });
+
+        const { clientSecret: secret, paymentIntentId: intentId } = intentResponse.data;
+        setClientSecret(secret);
+        setPaymentIntentId(intentId);
+
+        if (selectedPayment === "klarna") {
+          setSuccessMessage("Te redirecționăm către Klarna pentru finalizarea plății...");
+        }
+        return;
+      }
+
+      if (selectedPayment === "klarna") {
+        setSuccessMessage("Finalizează plata în fereastra Klarna. Rezervarea se confirmă automat după succes.");
+        return;
+      }
+    } catch (err) {
+      const axiosError = err as AxiosError<{ error?: string }>;
+      const message =
+        axiosError.response?.data?.error ??
+        axiosError.message ??
+        (err instanceof Error ? err.message : "Nu am putut procesa rezervarea.");
+      setConfirmationError(message);
+    } finally {
+      setPaymentProcessing(false);
+    }
+  }, [
+    api,
+    bookingTooSoon,
+    clientSecret,
+    closeConfirmationModal,
+    createBooking,
+    fetchBookings,
+    openConsentModal,
+    paymentAlreadyMade,
+    paymentIntentId,
+    selectedBusiness,
+    selectedBusinessId,
+    selectedDate,
+    selectedEmployeeId,
+    selectedPayment,
+    selectedServiceId,
+    serviceDurationMs,
+    slotsMatrix,
+    user,
+  ]);
+
+  const handlePaymentSuccess = useCallback(async () => {
+    if (!paymentIntentId) return;
+
+    try {
+      const booking = await api.post("/booking/confirm", { paymentIntentId });
       const needsConsent =
         selectedBusiness != null ? requiresConsentForBusiness(selectedBusiness.businessType) : false;
 
-      if (needsConsent && booking.status === "PENDING_CONSENT") {
-        await openConsentModal(booking);
+      if (needsConsent && booking.data.status === "PENDING_CONSENT") {
+        closeConfirmationModal();
+        await openConsentModal(booking.data);
         return;
       }
+      setRecentBooking(booking.data);
+      setConfirmationStep("success");
+      setShowConfirmationModal(true);
       setSuccessMessage("Rezervare creată cu succes! Vei primi confirmarea pe email.");
-      // Reset form after success
-      setTimeout(() => {
-        resetBookingForm();
-        setSuccessMessage(null);
-        void fetchBookings(); // Refresh bookings list
-      }, 2000);
-    } catch {
-      // error handled in hook
+      resetBookingForm();
+      setClientSecret(null);
+      setPaymentIntentId(null);
+      void fetchBookings();
+    } catch (err: any) {
+      console.error("Booking confirmation failed:", err);
     }
-  };
+  }, [api, closeConfirmationModal, fetchBookings, openConsentModal, paymentIntentId, resetBookingForm, selectedBusiness]);
 
   if (!hydrated) {
     return null;
@@ -604,7 +922,12 @@ const handleOpenConsentFullPage = () => {
             </p>
           </section>
 
-          <form onSubmit={handleSubmit} className="flex w-full flex-col gap-10">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+            }}
+            className="flex w-full flex-col gap-10"
+          >
             <div className="flex w-full flex-col gap-8">
               <div className="flex flex-col gap-4">
                 <div className="flex items-start justify-between">
@@ -729,93 +1052,110 @@ const handleOpenConsentFullPage = () => {
                           );
                         })}
 
-                        {HOURS.map((hour, hourIndex) => (
-                          <Fragment key={`row-${hour}`}>
-                            {weekDays.map((day, dayIndex) => {
-                              const slot = slotsMatrix?.[dayIndex]?.[hourIndex];
-                              if (!slot) {
-                                return <div key={`empty-${dayIndex}-${hour}`} className="rounded-2xl bg-[#0B0E17]/30" />;
-                              }
-
-                              const slotDate = new Date(slot.iso);
-                              const slotStartMs = slotDate.getTime();
-                              const hoveredStartMs = hoveredSlot ? new Date(hoveredSlot).getTime() : null;
-                              const hoveredDayString = hoveredSlot ? new Date(hoveredSlot).toDateString() : null;
-                              const hoveredEndMs =
-                                hoveredStartMs !== null ? hoveredStartMs + serviceDurationMs : null;
-                              const isFocusedDay =
-                                focusedDate && slotDate.toDateString() === focusedDate.toDateString();
-
-                              let stateClasses =
-                                "bg-[#0B0E17]/60 text-white/70 hover:bg-white/10 border border-white/10";
-                              if (slot.status === "booked") {
-                                stateClasses =
-                                  "bg-red-500/20 text-red-300 border border-red-400/40 cursor-not-allowed";
-                              } else if (slot.status === "past") {
-                                stateClasses =
-                                  "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed";
-                              } else if (slot.status === "selected") {
-                                stateClasses =
-                                  "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 shadow-lg shadow-[#6366F1]/40";
-                              }
-
-                              const isHoverHighlight =
-                                hoveredStartMs !== null &&
-                                hoveredEndMs !== null &&
-                                hoveredDayString === slotDate.toDateString() &&
-                                slot.status === "available" &&
-                                slotStartMs >= hoveredStartMs &&
-                                slotStartMs < hoveredEndMs;
-
-                              if (isHoverHighlight) {
-                                if (slotStartMs === hoveredStartMs) {
-                                  stateClasses =
-                                    "bg-[#6366F1]/45 text-white border border-[#6366F1]/70 shadow-lg shadow-[#6366F1]/20";
-                                } else {
-                                  stateClasses =
-                                    "bg-[#6366F1]/25 text-white border border-[#6366F1]/40 shadow shadow-[#6366F1]/10";
+                        {uniqueHours.map((hour) => {
+                          const [h, m] = hour.split(":").map(Number);
+                          return (
+                            <Fragment key={`row-${hour}`}>
+                              {weekDays.map((day, dayIndex) => {
+                                const slot = slotsMatrix?.[dayIndex]?.find((s) => {
+                                  const slotDate = new Date(s.iso);
+                                  return slotDate.getHours() === h && slotDate.getMinutes() === m;
+                                });
+                                if (!slot) {
+                                  return <div key={`empty-${dayIndex}-${hour}`} className="rounded-2xl bg-[#0B0E17]/30" />;
                                 }
-                              }
 
-                              return (
-                                <button
-                                  key={slot.iso}
-                                  type="button"
-                                  disabled={slot.status === "booked" || slot.status === "past"}
-                                  onClick={() => {
-                                    const slotDate = new Date(slot.iso);
-                                    setSelectedDate(slot.iso);
-                                    if (serviceDurationMinutes > slotDurationMinutes) {
-                                      const endMs = slotDate.getTime() + serviceDurationMs;
-                                      setHoveredSlot(new Date(endMs).toISOString());
-                                    } else {
-                                      setHoveredSlot(null);
+                                const slotDate = new Date(slot.iso);
+                                const slotStartMs = slotDate.getTime();
+                                const hoveredStartMs = hoveredSlot ? new Date(hoveredSlot).getTime() : null;
+                                const hoveredDayString = hoveredSlot ? new Date(hoveredSlot).toDateString() : null;
+                                const hoveredEndMs =
+                                  hoveredStartMs !== null ? hoveredStartMs + serviceDurationMs : null;
+                                const isFocusedDay =
+                                  focusedDate && slotDate.toDateString() === focusedDate.toDateString();
+
+                                let stateClasses =
+                                  "bg-[#0B0E17]/60 text-white/70 hover:bg-white/10 border border-white/10";
+                                if (slot.status === "booked") {
+                                  stateClasses =
+                                    "bg-red-500/20 text-red-300 border border-red-400/40 cursor-not-allowed";
+                                } else if (slot.status === "past") {
+                                  stateClasses =
+                                    "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed";
+                                } else if (slot.status === "blocked") {
+                                  stateClasses =
+                                    "bg-[#0B0E17]/20 text-white/35 border border-white/5 cursor-not-allowed";
+                                } else if (slot.status === "selected") {
+                                  stateClasses =
+                                    "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 shadow-lg shadow-[#6366F1]/40";
+                                }
+
+                                const isHoverHighlight =
+                                  hoveredStartMs !== null &&
+                                  hoveredEndMs !== null &&
+                                  hoveredDayString === slotDate.toDateString() &&
+                                  slot.status === "available" &&
+                                  slotStartMs >= hoveredStartMs &&
+                                  slotStartMs < hoveredEndMs;
+
+                                if (isHoverHighlight) {
+                                  if (slotStartMs === hoveredStartMs) {
+                                    stateClasses =
+                                      "bg-[#6366F1]/45 text-white border border-[#6366F1]/70 shadow-lg shadow-[#6366F1]/20";
+                                  } else {
+                                    stateClasses =
+                                      "bg-[#6366F1]/25 text-white border border-[#6366F1]/40 shadow shadow-[#6366F1]/10";
+                                  }
+                                }
+
+                                return (
+                                  <button
+                                    key={slot.iso}
+                                    type="button"
+                                    disabled={
+                                      slot.status === "booked" || slot.status === "past" || slot.status === "blocked"
                                     }
-                                  }}
-                                  onMouseEnter={() => {
-                                    if (slot.status === "available") {
-                                      setHoveredSlot(slot.iso);
-                                    }
-                                  }}
-                                  onMouseLeave={() => {
-                                    setHoveredSlot((prev) => (prev === slot.iso ? null : prev));
-                                  }}
-                                  className={`flex h-[52px] w-full items-center justify-center rounded-2xl px-3 text-xs font-semibold transition ${
-                                    isFocusedDay && slot.status === "available"
-                                      ? `${stateClasses} border-[#6366F1]/40 bg-[#6366F1]/10`
-                                      : stateClasses
-                                  }`}
-                                  style={{
-                                    cursor:
-                                      slot.status === "booked" || slot.status === "past" ? "not-allowed" : "pointer",
-                                  }}
-                                >
-                                  {slot.status === "booked" ? "Ocupat" : slot.label}
-                                </button>
-                              );
-                            })}
-                          </Fragment>
-                        ))}
+                                    onClick={() => {
+                                      const slotDate = new Date(slot.iso);
+                                      setSelectedDate(slot.iso);
+                                      if (serviceDurationMinutes > slotDurationMinutes) {
+                                        const endMs = slotDate.getTime() + serviceDurationMs;
+                                        setHoveredSlot(new Date(endMs).toISOString());
+                                      } else {
+                                        setHoveredSlot(null);
+                                      }
+                                    setConfirmationStep("review");
+                                    setRecentBooking(null);
+                                    setSuccessMessage(null);
+                                    setShowConfirmationModal(true);
+                                    }}
+                                    onMouseEnter={() => {
+                                      if (slot.status === "available") {
+                                        setHoveredSlot(slot.iso);
+                                      }
+                                    }}
+                                    onMouseLeave={() => {
+                                      setHoveredSlot((prev) => (prev === slot.iso ? null : prev));
+                                    }}
+                                    className={`flex h-[52px] w-full items-center justify-center rounded-2xl px-3 text-xs font-semibold transition ${
+                                      isFocusedDay && slot.status === "available"
+                                        ? `${stateClasses} border-[#6366F1]/40 bg-[#6366F1]/10`
+                                        : stateClasses
+                                    }`}
+                                    style={{
+                                      cursor:
+                                        slot.status === "booked" || slot.status === "past" || slot.status === "blocked"
+                                          ? "not-allowed"
+                                          : "pointer",
+                                    }}
+                                  >
+                                    {slot.status === "booked" ? "Ocupat" : slot.label}
+                                  </button>
+                                );
+                              })}
+                            </Fragment>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -823,236 +1163,342 @@ const handleOpenConsentFullPage = () => {
               </section>
             </div>
 
-            <div className="grid w-full flex-col gap-6 lg:flex-row lg:items-start">
-              <div className="w-full flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-6 text-sm lg:shrink-0">
-                <span className="font-semibold text-white">4. Metoda de plată</span>
-                
-                {/* Checkbox for payment already made (when reprogramming after cancellation) */}
-                {hasCancelledPaidBooking && (
-                  <label className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
-                    paymentAlreadyMade
-                      ? "border-emerald-500 bg-emerald-500/20"
-                      : "border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20"
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={paymentAlreadyMade}
-                      onChange={(e) => {
-                        setPaymentAlreadyMade(e.target.checked);
-                        // If checked, set payment to offline to skip payment processing
-                        if (e.target.checked) {
-                          setSelectedPayment("offline");
-                        }
-                      }}
-                      className="h-4 w-4 rounded border-white/20 bg-transparent text-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-transparent"
-                    />
-                    <span className="text-sm font-medium text-white flex items-center gap-2">
-                      <i className="fas fa-check-circle text-emerald-500"></i>
-                      Plată efectuată
-                    </span>
-                  </label>
-                )}
-
-                <div className={`!grid !grid-cols-2 gap-6 ${paymentAlreadyMade ? "opacity-50 pointer-events-none" : ""}`} style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr)) !important", maxWidth: "none", margin: "0" }}>
-                  <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border bg-[#0B0E17]/50 px-3 py-4 text-center transition ${
-                    selectedPayment === "applepay"
-                      ? "border-[#6366F1] bg-[#6366F1]/10"
-                      : "border-white/10 hover:border-[#6366F1]/60 hover:bg-[#6366F1]/10"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="payment"
-                      value="applepay"
-                      checked={selectedPayment === "applepay"}
-                      onChange={() => setSelectedPayment("applepay")}
-                      className="hidden"
-                    />
-                    <i className="fab fa-apple text-base text-white" />
-                    <span className="text-xs font-medium">Apple Pay</span>
-                  </label>
-                  <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border bg-[#0B0E17]/50 px-3 py-4 text-center transition ${
-                    selectedPayment === "googlepay"
-                      ? "border-[#6366F1] bg-[#6366F1]/10"
-                      : "border-white/10 hover:border-[#6366F1]/60 hover:bg-[#6366F1]/10"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="payment"
-                      value="googlepay"
-                      checked={selectedPayment === "googlepay"}
-                      onChange={() => setSelectedPayment("googlepay")}
-                      className="hidden"
-                    />
-                    <i className="fab fa-google-pay text-base text-white" />
-                    <span className="text-xs font-medium">Google Pay</span>
-                  </label>
-                  <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border bg-[#0B0E17]/50 px-3 py-4 text-center transition ${
-                    selectedPayment === "card"
-                      ? "border-[#6366F1] bg-[#6366F1]/10"
-                      : "border-white/10 hover:border-[#6366F1]/60 hover:bg-[#6366F1]/10"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="payment"
-                      value="card"
-                      checked={selectedPayment === "card"}
-                      onChange={() => setSelectedPayment("card")}
-                      className="hidden"
-                    />
-                    <i className="fas fa-credit-card text-base text-white" />
-                    <span className="text-xs font-medium">Card</span>
-                  </label>
-                  <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border bg-[#0B0E17]/50 px-3 py-4 text-center transition ${
-                    selectedPayment === "klarna"
-                      ? "border-[#6366F1] bg-[#6366F1]/10"
-                      : "border-white/10 hover:border-[#6366F1]/60 hover:bg-[#6366F1]/10"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="payment"
-                      value="klarna"
-                      checked={selectedPayment === "klarna"}
-                      onChange={() => setSelectedPayment("klarna")}
-                      className="hidden"
-                    />
-                    <span className="text-xs font-bold text-[#FFB3C7]">Klarna</span>
-                    <span className="text-xs text-white/60">4 rate</span>
-                  </label>
-                  <label className={`col-span-2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed bg-[#0B0E17]/50 px-3 py-4 text-center transition ${
-                    selectedPayment === "offline"
-                      ? "border-emerald-500 bg-emerald-500/20"
-                      : "border-white/20 hover:border-emerald-500/60 hover:bg-emerald-500/10"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="payment"
-                      value="offline"
-                      checked={selectedPayment === "offline"}
-                      onChange={() => setSelectedPayment("offline")}
-                      className="hidden"
-                    />
-                    <i className="fas fa-wallet text-base text-white/70" />
-                    <span className="text-xs font-medium">Plată la locație</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="w-full flex flex-col gap-6 desktop:rounded-3xl desktop:border desktop:border-white/10 desktop:bg-white/5 p-0 desktop:p-6 lg:shrink-0">
-              <h2 className="text-xl font-semibold mt-6 desktop:mt-0">Rezumat rezervare</h2>
-              <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0E17]/40 p-4 text-sm text-white/70">
-                <div className="flex items-center justify-between">
-                  <span>Business</span>
-                  <span className="font-semibold text-white">
-                    {selectedBusiness ? selectedBusiness.name : "—"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Serviciu</span>
-                  <span className="font-semibold text-white">{selectedService?.name ?? "—"}</span>
-                </div>
-                {selectedEmployee && (
-                  <div className="flex items-center justify-between">
-                    <span>Specialist</span>
-                    <span className="font-semibold text-white">{selectedEmployee.name}</span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <span>Data</span>
-                  <span className="font-semibold text-white">
-                    {selectedDate
-                      ? new Date(selectedDate).toLocaleString("ro-RO", {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })
-                      : "—"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Plată</span>
-                  <span className="font-semibold text-white">
-                    {paymentAlreadyMade
-                      ? "Plată efectuată"
-                      : selectedPayment === "applepay"
-                        ? "Apple Pay"
-                        : selectedPayment === "googlepay"
-                          ? "Google Pay"
-                          : selectedPayment === "card"
-                            ? "Card bancar"
-                            : selectedPayment === "klarna"
-                              ? "Klarna (4 rate)"
-                              : "La locație"}
-                  </span>
-                </div>
-                {priceDifference && priceDifference.difference !== 0 && (
-                  <div className="border-t border-white/10 pt-3 mt-2">
-                    <div className="flex items-center justify-between text-xs text-white/50 mb-2">
-                      <span>Plată anterioară</span>
-                      <span>
-                        {priceDifference.previousPrice.toLocaleString("ro-RO", {
-                          style: "currency",
-                          currency: "RON",
-                        })}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-white/50 mb-2">
-                      <span>Preț serviciu nou</span>
-                      <span>
-                        {priceDifference.newPrice.toLocaleString("ro-RO", {
-                          style: "currency",
-                          currency: "RON",
-                        })}
-                      </span>
-                    </div>
-                    <div className={`flex items-center justify-between pt-2 border-t border-white/10 ${
-                      priceDifference.difference > 0 ? "text-emerald-400" : "text-red-400"
-                    }`}>
-                      <span className="font-semibold text-sm">
-                        {priceDifference.difference > 0 ? "Diferență de returnat" : "Diferență de plată"}
-                      </span>
-                      <span className="font-semibold">
-                        {priceDifference.difference > 0 ? "+" : ""}
-                        {priceDifference.difference.toLocaleString("ro-RO", {
-                          style: "currency",
-                          currency: "RON",
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center justify-between border-t border-dashed border-white/10 pt-3">
-                  <span>Total estimat</span>
-                  <span className="text-lg font-semibold text-[#6366F1]">
-                    {selectedService?.price?.toLocaleString("ro-RO", {
-                      style: "currency",
-                      currency: "RON",
-                    }) ?? "—"}
-                  </span>
-                </div>
-              </div>
-
-              {error && (
-                <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
-                  {error}
-                </p>
-              )}
-
-              {successMessage && (
-                <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200">
-                  {successMessage}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading || !selectedBusinessId || !selectedServiceId || !selectedDate}
-                className="rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? "Se procesează..." : "Confirmă rezervarea"}
-              </button>
-              </div>
-            </div>
+            <section className="rounded-3xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-white/70">
+              <h3 className="text-lg font-semibold text-white">4. Confirmă rezervarea</h3>
+              <p className="mt-2">
+                După ce alegi un interval disponibil, se deschide automat o fereastră de confirmare unde vezi
+                rezumatul, alegi metoda de plată și finalizezi rezervarea.
+              </p>
+              <p className="mt-2 text-white/60">
+                Dacă ai plătit deja (reprogramare), poți bifa opțiunea „Plată efectuată” în fereastra de confirmare.
+              </p>
+            </section>
           </form>
       </div>
+
+      {showConfirmationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6" onClick={closeConfirmationModal}>
+          <div
+            className="w-full max-w-5xl rounded-3xl border border-white/10 bg-[#0B0E17] p-6 text-white shadow-2xl shadow-black/40"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-white/40">Confirmare rezervare</p>
+                <h3 className="text-2xl font-semibold text-white">
+                  {confirmationStep === "success" ? "Rezervare confirmată" : "Revizuiește și confirmă"}
+                </h3>
+                <p className="mt-1 text-sm text-white/60">
+                  {confirmationStep === "success"
+                    ? "Plata a fost procesată, iar rezervarea este confirmată. Vei primi email și SMS."
+                    : "Verifică detaliile, alege metoda de plată și finalizează rezervarea."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeConfirmationModal}
+                className="rounded-full border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+                aria-label="Închide fereastra de confirmare"
+              >
+                <i className="fas fa-times" />
+              </button>
+            </div>
+
+            {confirmationStep === "review" ? (
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <h4 className="text-lg font-semibold">Rezumat rezervare</h4>
+                  <div className="mt-4 flex flex-col gap-3 text-sm text-white/70">
+                    <div className="flex items-center justify-between">
+                      <span>Business</span>
+                      <span className="font-semibold text-white">{selectedBusiness?.name ?? "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Serviciu</span>
+                      <span className="font-semibold text-white">{selectedService?.name ?? "—"}</span>
+                    </div>
+                    {selectedEmployee && (
+                      <div className="flex items-center justify-between">
+                        <span>Specialist</span>
+                        <span className="font-semibold text-white">{selectedEmployee.name}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span>Data &amp; ora</span>
+                      <span className="font-semibold text-white">
+                        {selectedDate
+                          ? new Date(selectedDate).toLocaleString("ro-RO", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Durată</span>
+                      <span className="font-semibold text-white">{selectedService?.duration ?? 60} min</span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-white/10 pt-3">
+                      <span>Total</span>
+                      <span className="text-xl font-semibold text-[#6366F1]">
+                        {selectedService?.price?.toLocaleString("ro-RO", {
+                          style: "currency",
+                          currency: "RON",
+                        }) ?? "—"}
+                      </span>
+                    </div>
+                    {priceDifference && priceDifference.difference !== 0 && (
+                      <div className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 p-3 text-xs text-white/70">
+                        <div className="flex items-center justify-between">
+                          <span>Anterior</span>
+                          <span>
+                            {priceDifference.previousPrice.toLocaleString("ro-RO", {
+                              style: "currency",
+                              currency: "RON",
+                            })}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between">
+                          <span>Acum</span>
+                          <span>
+                            {priceDifference.newPrice.toLocaleString("ro-RO", {
+                              style: "currency",
+                              currency: "RON",
+                            })}
+                          </span>
+                        </div>
+                        <div
+                          className={`mt-2 flex items-center justify-between border-t border-white/10 pt-2 ${
+                            priceDifference.difference > 0 ? "text-emerald-400" : "text-red-400"
+                          }`}
+                        >
+                          <span>{priceDifference.difference > 0 ? "Diferență de returnat" : "Diferență de plată"}</span>
+                          <span>
+                            {priceDifference.difference > 0 ? "+" : ""}
+                            {priceDifference.difference.toLocaleString("ro-RO", {
+                              style: "currency",
+                              currency: "RON",
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-lg font-semibold">Metoda de plată</h4>
+                    {hasCancelledPaidBooking && (
+                      <label
+                        className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                          paymentAlreadyMade
+                            ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/80 hover:bg-emerald-500/15"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={paymentAlreadyMade}
+                          onChange={(event) => {
+                            setPaymentAlreadyMade(event.target.checked);
+                            if (event.target.checked) {
+                              setSelectedPayment("offline");
+                            }
+                          }}
+                          className="h-3.5 w-3.5 rounded border-white/20 bg-transparent text-emerald-500 focus:ring-emerald-500"
+                        />
+                        Plată efectuată
+                      </label>
+                    )}
+                  </div>
+                  <div
+                    className={`mt-4 grid gap-4 ${
+                      paymentAlreadyMade ? "pointer-events-none opacity-40" : "opacity-100"
+                    }`}
+                  >
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {[
+                        { value: "card", label: "Card", icon: "fas fa-credit-card" },
+                        { value: "applepay", label: "Apple Pay", icon: "fab fa-apple" },
+                        { value: "googlepay", label: "Google Pay", icon: "fab fa-google-pay" },
+                        { value: "klarna", label: "Klarna", icon: null },
+                        { value: "offline", label: "Plată la locație", icon: "fas fa-wallet" },
+                      ].map((method) => (
+                        <label
+                          key={method.value}
+                          className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-semibold transition ${
+                            selectedPayment === method.value
+                              ? "border-[#6366F1] bg-[#6366F1]/15 text-white"
+                              : "border-white/10 bg-[#0B0E17]/40 text-white/70 hover:border-[#6366F1]/50 hover:bg-[#6366F1]/10"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="payment"
+                            value={method.value}
+                            checked={selectedPayment === method.value}
+                            onChange={() => setSelectedPayment(method.value as PaymentMethod)}
+                            className="hidden"
+                          />
+                          {method.icon ? <i className={`${method.icon} text-base`} /> : <span className="text-[#FFB3C7]">Klarna</span>}
+                          <span>{method.label}</span>
+                          {method.value === "klarna" && selectedService && (
+                            <span className="text-[11px] text-white/60">
+                              {(selectedService.price / 3).toFixed(2)} lei/lună
+                            </span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+
+                    {selectedPayment === "offline" && (
+                      <p className="text-xs text-white/60">
+                        Confirmi rezervarea acum și achiți la locație. Vei primi toate detaliile pe email/SMS.
+                      </p>
+                    )}
+                    {selectedPayment === "klarna" && (
+                      <p className="text-xs text-white/60">
+                        După pregătirea plății vei fi redirecționat către Klarna pentru finalizarea ratei.
+                      </p>
+                    )}
+                  </div>
+
+                  {!paymentAlreadyMade && paymentProcessing && !clientSecret && selectedPayment !== "offline" && (
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                      Se pregătește formularul de plată...
+                    </div>
+                  )}
+
+                  {!paymentAlreadyMade && clientSecret && selectedPayment !== "klarna" && selectedPayment !== "offline" && (
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <Elements
+                        stripe={stripePromise}
+                        options={{
+                          clientSecret,
+                          appearance: {
+                            theme: "night",
+                            variables: {
+                              colorPrimary: "#6366F1",
+                              colorBackground: "#0B0E17",
+                              colorText: "#ffffff",
+                              colorDanger: "#ef4444",
+                              fontFamily: "system-ui, sans-serif",
+                              spacingUnit: "4px",
+                              borderRadius: "12px",
+                            },
+                          },
+                        }}
+                      >
+                        <PaymentFormComponent onSuccess={handlePaymentSuccess} />
+                      </Elements>
+                    </div>
+                  )}
+
+                  {!paymentAlreadyMade && selectedPayment === "klarna" && clientSecret && (
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                      Te redirecționăm către Klarna pentru finalizarea plății în 3 rate egale. Rezervarea va fi confirmată automat după succes.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300">
+                  <i className="fas fa-check text-2xl" />
+                </div>
+                <h4 className="mt-4 text-2xl font-semibold text-white">Totul este gata!</h4>
+                <p className="mt-2 text-sm text-white/70">{successMessage ?? "Rezervarea și plata au fost procesate cu succes."}</p>
+                {recentBooking && (
+                  <div className="mt-6 flex flex-col gap-2 text-sm text-white/70">
+                    <div className="flex items-center justify-center gap-2">
+                      <i className="fas fa-building text-white/50" />
+                      <span>{recentBooking.business.name}</span>
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
+                      <i className="fas fa-spa text-white/50" />
+                      <span>{recentBooking.service?.name}</span>
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
+                      <i className="fas fa-clock text-white/50" />
+                      <span>{new Date(recentBooking.date).toLocaleString("ro-RO", { dateStyle: "medium", timeStyle: "short" })}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {confirmationError && (
+              <p className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {confirmationError}
+              </p>
+            )}
+
+            {confirmationStep === "review" ? (
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeConfirmationModal}
+                  className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                >
+                  Renunță
+                </button>
+                {(selectedPayment === "offline" || paymentAlreadyMade) && (
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmBooking()}
+                    disabled={paymentProcessing || bookingTooSoon}
+                    className="rounded-2xl bg-[#6366F1] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {paymentProcessing ? "Se procesează..." : "Confirmă rezervarea"}
+                  </button>
+                )}
+                {!paymentAlreadyMade &&
+                  selectedPayment !== "offline" &&
+                  (!clientSecret || !paymentIntentId) && (
+                    <button
+                      type="button"
+                      onClick={() => void handleConfirmBooking()}
+                      disabled={
+                        paymentProcessing ||
+                        bookingTooSoon ||
+                        !selectedBusinessId ||
+                        !selectedServiceId ||
+                        !selectedDate
+                      }
+                      className="rounded-2xl border border-[#6366F1] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#6366F1]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {paymentProcessing ? "Se pregătește..." : "Pregătește plata"}
+                    </button>
+                  )}
+                {!paymentAlreadyMade && selectedPayment === "klarna" && clientSecret && (
+                  <p className="text-xs text-white/60">Finalizează plata în fereastra Klarna deschisă separat.</p>
+                )}
+              </div>
+            ) : (
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeConfirmationModal}
+                  className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                >
+                  Închide
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeConfirmationModal();
+                    router.push("/client/bookings");
+                  }}
+                  className="rounded-2xl bg-[#6366F1] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED]"
+                >
+                  Vezi rezervările
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showConsentModal && consentBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6" onClick={handleConsentModalClose}>
