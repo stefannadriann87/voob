@@ -2,7 +2,7 @@
 
 import express = require("express");
 const { verifyJWT } = require("../middleware/auth");
-const { getStripeClient, getStripePaymentMethodTypes, mapClientMethodToPrisma } = require("../services/stripeService");
+const { getStripeClient, mapClientMethodToPrisma } = require("../services/stripeService");
 
 const prisma = require("../lib/prisma").default;
 
@@ -51,7 +51,7 @@ router.post("/create-intent", verifyJWT, async (req: express.Request, res: expre
       serviceId?: string;
       employeeId?: string;
       date?: string;
-      paymentMethod?: "card" | "applepay" | "googlepay" | "klarna" | "offline";
+      paymentMethod?: "card" | "offline";
       clientNotes?: string;
     } = req.body;
 
@@ -67,7 +67,6 @@ router.post("/create-intent", verifyJWT, async (req: express.Request, res: expre
 
     const stripe = getStripeClient();
     const clientMethod = paymentMethod;
-    const paymentMethodTypes = getStripePaymentMethodTypes(clientMethod);
     const clientId = (req as express.Request & { user?: { userId: string } }).user?.userId;
     if (!clientId) {
       return res.status(401).json({ error: "Autentificare necesară." });
@@ -88,8 +87,12 @@ router.post("/create-intent", verifyJWT, async (req: express.Request, res: expre
     const paymentIntentParams: any = {
       amount: amountMinor,
       currency: "ron",
-      payment_method_types: paymentMethodTypes,
       capture_method: "automatic",
+      // Use automatic_payment_methods for card payments (Stripe handles card, Apple Pay, Google Pay automatically)
+      automatic_payment_methods: { 
+        enabled: true, 
+        allow_redirects: "always" 
+      },
       metadata: {
         businessId: businessId ?? "",
         serviceId: serviceId ?? "",
@@ -97,13 +100,11 @@ router.post("/create-intent", verifyJWT, async (req: express.Request, res: expre
         paymentMethod: clientMethod,
       },
     };
-    if (clientMethod !== "klarna") {
-      paymentIntentParams.automatic_payment_methods = { enabled: true, allow_redirects: "always" };
-    }
     const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
 
-    const installments = clientMethod === "klarna" ? 3 : null;
-    const amountPerInstallment = installments ? Number((service.price / installments).toFixed(2)) : null;
+    // No installments for card payments
+    const installments = null;
+    const amountPerInstallment = null;
 
     await prisma.payment.create({
       data: {

@@ -149,7 +149,7 @@ model ConsentForm {
   clientId   String
   businessId String
   pdfUrl     String
-  signature  String
+  signature  String?
   templateType BusinessType?
   formData   Json?
   createdAt  DateTime @default(now())

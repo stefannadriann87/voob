@@ -143,8 +143,8 @@ router.post("/sign", verifyJWT, async (req, res) => {
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 
-  if (!bookingId || !clientId || !signature || !formData) {
-    return res.status(400).json({ error: "bookingId, clientId, signature și formData sunt obligatorii." });
+  if (!bookingId || !clientId || !formData) {
+    return res.status(400).json({ error: "bookingId, clientId și formData sunt obligatorii." });
   }
 
   try {
@@ -183,7 +183,6 @@ router.post("/sign", verifyJWT, async (req, res) => {
       return res.status(400).json({ error: "Acest business nu necesită consimțământ digital." });
     }
 
-    const signatureBytes = normalizeSignature(signature);
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage([595.28, 841.89]); // A4
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -236,21 +235,28 @@ router.post("/sign", verifyJWT, async (req, res) => {
       cursorY -= 16;
     });
     cursorY -= 40;
-    drawSafeText("Semnătură pacient:", 40, cursorY + 60);
-
-    try {
-      const signatureImage = await pdfDoc.embedPng(signatureBytes);
-      page.drawImage(signatureImage, {
-        x: 40,
-        y: cursorY,
-        width: 200,
-        height: 60,
-      });
-    } catch (error) {
-      console.warn("Nu am putut insera semnătura în PDF:", error);
+    
+    // Only add signature if provided
+    if (signature) {
+      try {
+        const signatureBytes = normalizeSignature(signature);
+        drawSafeText("Semnătură pacient:", 40, cursorY + 60);
+        const signatureImage = await pdfDoc.embedPng(signatureBytes);
+        page.drawImage(signatureImage, {
+          x: 40,
+          y: cursorY,
+          width: 200,
+          height: 60,
+        });
+        cursorY -= 80;
+      } catch (error) {
+        console.warn("Nu am putut insera semnătura în PDF:", error);
+        cursorY -= 40;
+      }
+    } else {
+      drawSafeText("Consimțământ confirmat electronic (fără semnătură digitală)", 40, cursorY);
+      cursorY -= 40;
     }
-
-    cursorY -= 80;
     drawSafeText(`Data semnării: ${new Date().toLocaleDateString("ro-RO")}`, 40, cursorY);
 
     const pdfBytes = await pdfDoc.save();
@@ -266,9 +272,9 @@ router.post("/sign", verifyJWT, async (req, res) => {
         formData,
       },
       create: {
-        bookingId,
-        clientId: booking.clientId,
-        businessId: booking.businessId,
+        booking: { connect: { id: bookingId } },
+        client: { connect: { id: booking.clientId } },
+        business: { connect: { id: booking.businessId } },
         pdfUrl,
         signature,
         templateType: booking.business.businessType,
@@ -374,9 +380,9 @@ router.post("/upload", verifyJWT, async (req, res) => {
         },
       },
       create: {
-        bookingId,
-        clientId: booking.clientId,
-        businessId: booking.businessId,
+        booking: { connect: { id: bookingId } },
+        client: { connect: { id: booking.clientId } },
+        business: { connect: { id: booking.businessId } },
         pdfUrl: storedPdfUrl,
         signature: "BUSINESS_UPLOAD",
         templateType: booking.business.businessType,

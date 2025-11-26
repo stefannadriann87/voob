@@ -21,6 +21,7 @@ const businessInclude = {
   employees: {
     select: { id: true, name: true, email: true, phone: true, specialization: true, avatar: true },
   },
+  // businessType is included by default when using include, but we ensure it's available
 };
 
 router.post("/link", verifyJWT, async (req, res) => {

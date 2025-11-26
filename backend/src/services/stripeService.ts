@@ -22,35 +22,19 @@ export const getStripeClient = () => {
   return stripeInstance;
 };
 
-export type ClientPaymentMethod = "card" | "applepay" | "googlepay" | "klarna" | "offline";
+export type ClientPaymentMethod = "card" | "offline";
 
 export const getStripePaymentMethodTypes = (method: ClientPaymentMethod): string[] => {
-  switch (method) {
-    case "klarna":
-      return ["klarna"];
-    case "card":
-      return ["card"];
-    case "applepay":
-    case "googlepay":
-      // Apple Pay / Google Pay use the card rails underneath Payment Request Button
-      return ["card"];
-    default:
-      return ["card"];
-  }
+  // Only card is supported now, automatic_payment_methods handles card/Apple Pay/Google Pay
+  return ["card"];
 };
 
-export const requiresRedirectFlow = (method: ClientPaymentMethod) => method === "klarna";
+export const requiresRedirectFlow = (method: ClientPaymentMethod) => false;
 
 export const mapClientMethodToPrisma = (method: ClientPaymentMethod): PaymentMethod => {
   switch (method) {
     case "card":
       return PaymentMethod.CARD;
-    case "applepay":
-      return PaymentMethod.APPLE_PAY;
-    case "googlepay":
-      return PaymentMethod.GOOGLE_PAY;
-    case "klarna":
-      return PaymentMethod.KLARNA;
     default:
       return PaymentMethod.OFFLINE;
   }

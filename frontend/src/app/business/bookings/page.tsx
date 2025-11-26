@@ -489,14 +489,25 @@ export default function BusinessBookingsPage() {
                           stateClasses =
                             "bg-red-500/20 text-white/40 border border-red-500/30 cursor-not-allowed";
                         } else if (slot.status === "booked") {
-                          // Use client-specific color if available
-                          if (slot.clientColor) {
-                            // Keep the same color on hover, just make it slightly brighter
-                            stateClasses = `${slot.clientColor.bg} text-white border ${slot.clientColor.border} cursor-pointer transition-all duration-200`;
-                          } else {
-                            // Fallback to default purple if no client color
+                          // Check if slot is in the past
+                          const slotDate = new Date(slot.iso);
+                          const now = new Date();
+                          const isPast = slotDate.getTime() < now.getTime();
+                          
+                          if (isPast) {
+                            // Past booked slots should be disabled
                             stateClasses =
-                              "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 cursor-pointer transition-all duration-200";
+                              "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed opacity-60";
+                          } else {
+                            // Use client-specific color if available
+                            if (slot.clientColor) {
+                              // Keep the same color on hover, just make it slightly brighter
+                              stateClasses = `${slot.clientColor.bg} text-white border ${slot.clientColor.border} cursor-pointer transition-all duration-200`;
+                            } else {
+                              // Fallback to default purple if no client color
+                              stateClasses =
+                                "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 cursor-pointer transition-all duration-200";
+                            }
                           }
                         } else if (slot.status === "past") {
                           stateClasses =
@@ -513,7 +524,13 @@ export default function BusinessBookingsPage() {
                         }
 
                         // Highlight all slots that belong to the same booking when hovering
+                        // Only highlight if slot is not in the past
+                        const slotDateForHighlight = new Date(slot.iso);
+                        const nowForHighlight = new Date();
+                        const isPastForHighlight = slotDateForHighlight.getTime() < nowForHighlight.getTime();
+                        
                         const isHoverHighlight =
+                          !isPastForHighlight &&
                           hoveredStartMs !== null &&
                           slot.status === "booked" &&
                           slot.booking &&
@@ -541,8 +558,13 @@ export default function BusinessBookingsPage() {
                         }
 
                         const handleMouseEnter = (e: React.MouseEvent<HTMLElement>) => {
-                          // Always handle hover for booked slots, even if disabled
-                          if (slot.status === "booked" && slot.booking) {
+                          // Check if slot is in the past
+                          const slotDate = new Date(slot.iso);
+                          const now = new Date();
+                          const isPast = slotDate.getTime() < now.getTime();
+                          
+                          // Only handle hover for booked slots that are not in the past
+                          if (slot.status === "booked" && slot.booking && !isPast) {
                             console.log("🔵 Mouse entered booked slot:", slot.booking.id, slot.booking.client?.name, "Slot ISO:", slot.iso);
                             setHoveredSlot(slot.iso);
                             // Clear any existing timeout

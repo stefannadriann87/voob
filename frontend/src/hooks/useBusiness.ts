@@ -77,6 +77,17 @@ export default function useBusiness() {
       return data;
     } catch (err) {
       const axiosError = err as AxiosError<{ error?: string }>;
+      
+      // Log detailed error information for debugging
+      if (axiosError.code === "ERR_NETWORK" || axiosError.message === "Network Error") {
+        console.error("Network Error Details:", {
+          endpoint: options?.scope === "linked" ? "/client/businesses" : "/business",
+          baseURL: api.defaults.baseURL,
+          hasToken: typeof window !== "undefined" ? !!window.localStorage.getItem("larstef_token") : false,
+          error: axiosError.message,
+          code: axiosError.code,
+        });
+      }
       const message =
         axiosError.response?.data?.error ??
         axiosError.message ??

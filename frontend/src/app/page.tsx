@@ -987,7 +987,7 @@ export default function Home() {
                 <i className="fas fa-check" /> AI LARSTEF integrat
               </li>
               <li>
-                <i className="fas fa-check" /> Plată card + Apple Pay + Google Pay + Klarna + plată la sediu
+                <i className="fas fa-check" /> Plată card online + plată la sediu
               </li>
               <li>
                 <i className="fas fa-check" /> Documente PDF + semnătură electronică

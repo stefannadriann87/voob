@@ -14,6 +14,7 @@ export interface Booking {
   date: string;
   reminderSentAt?: string | null;
   paid: boolean;
+  paymentReused?: boolean;
   status: BookingStatus;
   business: { id: string; name: string; businessType: BusinessTypeValue };
   service: { id: string; name: string; duration: number; price: number };
@@ -144,7 +145,12 @@ export default function useBookings() {
       setError(null);
       try {
         await api.delete(`/booking/${id}`);
-        setBookings((prev) => prev.filter((booking) => booking.id !== id));
+        // After cancellation, fetch bookings again to get updated status
+        // For paid bookings, status will be CANCELLED (not deleted)
+        // For unpaid bookings, booking will be removed
+        const updatedBookings = await fetchBookings();
+        // Update local state with fetched bookings
+        setBookings(updatedBookings);
       } catch (err) {
         const axiosError = err as AxiosError<{ error?: string }>;
         const message =
@@ -157,7 +163,7 @@ export default function useBookings() {
         setLoading(false);
       }
     },
-    [api]
+    [api, fetchBookings]
   );
 
   return {

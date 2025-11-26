@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AxiosError } from "axios";
 import Head from "next/head";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -18,7 +18,7 @@ import { isBookingTooSoon, MIN_LEAD_MESSAGE, MIN_BOOKING_LEAD_MS } from "../../.
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
-type PaymentMethod = "applepay" | "googlepay" | "card" | "klarna" | "offline";
+type PaymentMethod = "card" | "offline";
 
 type ConsentFieldBase = {
   id: string;
@@ -155,7 +155,7 @@ export default function ClientBookingsPage() {
   const [consentError, setConsentError] = useState<string | null>(null);
   const [consentLoading, setConsentLoading] = useState(false);
   const [consentSubmitting, setConsentSubmitting] = useState(false);
-  const consentCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [dataPrivacyConsent, setDataPrivacyConsent] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [confirmationStep, setConfirmationStep] = useState<"review" | "success">("review");
   const [recentBooking, setRecentBooking] = useState<Booking | null>(null);
@@ -163,14 +163,31 @@ export default function ClientBookingsPage() {
   const [workingHours, setWorkingHours] = useState<any>(null);
   const openConsentModal = useCallback(
     async (newBooking: Booking) => {
+      console.log("=== openConsentModal CALLED ===", {
+        id: newBooking.id,
+        businessId: newBooking.businessId,
+        businessName: newBooking.business?.name,
+        businessType: newBooking.business?.businessType,
+        status: newBooking.status,
+      });
+      
+      // Set booking first
       setConsentBooking(newBooking);
-      setShowConsentModal(true);
+      
+      // Clear any previous state
       setConsentError(null);
       setConsentTemplate(null);
       setConsentValues({});
+      setDataPrivacyConsent(false);
       setConsentLoading(true);
+      
+      // Show modal immediately
+      console.log("Setting showConsentModal to true");
+      setShowConsentModal(true);
+      
       try {
         const { data } = await api.get<{ template: ConsentTemplate }>("/consent/template");
+        console.log("Consent template loaded:", data.template);
         setConsentTemplate(data.template);
         setConsentValues(buildConsentInitialValues(data.template, newBooking));
       } catch (err) {
@@ -179,9 +196,11 @@ export default function ClientBookingsPage() {
           axiosError.response?.data?.error ??
           axiosError.message ??
           (err instanceof Error ? err.message : "Nu am putut încărca formularul de consimțământ.");
+        console.error("Error loading consent template:", message);
         setConsentError(message);
       } finally {
         setConsentLoading(false);
+        console.log("Consent modal loading finished, showConsentModal should be:", true);
       }
     },
     [api]
@@ -304,10 +323,18 @@ export default function ClientBookingsPage() {
   }, [businesses, user?.role]);
 
   const selectedBusinessId = businessIdOverride ?? availableBusinesses[0]?.id ?? null;
-  const selectedBusiness = useMemo(
-    () => availableBusinesses.find((business) => business.id === selectedBusinessId) ?? null,
-    [availableBusinesses, selectedBusinessId]
-  );
+  const selectedBusiness = useMemo(() => {
+    const business = availableBusinesses.find((business) => business.id === selectedBusinessId) ?? null;
+    if (business) {
+      console.log("Selected business updated:", {
+        id: business.id,
+        name: business.name,
+        businessType: business.businessType,
+        hasBusinessType: !!business.businessType,
+      });
+    }
+    return business;
+  }, [availableBusinesses, selectedBusinessId]);
   const selectedServiceId =
     selectedBusinessId != null ? serviceSelections[selectedBusinessId] ?? null : null;
 
@@ -334,8 +361,10 @@ export default function ClientBookingsPage() {
       try {
         const { data } = await api.get<{ workingHours: any }>(`/business/${selectedBusinessId}/working-hours`);
         setWorkingHours(data.workingHours);
-      } catch (error) {
-        console.error("Failed to fetch working hours:", error);
+      } catch (error: any) {
+        // Network errors or API errors - fallback to default hours
+        console.error("Failed to fetch working hours:", error?.message || error);
+        // Set to null on error, will fallback to default hours in getAvailableHoursForDay
         setWorkingHours(null);
       }
     };
@@ -430,27 +459,40 @@ export default function ClientBookingsPage() {
     });
   }, [bookings, selectedBusinessId, selectedEmployeeId]);
 
-  // Check if there's a cancelled paid booking for the same business (any service)
-  // This allows the user to skip payment when reprogramming after cancellation
+  // Find the most recent cancelled paid booking for the same business
+  // This allows the user to reuse payment when reprogramming after cancellation
   // Also calculates price difference for refund or additional payment
+  // 
+  // Use cases:
+  // 1. Client cancelled a paid booking → can reuse payment for new booking
+  // 2. Client cancelled multiple paid bookings → use the most recent one
+  // 3. Payment already reused → don't show option
+  // 4. Different business → don't show option
   const cancelledPaidBooking = useMemo(() => {
     if (!selectedBusinessId || !user) return null;
     
-    // Find any cancelled paid booking for the same business
-    // Note: Adjust this logic based on how cancelled bookings are identified in your system
-    // If your Booking interface has a status field, check booking.status === "CANCELLED"
-    // For now, we check if there are any paid bookings for the same business
-    // You may need to track cancelled bookings separately or add a status field
-    const cancelledPaid = bookings.find((booking) => {
+    // Find all cancelled, paid bookings for the same business that haven't been reused
+    const eligibleBookings = bookings.filter((booking) => {
       const isSameBusiness = booking.businessId === selectedBusinessId;
+      const isCancelled = booking.status === "CANCELLED";
       const isPaid = booking.paid === true;
       const isOwnBooking = booking.clientId === user.id;
-      // TODO: Add proper cancellation check when status field is available
-      // For example: const isCancelled = booking.status === "CANCELLED" || booking.cancelledAt !== null;
-      return isSameBusiness && isPaid && isOwnBooking;
+      const notReused = booking.paymentReused !== true; // Payment hasn't been reused yet
+      
+      return isSameBusiness && isCancelled && isPaid && isOwnBooking && notReused;
     });
 
-    return cancelledPaid || null;
+    if (eligibleBookings.length === 0) return null;
+
+    // Return the most recent cancelled paid booking (by date)
+    // Sort by booking date descending to get the most recent
+    const mostRecent = eligibleBookings.sort((a, b) => {
+      const dateA = new Date(a.date).getTime();
+      const dateB = new Date(b.date).getTime();
+      return dateB - dateA; // Most recent first
+    })[0];
+
+    return mostRecent;
   }, [bookings, selectedBusinessId, user]);
 
   const hasCancelledPaidBooking = !!cancelledPaidBooking;
@@ -514,67 +556,6 @@ export default function ClientBookingsPage() {
     
     return availableHours.sort();
   }, [workingHours, slotDurationMinutes]);
-
-useEffect(() => {
-  if (!showConsentModal) return;
-  const canvas = consentCanvasRef.current;
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const ratio = window.devicePixelRatio || 1;
-  canvas.width = canvas.offsetWidth * ratio;
-  canvas.height = canvas.offsetHeight * ratio;
-  ctx.scale(ratio, ratio);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = 2.5;
-  ctx.strokeStyle = "#6366F1";
-
-  let drawing = false;
-
-  const getPointerPosition = (event: PointerEvent) => {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-  };
-
-  const handlePointerDown = (event: PointerEvent) => {
-    event.preventDefault();
-    const { x, y } = getPointerPosition(event);
-    drawing = true;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
-
-  const handlePointerMove = (event: PointerEvent) => {
-    if (!drawing) return;
-    event.preventDefault();
-    const { x, y } = getPointerPosition(event);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  };
-
-  const handlePointerUp = () => {
-    drawing = false;
-  };
-
-  canvas.addEventListener("pointerdown", handlePointerDown);
-  canvas.addEventListener("pointermove", handlePointerMove);
-  canvas.addEventListener("pointerup", handlePointerUp);
-  canvas.addEventListener("pointerleave", handlePointerUp);
-  canvas.addEventListener("pointercancel", handlePointerUp);
-
-  return () => {
-    canvas.removeEventListener("pointerdown", handlePointerDown);
-    canvas.removeEventListener("pointermove", handlePointerMove);
-    canvas.removeEventListener("pointerup", handlePointerUp);
-    canvas.removeEventListener("pointerleave", handlePointerUp);
-    canvas.removeEventListener("pointercancel", handlePointerUp);
-  };
-}, [showConsentModal]);
 
 const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) => {
   const initial: Record<string, boolean | string> = {};
@@ -690,6 +671,12 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
     setSelectedPayment("card");
   }, []);
 
+  // Reset paymentAlreadyMade when business or service changes
+  // because the cancelled paid booking is specific to a business/service
+  useEffect(() => {
+    setPaymentAlreadyMade(false);
+  }, [selectedBusinessId, selectedServiceId]);
+
 const handleConsentModalClose = () => {
   setShowConsentModal(false);
   setConsentBooking(null);
@@ -698,11 +685,19 @@ const handleConsentModalClose = () => {
   setConsentError(null);
   setConsentLoading(false);
   setConsentSubmitting(false);
+  setDataPrivacyConsent(false);
 };
 
 const handleConsentSubmit = async () => {
   if (!consentBooking || !consentTemplate || !user) return;
   setConsentError(null);
+  
+  // Check if data privacy consent is given
+  if (!dataPrivacyConsent) {
+    setConsentError("Te rugăm să confirmi acordul pentru procesarea datelor personale.");
+    return;
+  }
+  
   const missingField = consentTemplate.fields.find((field) => {
     if (!field.required) return false;
     const value = consentValues[field.id];
@@ -716,25 +711,19 @@ const handleConsentSubmit = async () => {
     return;
   }
 
-  const canvas = consentCanvasRef.current;
-  if (!canvas) {
-    setConsentError("Semnătura nu este disponibilă.");
-    return;
-  }
-
   setConsentSubmitting(true);
   try {
-    const signature = canvas.toDataURL("image/png");
     await api.post("/consent/sign", {
       bookingId: consentBooking.id,
       clientId: user.id,
-      signature,
+      signature: null, // No signature required
       formData: consentValues,
     });
     setShowConsentModal(false);
     setConsentBooking(null);
     setConsentTemplate(null);
     setConsentValues({});
+    setDataPrivacyConsent(false);
     setSuccessMessage("Consimțământ semnat cu succes! Rezervarea a fost confirmată.");
     setTimeout(() => setSuccessMessage(null), 2000);
     resetBookingForm();
@@ -751,10 +740,6 @@ const handleConsentSubmit = async () => {
   }
 };
 
-const handleOpenConsentFullPage = () => {
-  if (!consentBooking) return;
-  router.push(`/consent/${consentBooking.id}?redirect=/client/bookings`);
-};
 
   const handleConfirmBooking = useCallback(async () => {
     if (!user || !selectedBusinessId || !selectedServiceId || !selectedDate) {
@@ -806,13 +791,70 @@ const handleOpenConsentFullPage = () => {
           paymentMethod: "OFFLINE",
           paymentReused: paymentAlreadyMade,
         });
-        const needsConsent =
-          selectedBusiness != null ? requiresConsentForBusiness(selectedBusiness.businessType) : false;
+        // Check if consent is required based on business type
+        // Use booking.business.businessType as fallback if selectedBusiness is not available
+        const businessType = selectedBusiness?.businessType ?? booking.business?.businessType;
+        const needsConsent = requiresConsentForBusiness(businessType);
 
-        if (needsConsent && booking.status === "PENDING_CONSENT") {
+        // Debug logging - detailed check
+        console.log("=== CONSENT CHECK (OFFLINE) ===", {
+          selectedBusinessId: selectedBusiness?.id,
+          selectedBusinessName: selectedBusiness?.name,
+          selectedBusinessType: selectedBusiness?.businessType,
+          selectedBusinessTypeType: typeof selectedBusiness?.businessType,
+          bookingBusinessId: booking.business?.id,
+          bookingBusinessName: booking.business?.name,
+          bookingBusinessType: booking.business?.businessType,
+          bookingBusinessTypeType: typeof booking.business?.businessType,
+          finalBusinessType: businessType,
+          finalBusinessTypeType: typeof businessType,
+          needsConsent,
+          bookingStatus: booking.status,
+          bookingStatusType: typeof booking.status,
+          willOpenModal: needsConsent && booking.status === "PENDING_CONSENT",
+        });
+
+        // Check if consent is required - use string comparison to be safe
+        const bookingStatus = String(booking.status).toUpperCase();
+        const needsConsentModal = needsConsent && bookingStatus === "PENDING_CONSENT";
+        
+        console.log("=== FINAL CONSENT CHECK (OFFLINE) ===", {
+          needsConsent,
+          bookingStatus: booking.status,
+          bookingStatusNormalized: bookingStatus,
+          needsConsentModal,
+          willOpenModal: needsConsentModal,
+          CONSENT_REQUIRED_TYPES: ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"],
+          isStomatologie: businessType === "STOMATOLOGIE",
+        });
+
+        // Force check: if business is STOMATOLOGIE and status is PENDING_CONSENT, open modal
+        const isStomatologie = businessType === "STOMATOLOGIE" || booking.business?.businessType === "STOMATOLOGIE";
+        const isPendingConsent = bookingStatus === "PENDING_CONSENT" || booking.status === "PENDING_CONSENT";
+        
+        if (needsConsentModal || (isStomatologie && isPendingConsent)) {
+          console.log("Opening consent modal for booking:", booking.id, {
+            needsConsentModal,
+            isStomatologie,
+            isPendingConsent,
+            forceOpen: !needsConsentModal && isStomatologie && isPendingConsent,
+          });
+          // Close confirmation modal first
           closeConfirmationModal();
+          // Small delay to ensure modal is closed before opening consent modal
+          await new Promise((resolve) => setTimeout(resolve, 100));
           await openConsentModal(booking);
           return;
+        } else {
+          console.log("NOT opening consent modal. Reason:", {
+            needsConsent,
+            bookingStatus: booking.status,
+            bookingStatusNormalized: bookingStatus,
+            conditionMet: needsConsentModal,
+            isStomatologie,
+            isPendingConsent,
+            businessType,
+          });
         }
         setRecentBooking(booking);
         setConfirmationStep("success");
@@ -834,15 +876,6 @@ const handleOpenConsentFullPage = () => {
         const { clientSecret: secret, paymentIntentId: intentId } = intentResponse.data;
         setClientSecret(secret);
         setPaymentIntentId(intentId);
-
-        if (selectedPayment === "klarna") {
-          setSuccessMessage("Te redirecționăm către Klarna pentru finalizarea plății...");
-        }
-        return;
-      }
-
-      if (selectedPayment === "klarna") {
-        setSuccessMessage("Finalizează plata în fereastra Klarna. Rezervarea se confirmă automat după succes.");
         return;
       }
     } catch (err) {
@@ -881,13 +914,70 @@ const handleOpenConsentFullPage = () => {
 
     try {
       const booking = await api.post("/booking/confirm", { paymentIntentId });
-      const needsConsent =
-        selectedBusiness != null ? requiresConsentForBusiness(selectedBusiness.businessType) : false;
+      // Check if consent is required based on business type
+      // Use booking.business.businessType as fallback if selectedBusiness is not available
+      const businessType = selectedBusiness?.businessType ?? booking.data.business?.businessType;
+      const needsConsent = requiresConsentForBusiness(businessType);
 
-      if (needsConsent && booking.data.status === "PENDING_CONSENT") {
+      // Debug logging - detailed check
+      console.log("=== CONSENT CHECK (STRIPE) ===", {
+        selectedBusinessId: selectedBusiness?.id,
+        selectedBusinessName: selectedBusiness?.name,
+        selectedBusinessType: selectedBusiness?.businessType,
+        selectedBusinessTypeType: typeof selectedBusiness?.businessType,
+        bookingBusinessId: booking.data.business?.id,
+        bookingBusinessName: booking.data.business?.name,
+        bookingBusinessType: booking.data.business?.businessType,
+        bookingBusinessTypeType: typeof booking.data.business?.businessType,
+        finalBusinessType: businessType,
+        finalBusinessTypeType: typeof businessType,
+        needsConsent,
+        bookingStatus: booking.data.status,
+        bookingStatusType: typeof booking.data.status,
+        willOpenModal: needsConsent && booking.data.status === "PENDING_CONSENT",
+      });
+
+      // Check if consent is required - use string comparison to be safe
+      const bookingStatus = String(booking.data.status).toUpperCase();
+      const needsConsentModal = needsConsent && bookingStatus === "PENDING_CONSENT";
+      
+      console.log("=== FINAL CONSENT CHECK (STRIPE) ===", {
+        needsConsent,
+        bookingStatus: booking.data.status,
+        bookingStatusNormalized: bookingStatus,
+        needsConsentModal,
+        willOpenModal: needsConsentModal,
+        CONSENT_REQUIRED_TYPES: ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"],
+        isStomatologie: businessType === "STOMATOLOGIE",
+      });
+
+      // Force check: if business is STOMATOLOGIE and status is PENDING_CONSENT, open modal
+      const isStomatologie = businessType === "STOMATOLOGIE" || booking.data.business?.businessType === "STOMATOLOGIE";
+      const isPendingConsent = bookingStatus === "PENDING_CONSENT" || booking.data.status === "PENDING_CONSENT";
+      
+      if (needsConsentModal || (isStomatologie && isPendingConsent)) {
+        console.log("Opening consent modal for booking:", booking.data.id, {
+          needsConsentModal,
+          isStomatologie,
+          isPendingConsent,
+          forceOpen: !needsConsentModal && isStomatologie && isPendingConsent,
+        });
+        // Close confirmation modal first
         closeConfirmationModal();
+        // Small delay to ensure modal is closed before opening consent modal
+        await new Promise((resolve) => setTimeout(resolve, 100));
         await openConsentModal(booking.data);
         return;
+      } else {
+        console.log("NOT opening consent modal. Reason:", {
+          needsConsent,
+          bookingStatus: booking.data.status,
+          bookingStatusNormalized: bookingStatus,
+          conditionMet: needsConsentModal,
+          isStomatologie,
+          isPendingConsent,
+          businessType,
+        });
       }
       setRecentBooking(booking.data);
       setConfirmationStep("success");
@@ -1179,7 +1269,7 @@ const handleOpenConsentFullPage = () => {
       {showConfirmationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6" onClick={closeConfirmationModal}>
           <div
-            className="w-full max-w-5xl rounded-3xl border border-white/10 bg-[#0B0E17] p-6 text-white shadow-2xl shadow-black/40"
+            className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0E17] p-6 text-white shadow-2xl shadow-black/40"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-6 flex items-start justify-between gap-4">
@@ -1206,7 +1296,7 @@ const handleOpenConsentFullPage = () => {
 
             {confirmationStep === "review" ? (
               <div className="grid gap-6 lg:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="order-2 rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h4 className="text-lg font-semibold">Rezumat rezervare</h4>
                   <div className="mt-4 flex flex-col gap-3 text-sm text-white/70">
                     <div className="flex items-center justify-between">
@@ -1286,30 +1376,63 @@ const handleOpenConsentFullPage = () => {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-lg font-semibold">Metoda de plată</h4>
-                    {hasCancelledPaidBooking && (
-                      <label
-                        className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-                          paymentAlreadyMade
-                            ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
-                            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/80 hover:bg-emerald-500/15"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={paymentAlreadyMade}
-                          onChange={(event) => {
-                            setPaymentAlreadyMade(event.target.checked);
-                            if (event.target.checked) {
-                              setSelectedPayment("offline");
-                            }
-                          }}
-                          className="h-3.5 w-3.5 rounded border-white/20 bg-transparent text-emerald-500 focus:ring-emerald-500"
-                        />
-                        Plată efectuată
-                      </label>
+                <div className="order-1 rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-lg font-semibold mb-4">Metoda de plată</h4>
+                      {hasCancelledPaidBooking && (
+                        <label
+                          className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                            paymentAlreadyMade
+                              ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/80 hover:bg-emerald-500/15"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={paymentAlreadyMade}
+                            onChange={(event) => {
+                              setPaymentAlreadyMade(event.target.checked);
+                              if (event.target.checked) {
+                                setSelectedPayment("offline");
+                              }
+                            }}
+                            className="h-3.5 w-3.5 rounded border-white/20 bg-transparent text-emerald-500 focus:ring-emerald-500"
+                          />
+                          Plată efectuată
+                        </label>
+                      )}
+                    </div>
+                    {paymentAlreadyMade && cancelledPaidBooking && (
+                      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200/90">
+                        <p className="font-semibold mb-1">Reutilizezi plata de la rezervarea anulată</p>
+                        <p className="text-emerald-200/70">
+                          Suma plătită anterior:{" "}
+                          {cancelledPaidBooking.service?.price?.toLocaleString("ro-RO", {
+                            style: "currency",
+                            currency: "RON",
+                          })}
+                        </p>
+                        {priceDifference && priceDifference.difference !== 0 && (
+                          <p className="mt-2 font-semibold">
+                            {priceDifference.difference > 0 ? (
+                              <span className="text-emerald-300">
+                                Vei primi înapoi: {Math.abs(priceDifference.difference).toLocaleString("ro-RO", {
+                                  style: "currency",
+                                  currency: "RON",
+                                })}
+                              </span>
+                            ) : (
+                              <span className="text-amber-300">
+                                Trebuie să plătești în plus: {Math.abs(priceDifference.difference).toLocaleString("ro-RO", {
+                                  style: "currency",
+                                  currency: "RON",
+                                })}
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div
@@ -1320,9 +1443,6 @@ const handleOpenConsentFullPage = () => {
                     <div className="grid gap-3 sm:grid-cols-2">
                       {[
                         { value: "card", label: "Card", icon: "fas fa-credit-card" },
-                        { value: "applepay", label: "Apple Pay", icon: "fab fa-apple" },
-                        { value: "googlepay", label: "Google Pay", icon: "fab fa-google-pay" },
-                        { value: "klarna", label: "Klarna", icon: null },
                         { value: "offline", label: "Plată la locație", icon: "fas fa-wallet" },
                       ].map((method) => (
                         <label
@@ -1341,13 +1461,8 @@ const handleOpenConsentFullPage = () => {
                             onChange={() => setSelectedPayment(method.value as PaymentMethod)}
                             className="hidden"
                           />
-                          {method.icon ? <i className={`${method.icon} text-base`} /> : <span className="text-[#FFB3C7]">Klarna</span>}
+                          {method.icon && <i className={`${method.icon} text-base`} />}
                           <span>{method.label}</span>
-                          {method.value === "klarna" && selectedService && (
-                            <span className="text-[11px] text-white/60">
-                              {(selectedService.price / 3).toFixed(2)} lei/lună
-                            </span>
-                          )}
                         </label>
                       ))}
                     </div>
@@ -1355,11 +1470,6 @@ const handleOpenConsentFullPage = () => {
                     {selectedPayment === "offline" && (
                       <p className="text-xs text-white/60">
                         Confirmi rezervarea acum și achiți la locație. Vei primi toate detaliile pe email/SMS.
-                      </p>
-                    )}
-                    {selectedPayment === "klarna" && (
-                      <p className="text-xs text-white/60">
-                        După pregătirea plății vei fi redirecționat către Klarna pentru finalizarea ratei.
                       </p>
                     )}
                   </div>
@@ -1370,7 +1480,7 @@ const handleOpenConsentFullPage = () => {
                     </div>
                   )}
 
-                  {!paymentAlreadyMade && clientSecret && selectedPayment !== "klarna" && selectedPayment !== "offline" && (
+                  {!paymentAlreadyMade && clientSecret && selectedPayment !== "offline" && (
                     <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
                       <Elements
                         stripe={stripePromise}
@@ -1395,11 +1505,6 @@ const handleOpenConsentFullPage = () => {
                     </div>
                   )}
 
-                  {!paymentAlreadyMade && selectedPayment === "klarna" && clientSecret && (
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-                      Te redirecționăm către Klarna pentru finalizarea plății în 3 rate egale. Rezervarea va fi confirmată automat după succes.
-                    </div>
-                  )}
                 </div>
               </div>
             ) : (
@@ -1471,9 +1576,6 @@ const handleOpenConsentFullPage = () => {
                       {paymentProcessing ? "Se pregătește..." : "Pregătește plata"}
                     </button>
                   )}
-                {!paymentAlreadyMade && selectedPayment === "klarna" && clientSecret && (
-                  <p className="text-xs text-white/60">Finalizează plata în fereastra Klarna deschisă separat.</p>
-                )}
               </div>
             ) : (
               <div className="mt-6 flex flex-wrap justify-end gap-3">
@@ -1515,22 +1617,13 @@ const handleOpenConsentFullPage = () => {
                   {new Date(consentBooking.date).toLocaleString("ro-RO", { dateStyle: "medium", timeStyle: "short" })}
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleOpenConsentFullPage}
-                  className="rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
-                >
-                  Deschide pagina completă
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConsentModalClose}
-                  className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
-                >
-                  <i className="fas fa-times" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleConsentModalClose}
+                className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+              >
+                <i className="fas fa-times" />
+              </button>
             </div>
 
             {consentLoading && (
@@ -1545,6 +1638,15 @@ const handleOpenConsentFullPage = () => {
                   <p className="text-sm text-white/70">{consentTemplate.description}</p>
                   <div className="mt-4 flex flex-col gap-4">
                     {consentTemplate.fields.map((field) => {
+                      // Check if field is required and not filled
+                      const isFieldInvalid = field.required && (() => {
+                        const value = consentValues[field.id];
+                        if (field.type === "checkbox") {
+                          return !value;
+                        }
+                        return !(typeof value === "string" && value.trim().length > 0);
+                      })();
+
                       if (field.type === "checkbox") {
                         return (
                           <label key={field.id} className="flex items-start gap-3 text-sm text-white/80">
@@ -1555,7 +1657,9 @@ const handleOpenConsentFullPage = () => {
                                 setConsentError(null);
                                 setConsentValues((prev) => ({ ...prev, [field.id]: event.target.checked }));
                               }}
-                              className="mt-1 h-4 w-4 rounded border-white/30 text-[#6366F1] focus:ring-[#6366F1]"
+                              className={`mt-1 h-4 w-4 rounded text-[#6366F1] focus:ring-[#6366F1] ${
+                                isFieldInvalid ? "border-red-500" : "border-white/30"
+                              }`}
                             />
                             <span>
                               {field.label}
@@ -1583,7 +1687,11 @@ const handleOpenConsentFullPage = () => {
                                 setConsentError(null);
                                 setConsentValues((prev) => ({ ...prev, [field.id]: event.target.value }));
                               }}
-                              className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                              className={`rounded-2xl border bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition ${
+                                isFieldInvalid
+                                  ? "border-red-500 focus:border-red-500"
+                                  : "border-white/10 focus:border-[#6366F1]"
+                              }`}
                             />
                           </label>
                         );
@@ -1603,7 +1711,18 @@ const handleOpenConsentFullPage = () => {
                             setConsentError(null);
                               setConsentValues((prev) => ({ ...prev, [field.id]: event.target.value }));
                             }}
-                            className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                            className={`rounded-2xl border bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:invert ${
+                              isFieldInvalid
+                                ? "border-red-500 focus:border-red-500"
+                                : "border-white/10 focus:border-[#6366F1]"
+                            }`}
+                            style={
+                              field.type === "date"
+                                ? {
+                                    colorScheme: "white",
+                                  }
+                                : undefined
+                            }
                           />
                         </label>
                       );
@@ -1611,33 +1730,22 @@ const handleOpenConsentFullPage = () => {
                   </div>
                 </section>
 
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-white">Semnătură digitală</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const canvas = consentCanvasRef.current;
-                        if (canvas) {
-                          const ctx = canvas.getContext("2d");
-                          ctx?.clearRect(0, 0, canvas.width, canvas.height);
-                        }
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <label className="flex items-start gap-3 text-sm text-white/80 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={dataPrivacyConsent}
+                      onChange={(event) => {
+                        setDataPrivacyConsent(event.target.checked);
+                        setConsentError(null);
                       }}
-                      className="text-xs font-semibold text-[#6366F1] hover:text-[#7C3AED]"
-                    >
-                      Șterge semnătura
-                    </button>
-                  </div>
-                  <canvas
-                    ref={consentCanvasRef}
-                    width={800}
-                    height={200}
-                    className="mt-3 w-full rounded-2xl border border-dashed border-white/20 bg-[#0B0E17]/60 cursor-crosshair select-none"
-                    style={{ touchAction: "none" }}
-                  />
-                  <p className="mt-2 text-xs text-white/50">
-                    Semnează direct cu degetul sau cu mouse-ul. Semnătura este salvată criptat (base64).
-                  </p>
+                      className="mt-1 h-4 w-4 rounded border-white/30 text-[#6366F1] focus:ring-[#6366F1]"
+                    />
+                    <span>
+                      Confirm că sunt de acord cu procesarea datelor mele personale conform acestui formular de consimțământ și a politicii de confidențialitate.
+                      <span className="ml-1 text-[#F59E0B]">*</span>
+                    </span>
+                  </label>
                 </div>
 
                 {consentError && (
@@ -1656,18 +1764,18 @@ const handleOpenConsentFullPage = () => {
                   </button>
                   <button
                     type="button"
-                    disabled={consentSubmitting || consentLoading}
+                    disabled={consentSubmitting || consentLoading || !dataPrivacyConsent}
                     onClick={handleConsentSubmit}
                     className="rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {consentSubmitting ? "Se trimite..." : "Semnez și finalizez"}
+                    {consentSubmitting ? "Se trimite..." : "Confirmă consimțământul"}
                   </button>
                 </div>
               </div>
             ) : null}
             {!consentLoading && !consentTemplate && (
               <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                {consentError ?? "Nu am putut încărca formularul de consimțământ. Încearcă din nou sau deschide pagina completă."}
+                {consentError ?? "Nu am putut încărca formularul de consimțământ. Încearcă din nou."}
               </p>
             )}
           </div>

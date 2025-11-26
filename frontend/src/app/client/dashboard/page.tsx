@@ -253,12 +253,16 @@ export default function ClientDashboardPage() {
   }, [businesses, businessToRemoveId]);
 
   // Filter bookings by selected business (for clients) or by business ID (for business users)
+  // Exclude cancelled bookings from the list
   const filteredBookings = useMemo(() => {
+    // First, exclude cancelled bookings
+    const activeBookings = bookings.filter((booking) => booking.status !== "CANCELLED");
+    
     if (user?.role === "BUSINESS") {
       // For business users, filter by their business ID
       const businessId = businessRecord?.id || userBusiness?.id;
       if (businessId) {
-        const filtered = bookings.filter((booking) => booking.businessId === businessId);
+        const filtered = activeBookings.filter((booking) => booking.businessId === businessId);
         // Debug: log bookings for business users
         if (filtered.length > 0) {
           console.log("Business bookings filtered:", filtered.length, "Business ID:", businessId);
@@ -266,10 +270,10 @@ export default function ClientDashboardPage() {
         }
         return filtered;
       }
-      return bookings;
+      return activeBookings;
     }
     if (user?.role === "CLIENT" && user.id) {
-      const clientBookings = bookings.filter((booking) => booking.clientId === user.id);
+      const clientBookings = activeBookings.filter((booking) => booking.clientId === user.id);
 
       if (selectedBusinessIdsForBookings.size > 0) {
         return clientBookings.filter((booking) =>
@@ -288,7 +292,7 @@ export default function ClientDashboardPage() {
 
       return clientBookings;
     }
-    return bookings;
+    return activeBookings;
   }, [
     bookings,
     selectedBusinessId,
@@ -889,7 +893,7 @@ export default function ClientDashboardPage() {
         </div>
 
         <div className="desktop:rounded-3xl desktop:border desktop:border-white/10 desktop:bg-white/5 p-0 desktop:p-6">
-          <h2 className="text-lg font-semibold text-white">AI Insights</h2>
+          <h2 className="text-lg font-semibold text-white mb-6">AI Insights</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-white/10 bg-[#6366F1]/10 p-4">
               <p className="text-sm font-semibold text-white">Ore recomandate</p>

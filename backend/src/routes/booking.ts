@@ -95,6 +95,33 @@ router.post("/", async (req, res) => {
 
     const isPaid = paid ?? false;
     const paymentStatus: typeof BookingPaymentStatus[keyof typeof BookingPaymentStatus] = isPaid ? "PAID" : "PENDING";
+    const isPaymentReused = paymentReused ?? false;
+
+    // If payment is being reused, find and mark the cancelled paid booking as reused
+    if (isPaymentReused) {
+      // Find the most recent cancelled paid booking for this client and business
+      // that hasn't been reused yet
+      const cancelledPaidBooking = await prisma.booking.findFirst({
+        where: {
+          clientId,
+          businessId,
+          status: "CANCELLED",
+          paid: true,
+          paymentReused: false,
+        },
+        orderBy: {
+          date: "desc", // Most recent first
+        },
+      });
+
+      if (cancelledPaidBooking) {
+        // Mark the cancelled booking's payment as reused
+        await prisma.booking.update({
+          where: { id: cancelledPaidBooking.id },
+          data: { paymentReused: true },
+        });
+      }
+    }
 
     const booking = await prisma.booking.create({
       data: {
@@ -106,7 +133,7 @@ router.post("/", async (req, res) => {
         paid: isPaid,
         paymentMethod: paymentMethod ?? PaymentMethod.OFFLINE,
         paymentStatus,
-        paymentReused: paymentReused ?? false,
+        paymentReused: isPaymentReused,
         status: initialStatus,
       },
       include: {
@@ -219,19 +246,25 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", verifyJWT, async (req, res) => {
   const { id } = req.params;
   if (!id) {
     return res.status(400).json({ error: "ID rezervare lipsă." });
   }
 
   try {
+    const authReq = req as express.Request & { user?: { userId: string; role: string; businessId?: string } };
+    const userRole = authReq.user?.role;
+    const userId = authReq.user?.userId;
+    const userBusinessId = authReq.user?.businessId;
+
     const booking = await prisma.booking.findUnique({
       where: { id },
       include: {
         consentForm: true,
         client: { select: { id: true, name: true, email: true, phone: true } },
-        business: { select: { id: true, name: true } },
+        business: { select: { id: true, name: true, ownerId: true, employees: { select: { id: true } } } },
+        service: { select: { id: true, name: true, price: true } },
       },
     });
 
@@ -239,33 +272,65 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Rezervarea nu există sau a fost deja ștearsă." });
     }
 
-    const now = new Date();
-    const bookingDateObj = new Date(booking.date);
-    if (booking.reminderSentAt) {
-      const reminderDate = new Date(booking.reminderSentAt);
-      if (!Number.isNaN(reminderDate.getTime()) && now.getTime() > reminderDate.getTime() + REMINDER_GRACE_MS) {
-        return res.status(400).json({ error: REMINDER_LIMIT_MESSAGE });
+    // If booking is already cancelled, return error
+    if (booking.status === "CANCELLED") {
+      return res.status(400).json({ error: "Rezervarea a fost deja anulată." });
+    }
+
+    // Authorization check: only client, business owner, employee of the business, or superadmin can cancel
+    const isClient = userRole === "CLIENT" && booking.clientId === userId;
+    const isBusinessOwner = userRole === "BUSINESS" && booking.business.ownerId === userId;
+    const isEmployee = userRole === "EMPLOYEE" && booking.business.employees.some((emp: { id: string }) => emp.id === userId);
+    const isSuperAdmin = userRole === "SUPERADMIN";
+
+    if (!isClient && !isBusinessOwner && !isEmployee && !isSuperAdmin) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a anula această rezervare." });
+    }
+
+    // Time limits only apply to clients
+    // Business, employee, and superadmin can cancel anytime
+    const bypassTimeLimits = isBusinessOwner || isEmployee || isSuperAdmin;
+
+    if (!bypassTimeLimits) {
+      const now = new Date();
+      const bookingDateObj = new Date(booking.date);
+      if (booking.reminderSentAt) {
+        const reminderDate = new Date(booking.reminderSentAt);
+        if (!Number.isNaN(reminderDate.getTime()) && now.getTime() > reminderDate.getTime() + REMINDER_GRACE_MS) {
+          return res.status(400).json({ error: REMINDER_LIMIT_MESSAGE });
+        }
+      }
+
+      if (bookingDateObj.getTime() - now.getTime() < CANCELLATION_LIMIT_MS) {
+        return res.status(400).json({ error: CANCELLATION_LIMIT_MESSAGE });
       }
     }
 
-    if (bookingDateObj.getTime() - now.getTime() < CANCELLATION_LIMIT_MS) {
-      return res.status(400).json({ error: CANCELLATION_LIMIT_MESSAGE });
-    }
-
-    // Salvează datele pentru SMS înainte de ștergere
+    // Salvează datele pentru SMS înainte de anulare
     const clientName = booking.client?.name || "Client";
     const clientPhone = booking.client?.phone;
     const businessName = booking.business?.name || "Business";
     const bookingDate = booking.date;
+    const isPaid = booking.paid === true;
 
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      if (booking.consentForm) {
-        await tx.consentForm.delete({ where: { bookingId: id } });
-      }
-      await tx.booking.delete({ where: { id } });
-    });
+    // If booking is paid, set status to CANCELLED instead of deleting
+    // This allows the client to reuse the payment for a new booking
+    if (isPaid) {
+      await prisma.booking.update({
+        where: { id },
+        data: { status: "CANCELLED" },
+      });
+    } else {
+      // For unpaid bookings, we can delete them completely
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        if (booking.consentForm) {
+          await tx.consentForm.delete({ where: { bookingId: id } });
+        }
+        await tx.booking.delete({ where: { id } });
+      });
+    }
 
-    // Trimite SMS de anulare după ștergerea rezervării
+    // Trimite SMS de anulare după anularea rezervării
     if (clientPhone) {
       // Fire-and-forget: nu așteptăm răspunsul pentru a nu bloca request-ul
       sendBookingCancellationSms(
@@ -371,14 +436,13 @@ router.post("/confirm", verifyJWT, async (req, res) => {
     const stripe = getStripeClient();
     const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
-    const isKlarna = payment.method === PaymentMethod.KLARNA;
     const succeeded = intent.status === "succeeded";
 
-    if (!isKlarna && !succeeded) {
+    if (!succeeded) {
       return res.status(400).json({ error: "Plata nu este confirmată." });
     }
 
-    const paid = !isKlarna && succeeded;
+    const paid = succeeded;
     const bookingPaymentStatus: typeof BookingPaymentStatus[keyof typeof BookingPaymentStatus] = paid ? "PAID" : "PENDING";
     const paymentStatus = succeeded ? "SUCCEEDED" : "PENDING";
 
