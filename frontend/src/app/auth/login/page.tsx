@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useCallback } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "../../../components/Navbar";
 import useAuth, { Role } from "../../../hooks/useAuth";
+import Captcha from "../../../components/Captcha";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,6 +15,11 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("CLIENT");
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+
+  const handleCaptchaVerify = useCallback((token: string) => {
+    setCaptchaToken(token);
+  }, []);
 
   // Email-ul superadmin-ului - nu necesită selecție de rol
   const SUPERADMIN_EMAIL = "stefann.adriann@gmail.com";
@@ -24,8 +30,8 @@ export default function LoginPage() {
     try {
       // Pentru superadmin, nu trimitem rolul - backend-ul va detecta automat
       const loginPayload = isSuperAdminEmail 
-        ? { email, password } 
-        : { email, password, role };
+        ? { email, password, captchaToken: captchaToken || undefined } 
+        : { email, password, role, captchaToken: captchaToken || undefined };
       
       const loggedUser = await login(loginPayload);
       const redirectTo = searchParams.get("redirect");
@@ -113,6 +119,8 @@ export default function LoginPage() {
                   {error}
                 </p>
               )}
+
+              <Captcha onVerify={handleCaptchaVerify} action="login" />
 
               <button
                 type="submit"

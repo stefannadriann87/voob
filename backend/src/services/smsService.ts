@@ -5,6 +5,7 @@
 
 const { SmsUsageType } = require("@prisma/client");
 const { recordSmsUsage } = require("./usageService");
+const { checkSmsLimit } = require("./subscriptionService");
 
 interface SmsAdvertResponse {
   success: boolean;
@@ -19,7 +20,7 @@ interface SendSmsOptions {
   startDate?: number; // Unix timestamp pentru programare
   endDate?: number; // Unix timestamp pentru programare
   callback?: string; // URL pentru callback de livrare
-  businessId?: string;
+  businessId?: string | null;
   usageType?: typeof SmsUsageType[keyof typeof SmsUsageType];
   metadata?: Record<string, unknown>;
   costEstimate?: number;
@@ -74,6 +75,18 @@ async function sendSms(options: SendSmsOptions): Promise<SmsAdvertResponse> {
       success: false,
       error: "SMS service nu este configurat. Token lipsă.",
     };
+  }
+
+  // Check SMS limit if businessId is provided
+  if (businessId) {
+    const smsLimitCheck = await checkSmsLimit(businessId);
+    if (!smsLimitCheck.canSend) {
+      console.warn(`SMS limit reached for business ${businessId}: ${smsLimitCheck.currentUsage}/${smsLimitCheck.limit}`);
+      return {
+        success: false,
+        error: smsLimitCheck.error || "Ai atins limita de SMS pentru planul tău.",
+      };
+    }
   }
 
   // Formatează numărul de telefon
@@ -204,7 +217,7 @@ async function sendBookingConfirmationSms(
   return sendSms({
     phone: clientPhone,
     message,
-    businessId,
+    businessId: businessId ?? null,
     usageType: SmsUsageType.CONFIRMATION,
     metadata: {
       bookingDate: bookingDate.toISOString(),
@@ -256,7 +269,7 @@ async function sendBookingReminderSms(
   const smsOptions: SendSmsOptions = {
     phone: clientPhone,
     message,
-    businessId,
+    businessId: businessId ?? null,
     usageType: SmsUsageType.REMINDER,
     metadata: {
       bookingDate: bookingDate.toISOString(),
@@ -306,7 +319,7 @@ async function sendBookingCancellationSms(
   return sendSms({
     phone: clientPhone,
     message,
-    businessId,
+    businessId: businessId ?? null,
     usageType: SmsUsageType.CANCELLATION,
     metadata: {
       bookingDate: bookingDate.toISOString(),

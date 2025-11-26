@@ -102,7 +102,9 @@ export default function AdminPaymentsPage() {
                   <div key={method} className="flex items-center justify-between rounded-2xl border border-white/10 bg-[#0F172A]/70 px-4 py-2">
                     <span>{method}</span>
                     <span className="font-semibold text-white">
-                      {amount.toLocaleString("ro-RO", { style: "currency", currency: "RON" })}
+                      {amount != null
+                        ? amount.toLocaleString("ro-RO", { style: "currency", currency: "RON" })
+                        : "N/A"}
                       {method === "OFFLINE" && " • SELF_REPORTED"}
                     </span>
                   </div>

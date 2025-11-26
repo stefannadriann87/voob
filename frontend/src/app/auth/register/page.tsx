@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useCallback } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "../../../components/Navbar";
 import useAuth, { Role } from "../../../hooks/useAuth";
 import { BUSINESS_TYPE_OPTIONS, type BusinessTypeValue } from "../../../constants/businessTypes";
+import Captcha from "../../../components/Captcha";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -21,6 +22,11 @@ export default function RegisterPage() {
   const [businessType, setBusinessType] = useState<BusinessTypeValue>("GENERAL");
   const [success, setSuccess] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+
+  const handleCaptchaVerify = useCallback((token: string) => {
+    setCaptchaToken(token);
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -36,6 +42,11 @@ export default function RegisterPage() {
       return;
     }
 
+    if (!captchaToken) {
+      setFormError("Se verifică securitatea... Te rugăm să aștepți un moment.");
+      return;
+    }
+
     try {
       await register({
         email,
@@ -45,6 +56,7 @@ export default function RegisterPage() {
         role,
         businessName: businessName.trim() || undefined,
         businessType: role === "BUSINESS" ? businessType : undefined,
+        captchaToken,
       });
       setSuccess("Cont creat cu succes! Te autentificăm automat...");
       const loggedUser = await login({ email, password, role });
@@ -199,9 +211,11 @@ export default function RegisterPage() {
                 </p>
               )}
 
+              <Captcha onVerify={handleCaptchaVerify} action="register" />
+
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !captchaToken}
                 className="mt-2 rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? "Se procesează..." : "Creează cont"}

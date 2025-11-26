@@ -28,6 +28,7 @@ interface LoginPayload {
   email: string;
   password: string;
   role?: Role;
+  captchaToken?: string;
 }
 
 interface RegisterPayload {
@@ -38,6 +39,7 @@ interface RegisterPayload {
   role?: Role;
   businessName?: string;
   businessType?: BusinessTypeValue;
+  captchaToken?: string;
 }
 
 interface JwtPayload {
@@ -79,14 +81,14 @@ export default function useAuth() {
   }, []);
 
   const login = useCallback(
-    async ({ email, password, role }: LoginPayload) => {
+    async ({ email, password, role, captchaToken }: LoginPayload) => {
       setLoading(true);
       setError(null);
       try {
         const { data } = await api.post<{
           token: string;
           user: AuthUser;
-        }>("/auth/login", { email, password, role });
+        }>("/auth/login", { email, password, role, captchaToken });
 
         const decoded = jwtDecode<JwtPayload>(data.token);
         if (decoded.exp && decoded.exp * 1000 < Date.now()) {
@@ -111,7 +113,7 @@ export default function useAuth() {
   );
 
   const register = useCallback(
-    async ({ email, password, name, phone, role, businessName, businessType }: RegisterPayload) => {
+    async ({ email, password, name, phone, role, businessName, businessType, captchaToken }: RegisterPayload) => {
       setLoading(true);
       setError(null);
       try {
@@ -123,6 +125,7 @@ export default function useAuth() {
           role,
           businessName,
           businessType,
+          captchaToken,
         });
         return data.user;
       } catch (err) {

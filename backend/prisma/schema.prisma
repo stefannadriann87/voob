@@ -14,63 +14,114 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  password      String
-  name          String
-  phone         String?
-  specialization String?
-  avatar        String?   // URL către poza de profil
-  role          Role      @default(CLIENT)
-  businessId    String?   @db.VarChar(255)
-  business      Business? @relation(fields: [businessId], references: [id])
-  workingHours  Json?     // Program de lucru pentru employee: { "monday": { "enabled": true, "slots": [{ "start": "09:00", "end": "18:00" }] }, ... }
-  bookings      Booking[]
-  employeeBookings Booking[] @relation("EmployeeBookings")
-  ownedBusinesses Business[] @relation("BusinessOwner")
+  id               String               @id @default(cuid())
+  email            String               @unique
+  password         String
+  name             String
+  phone            String?
+  specialization   String?
+  avatar           String? // URL către poza de profil
+  role             Role                 @default(CLIENT)
+  businessId       String?              @db.VarChar(255)
+  business         Business?            @relation(fields: [businessId], references: [id])
+  workingHours     Json? // Program de lucru pentru employee: { "monday": { "enabled": true, "slots": [{ "start": "09:00", "end": "18:00" }] }, ... }
+  bookings         Booking[]
+  employeeBookings Booking[]            @relation("EmployeeBookings")
+  ownedBusinesses  Business[]           @relation("BusinessOwner")
   employeeHolidays EmployeeHoliday[]
-  clientLinks   ClientBusinessLink[] @relation("ClientLinks")
-  consentForms  ConsentForm[]
+  clientLinks      ClientBusinessLink[] @relation("ClientLinks")
+  consentForms     ConsentForm[]
   consentDocuments ConsentDocument[]
-  resetTokens   PasswordResetToken[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  resetTokens      PasswordResetToken[]
+  registrationIp   String?              // IP-ul de la înregistrare
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+}
+
+// Registration and Login Security Tracking
+model RegistrationAttempt {
+  id            String   @id @default(cuid())
+  email         String
+  ipAddress     String
+  userAgent     String?
+  success       Boolean  @default(false)
+  failureReason String?
+  captchaScore  Float?   // Score de la reCAPTCHA v3 (0.0 - 1.0)
+  createdAt     DateTime @default(now())
+
+  @@index([email])
+  @@index([ipAddress])
+  @@index([createdAt])
+}
+
+model LoginAttempt {
+  id            String   @id @default(cuid())
+  email         String?
+  ipAddress     String
+  userAgent     String?
+  success       Boolean  @default(false)
+  failureReason String?
+  createdAt     DateTime @default(now())
+
+  @@index([email])
+  @@index([ipAddress])
+  @@index([createdAt])
+}
+
+model IpBlacklist {
+  id          String    @id @default(cuid())
+  ipAddress   String    @unique
+  reason      String?
+  blockedAt   DateTime  @default(now())
+  expiresAt   DateTime? // NULL = permanent
+  createdAt   DateTime  @default(now())
+
+  @@index([ipAddress])
+  @@index([expiresAt])
 }
 
 model Business {
-  id            String    @id @default(cuid())
-  name          String
-  email         String?   @unique
-  domain        String    @unique
-  businessType  BusinessType @default(GENERAL)
-  status        BusinessStatus @default(ACTIVE)
-  ownerId       String
-  owner         User      @relation("BusinessOwner", fields: [ownerId], references: [id])
-  employees     User[]
-  services      Service[]
-  bookings      Booking[]
+  id               String                  @id @default(cuid())
+  name             String
+  email            String?                 @unique
+  domain           String                  @unique
+  businessType     BusinessType            @default(GENERAL)
+  status           BusinessStatus          @default(ACTIVE)
+  ownerId          String
+  owner            User                    @relation("BusinessOwner", fields: [ownerId], references: [id])
+  employees        User[]
+  services         Service[]
+  bookings         Booking[]
   consentDocuments ConsentDocument[]
-  workingHours  Json?     // Program de lucru: { "monday": { "enabled": true, "hours": ["09:00", "18:00"] }, ... }
-  holidays      Holiday[] // Perioade de concediu/blocare
-  qrCodeUrl     String?
-  clientLinks   ClientBusinessLink[] @relation("BusinessLinks")
-  consentForms  ConsentForm[]
-  currentPlanId String?
-  currentPlan   SubscriptionPlan? @relation("BusinessCurrentPlan", fields: [currentPlanId], references: [id])
-  subscriptions Subscription[]
-  invoices      Invoice[]
-  payments      Payment[]
-  smsUsageLogs  SmsUsageLog[]
-  aiUsageLogs   AiUsageLog[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  workingHours     Json? // Program de lucru: { "monday": { "enabled": true, "hours": ["09:00", "18:00"] }, ... }
+  holidays         Holiday[] // Perioade de concediu/blocare
+  qrCodeUrl        String?
+  clientLinks      ClientBusinessLink[]    @relation("BusinessLinks")
+  consentForms     ConsentForm[]
+  currentPlanId    String?
+  currentPlan      SubscriptionPlan?       @relation("BusinessCurrentPlan", fields: [currentPlanId], references: [id])
+  subscriptions    Subscription[]
+  invoices         Invoice[]
+  payments         Payment[]
+  smsUsageLogs     SmsUsageLog[]
+  aiUsageLogs      AiUsageLog[]
+  // Trial fields
+  trialStartDate   DateTime?
+  trialEndDate     DateTime?
+  // Legal & KYC relations
+  legalInfo        BusinessLegalInfo?
+  representative   BusinessRepresentative?
+  bankAccount      BusinessBankAccount?
+  kycStatus        BusinessKycStatus?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
 }
 
 model ClientBusinessLink {
   id         String   @id @default(cuid())
   clientId   String
   businessId String
-  method     String?  // Method of attachment: "QR", "MANUAL", etc.
+  method     String? // Method of attachment: "QR", "MANUAL", etc.
   createdAt  DateTime @default(now())
 
   client   User     @relation("ClientLinks", fields: [clientId], references: [id])
@@ -86,7 +137,7 @@ model Holiday {
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   startDate  DateTime // Data de început
   endDate    DateTime // Data de sfârșit
-  reason     String?  // Motiv (ex: "Concediu", "Închidere temporară")
+  reason     String? // Motiv (ex: "Concediu", "Închidere temporară")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -95,16 +146,16 @@ model Holiday {
 }
 
 model Service {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   name       String
   duration   Int
   price      Float
   notes      String?
   businessId String
-  business   Business @relation(fields: [businessId], references: [id])
+  business   Business  @relation(fields: [businessId], references: [id])
   bookings   Booking[]
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 enum BookingStatus {
@@ -120,59 +171,59 @@ enum BookingPaymentStatus {
 }
 
 model Booking {
-  id         String   @id @default(cuid())
-  clientId   String
-  client     User     @relation(fields: [clientId], references: [id])
-  businessId String
-  business   Business @relation(fields: [businessId], references: [id])
-  serviceId  String
-  service    Service  @relation(fields: [serviceId], references: [id])
-  employeeId String?
-  employee   User?    @relation("EmployeeBookings", fields: [employeeId], references: [id])
-  date       DateTime
-  reminderSentAt DateTime?
-  paid       Boolean  @default(false)
-  paymentMethod PaymentMethod?
-  paymentStatus BookingPaymentStatus @default(PENDING)
-  paymentReused Boolean @default(false)
-  status     BookingStatus @default(CONFIRMED)
-  consentForm ConsentForm? @relation("BookingConsent")
+  id               String               @id @default(cuid())
+  clientId         String
+  client           User                 @relation(fields: [clientId], references: [id])
+  businessId       String
+  business         Business             @relation(fields: [businessId], references: [id])
+  serviceId        String
+  service          Service              @relation(fields: [serviceId], references: [id])
+  employeeId       String?
+  employee         User?                @relation("EmployeeBookings", fields: [employeeId], references: [id])
+  date             DateTime
+  reminderSentAt   DateTime?
+  paid             Boolean              @default(false)
+  paymentMethod    PaymentMethod?
+  paymentStatus    BookingPaymentStatus @default(PENDING)
+  paymentReused    Boolean              @default(false)
+  status           BookingStatus        @default(CONFIRMED)
+  consentForm      ConsentForm?         @relation("BookingConsent")
   consentDocuments ConsentDocument[]
-  payments    Payment[]
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  payments         Payment[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 }
 
 model ConsentForm {
-  id         String   @id @default(cuid())
-  bookingId  String   @unique
-  clientId   String
-  businessId String
-  pdfUrl     String
-  signature  String?
+  id           String        @id @default(cuid())
+  bookingId    String        @unique
+  clientId     String
+  businessId   String
+  pdfUrl       String
+  signature    String?
   templateType BusinessType?
-  formData   Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  formData     Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
-  booking    Booking  @relation("BookingConsent", fields: [bookingId], references: [id], onDelete: Cascade)
-  client     User     @relation(fields: [clientId], references: [id])
-  business   Business @relation(fields: [businessId], references: [id])
+  booking  Booking  @relation("BookingConsent", fields: [bookingId], references: [id], onDelete: Cascade)
+  client   User     @relation(fields: [clientId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 }
 
 model ConsentDocument {
-  id         String   @id @default(cuid())
+  id         String                @id @default(cuid())
   bookingId  String
   clientId   String
   businessId String
   pdfUrl     String
   fileName   String?
   source     ConsentDocumentSource
-  createdAt  DateTime @default(now())
+  createdAt  DateTime              @default(now())
 
-  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  client     User     @relation(fields: [clientId], references: [id])
-  business   Business @relation(fields: [businessId], references: [id])
+  booking  Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  client   User     @relation(fields: [clientId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@index([clientId, businessId])
   @@index([bookingId])
@@ -195,7 +246,7 @@ model EmployeeHoliday {
   employee   User     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   startDate  DateTime // Data de început
   endDate    DateTime // Data de sfârșit
-  reason     String?  // Motiv (ex: "Concediu", "Închidere temporară")
+  reason     String? // Motiv (ex: "Concediu", "Închidere temporară")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -256,6 +307,7 @@ enum PaymentStatus {
 }
 
 enum SubscriptionStatus {
+  TRIAL // Trial gratuit (30 zile)
   ACTIVE
   PAST_DUE
   CANCELED
@@ -279,36 +331,47 @@ enum SmsUsageType {
 }
 
 model SubscriptionPlan {
-  id                 String    @id @default(cuid())
-  name               String    @unique
-  price              Float
-  currency           String    @default("RON")
-  billingCycle       String    @default("MONTHLY")
-  smsIncluded        Int?
-  aiIncluded         Int?
-  description        String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  subscriptions      Subscription[]
-  currentBusinesses  Business[] @relation("BusinessCurrentPlan")
+  id                String         @id @default(cuid())
+  name              String         @unique
+  price             Float
+  currency          String         @default("RON")
+  billingCycle      String         @default("MONTHLY")
+  smsIncluded       Int? // Limita SMS/lună (ex: 150 pentru PRO, 500 pentru BUSINESS)
+  maxEmployees      Int? // Numărul maxim de angajați (exclude owner) (ex: 1 pentru PRO, 5 pentru BUSINESS)
+  aiIncluded        Int?
+  description       String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  subscriptions     Subscription[]
+  currentBusinesses Business[]     @relation("BusinessCurrentPlan")
 }
 
 model Subscription {
-  id                  String             @id @default(cuid())
-  businessId          String
-  planId              String
-  status              SubscriptionStatus @default(ACTIVE)
-  currentPeriodStart  DateTime
-  currentPeriodEnd    DateTime
-  billingMethod       PaymentMethod
-  amount              Float
-  currency            String             @default("RON")
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  id                 String             @id @default(cuid())
+  businessId         String
+  planId             String
+  status             SubscriptionStatus @default(TRIAL) // Default TRIAL pentru business-uri noi
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  billingMethod      PaymentMethod
+  amount             Float
+  currency           String             @default("RON")
+  stripeSubscriptionId String?            @unique // ID-ul subscription-ului din Stripe
+  stripeCustomerId    String?             // ID-ul customer-ului din Stripe
+  
+  // Auto-billing fields
+  autoBillingEnabled        Boolean  @default(false)
+  autoBillingConsent        Boolean  @default(false)
+  autoBillingConsentIP      String?
+  autoBillingConsentAt      DateTime?
+  nextBillingDate           DateTime? // Data următoarei facturări (din Stripe subscription)
+  
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
-  plan      SubscriptionPlan @relation(fields: [planId], references: [id])
-  business  Business         @relation(fields: [businessId], references: [id])
-  invoices  Invoice[]
+  plan     SubscriptionPlan @relation(fields: [planId], references: [id])
+  business Business         @relation(fields: [businessId], references: [id])
+  invoices Invoice[]
 }
 
 model Invoice {
@@ -332,23 +395,23 @@ model Invoice {
 }
 
 model Payment {
-  id                String         @id @default(cuid())
-  businessId        String
-  bookingId         String?
-  invoiceId         String?
-  amount            Float
-  currency          String         @default("RON")
-  method            PaymentMethod
-  status            PaymentStatus  @default(PENDING)
-  gateway           String         @default("stripe")
-  externalPaymentId String?        @unique
-  installments      Int?
+  id                   String        @id @default(cuid())
+  businessId           String
+  bookingId            String?
+  invoiceId            String?
+  amount               Float
+  currency             String        @default("RON")
+  method               PaymentMethod
+  status               PaymentStatus @default(PENDING)
+  gateway              String        @default("stripe")
+  externalPaymentId    String?       @unique
+  installments         Int?
   amountPerInstallment Float?
-  applicationFee    Float?
-  isCashSelfReported Boolean       @default(false)
-  metadata          Json?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  applicationFee       Float?
+  isCashSelfReported   Boolean       @default(false)
+  metadata             Json?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   business Business @relation(fields: [businessId], references: [id])
   booking  Booking? @relation(fields: [bookingId], references: [id])
@@ -389,12 +452,102 @@ model AiUsageLog {
   @@index([createdAt])
 }
 
-model PlatformSetting {
-  key         String   @id
+// Business Legal Information (ONRC + EU compliant)
+model BusinessLegalInfo {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  // Date ONRC
+  legalEntityName     String // Denumire exactă ca la ONRC
+  cui                 String  @unique // CUI/CIF
+  tradeRegisterNumber String? // Nr. înregistrare la ONRC
+  vatStatus           String? // "VAT_REGISTERED" | "VAT_EXEMPT" | null
+  vatCode             String? // RO12345678
+
+  // Adresă înregistrată
+  registeredStreet     String
+  registeredNumber     String
+  registeredCity       String
+  registeredCounty     String
+  registeredPostalCode String
+
+  // Tip business
+  businessType        String // "SRL" | "PFA" | "II" | "ONG" | "SA"
+  websiteUrl          String?
+  businessDescription String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Business Representative (KYC)
+model BusinessRepresentative {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  fullName         String
+  cnp              String? // CNP dacă e român
+  nationalIdType   String? // "CI" | "PASSPORT" | "OTHER"
+  nationalIdSeries String?
+  nationalIdNumber String?
+  dateOfBirth      DateTime
+  residenceAddress String // Adresă completă
+  email            String
+  phone            String
+  roleInCompany    String // "ADMINISTRATOR" | "DIRECTOR" | "REPRESENTATIVE"
+  beneficialOwner  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Business Bank Account (IBAN)
+model BusinessBankAccount {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  iban          String  @unique // RO49 AAAA 1B31 0075 9384 0000
+  bankName      String
+  accountHolder String // Numele exact de pe cont (trebuie să se potrivească cu legalEntityName)
+  validated     Boolean @default(false) // Validat manual sau automat
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Business Documents - REMOVED pentru a evita probleme GDPR
+// Stripe Connect va gestiona documentele pentru verificare KYC
+
+// Business KYC Status (Stripe Connect)
+model BusinessKycStatus {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  status                   String  @default("PENDING") // "PENDING" | "IN_REVIEW" | "VERIFIED" | "REJECTED"
+  stripeConnectAccountId   String? @unique // ID-ul contului Stripe Connect
+  stripeVerificationStatus String? // "pending" | "unverified" | "verified"
+  rejectionReason          String?
+
+  submittedAt DateTime?
+  verifiedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// Platform Settings (for platform owner configuration)
+model PlatformSettings {
+  id          String   @id @default(cuid())
+  key         String   @unique // "PLATFORM_OWNER_COMPANY_NAME" | "PLATFORM_OWNER_CUI" | etc.
   value       String
   description String?
   updatedAt   DateTime @updatedAt
+  updatedBy   String? // User ID care a făcut update
 }
+
 
 model SystemAuditLog {
   id        String   @id @default(cuid())

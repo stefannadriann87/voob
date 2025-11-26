@@ -9,6 +9,7 @@ const {
   generateBusinessQrBuffer,
   generateBusinessQrSvg,
 } = require("../lib/qr");
+const { checkEmployeeLimit } = require("../services/subscriptionService");
 
 const router = express.Router();
 
@@ -473,6 +474,16 @@ router.post("/:businessId/employees", async (req, res) => {
 
     if (!business) {
       return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    // Check employee limit based on subscription plan
+    const employeeLimitCheck = await checkEmployeeLimit(businessId);
+    if (!employeeLimitCheck.canAdd) {
+      return res.status(403).json({
+        error: employeeLimitCheck.error || "Ai atins limita de angajați pentru planul tău.",
+        currentCount: employeeLimitCheck.currentCount,
+        maxAllowed: employeeLimitCheck.maxAllowed,
+      });
     }
 
     // Check if email already exists

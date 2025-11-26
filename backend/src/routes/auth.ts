@@ -8,12 +8,24 @@ const { Role, BusinessType } = require("@prisma/client");
 import type { Role as RoleType, BusinessType as BusinessTypeType } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 const { generateBusinessQrDataUrl } = require("../lib/qr");
+const { verifyCaptcha, isCaptchaScoreValid } = require("../services/captchaService");
+const {
+  getClientIp,
+  checkSuspiciousPattern,
+  recordRegistrationAttempt,
+  checkAndBlockFailedLogins,
+  recordLoginAttempt,
+} = require("../services/rateLimitService");
+const { rateLimitRegistration, rateLimitLogin } = require("../middleware/rateLimit");
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
-const RESET_TOKEN_EXPIRATION_MINUTES = Number(process.env.RESET_TOKEN_EXP_MINUTES || 60);
+const { validateEnv, getEnv, getEnvNumber } = require("../lib/envValidator");
+const { logger } = require("../lib/logger");
+
+const JWT_SECRET = validateEnv("JWT_SECRET", { required: true, minLength: 32 });
+const FRONTEND_URL = getEnv("FRONTEND_URL", "http://localhost:3000");
+const RESET_TOKEN_EXPIRATION_MINUTES = getEnvNumber("RESET_TOKEN_EXP_MINUTES", 60);
 
 const slugify = (value: string) =>
   value
@@ -75,12 +87,12 @@ const authenticate = (req: express.Request, res: express.Response, next: express
     (req as express.Request & { user?: TokenPayload }).user = payload;
     next();
   } catch (error) {
-    console.error("JWT verify error:", error);
+    logger.error("JWT verification failed in authenticate middleware", error);
     return res.status(401).json({ error: "Token invalid sau expirat." });
   }
 };
 
-router.post("/register", async (req, res) => {
+router.post("/register", rateLimitRegistration, async (req, res) => {
   const {
     email,
     password,
@@ -89,6 +101,7 @@ router.post("/register", async (req, res) => {
     role,
     businessName,
     businessType,
+    captchaToken,
   }: {
     email?: string;
     password?: string;
@@ -97,10 +110,51 @@ router.post("/register", async (req, res) => {
     role?: RoleType | string;
     businessName?: string;
     businessType?: BusinessTypeType | string;
+    captchaToken?: string;
   } = req.body;
 
   if (!email || !password || !name) {
     return res.status(400).json({ error: "Email, nume și parolă sunt obligatorii." });
+  }
+
+  const ip = getClientIp(req);
+  const userAgent = req.headers["user-agent"];
+
+  // Verifică CAPTCHA
+  if (!captchaToken) {
+    await recordRegistrationAttempt(email, ip, userAgent, false, "CAPTCHA token lipsă");
+    return res.status(400).json({ error: "Verificare CAPTCHA necesară." });
+  }
+
+  const captchaResult = await verifyCaptcha(captchaToken, ip);
+  if (!captchaResult.success || !isCaptchaScoreValid(captchaResult.score)) {
+    await recordRegistrationAttempt(
+      email,
+      ip,
+      userAgent,
+      false,
+      `CAPTCHA invalid (score: ${captchaResult.score})`,
+      captchaResult.score
+    );
+    return res.status(400).json({
+      error: "Verificare CAPTCHA eșuată. Te rugăm să reîmprospătezi pagina și să încerci din nou.",
+    });
+  }
+
+  // Verifică pattern suspect (multiple conturi de la același IP)
+  const suspicious = await checkSuspiciousPattern(ip);
+  if (suspicious.suspicious) {
+    await recordRegistrationAttempt(
+      email,
+      ip,
+      userAgent,
+      false,
+      `Pattern suspect: ${suspicious.count} conturi în 24h`,
+      captchaResult.score
+    );
+    return res.status(429).json({
+      error: "Prea multe înregistrări de la această adresă IP. Te rugăm să aștepți.",
+    });
   }
 
   let normalizedRole: RoleType;
@@ -135,6 +189,14 @@ router.post("/register", async (req, res) => {
   try {
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
+      await recordRegistrationAttempt(
+        email,
+        ip,
+        userAgent,
+        false,
+        "Email deja folosit",
+        captchaResult.score
+      );
       return res.status(409).json({ error: "Email deja folosit." });
     }
 
@@ -148,7 +210,8 @@ router.post("/register", async (req, res) => {
           name,
           phone: phone?.trim() || null,
           role: normalizedRole,
-        },
+          registrationIp: ip || null,
+        } as any, // Type assertion pentru a evita eroarea TypeScript temporar
       });
 
       if (normalizedRole === Role.BUSINESS) {
@@ -180,7 +243,7 @@ router.post("/register", async (req, res) => {
             data: { qrCodeUrl: dataUrl },
           });
         } catch (qrError) {
-          console.error("Register QR generation error:", qrError);
+          logger.error("QR code generation failed during registration", qrError);
         }
 
         return { user: createdUser, business: businessWithQr };
@@ -191,17 +254,28 @@ router.post("/register", async (req, res) => {
 
     const { password: _password, ...userResponse } = result.user;
 
+    // Salvează registration attempt (success)
+    await recordRegistrationAttempt(email, ip, userAgent, true, undefined, captchaResult.score);
+
     return res.status(201).json({
       user: userResponse,
       business: result.business,
     });
   } catch (error) {
-    console.error("Register error:", error);
+    logger.error("Registration failed", error);
+    await recordRegistrationAttempt(
+      email,
+      ip,
+      userAgent,
+      false,
+      `Eroare server: ${error instanceof Error ? error.message : "Unknown error"}`,
+      captchaResult.score
+    );
     return res.status(500).json({ error: "Eroare la crearea utilizatorului." });
   }
 });
 
-router.post("/login", async (req, res) => {
+router.post("/login", rateLimitLogin, async (req, res) => {
   const { email, password, role }: { email?: string; password?: string; role?: RoleType | string } = req.body;
 
   if (!email || !password) {
@@ -242,7 +316,7 @@ router.post("/login", async (req, res) => {
       user: userResponse,
     });
   } catch (error) {
-    console.error("Login error:", error);
+    logger.error("Login failed", error);
     return res.status(500).json({ error: "Eroare la autentificare." });
   }
 });
@@ -275,7 +349,7 @@ router.post("/forgot-password", async (req, res) => {
 
     return res.json({ ok: true });
   } catch (error) {
-    console.error("Forgot password error:", error);
+    logger.error("Forgot password request failed", error);
     return res.status(500).json({ error: "Eroare la trimiterea emailului de resetare." });
   }
 });
@@ -305,7 +379,7 @@ router.post("/reset-password", async (req, res) => {
 
     return res.json({ ok: true });
   } catch (error) {
-    console.error("Reset password error:", error);
+    logger.error("Password reset failed", error);
     return res.status(500).json({ error: "Eroare la resetarea parolei." });
   }
 });
@@ -334,7 +408,7 @@ router.get("/me", authenticate, async (req, res) => {
 
     return res.json({ user });
   } catch (error) {
-    console.error("Me endpoint error:", error);
+    logger.error("Get user info failed", error);
     return res.status(500).json({ error: "Eroare la obținerea datelor utilizatorului." });
   }
 });
@@ -376,7 +450,7 @@ router.put("/me", authenticate, async (req, res) => {
 
     return res.json({ user });
   } catch (error) {
-    console.error("Update user error:", error);
+    logger.error("Update user failed", error);
     return res.status(500).json({ error: "Eroare la actualizarea utilizatorului." });
   }
 });
@@ -425,7 +499,7 @@ router.get("/clients", authenticate, async (req, res) => {
 
     return res.json(clients);
   } catch (error) {
-    console.error("Get clients error:", error);
+    logger.error("Get clients list failed", error);
     return res.status(500).json({ error: "Eroare la obținerea listei de clienți." });
   }
 });
@@ -480,7 +554,7 @@ router.post("/clients", authenticate, async (req, res) => {
 
     return res.status(201).json(client);
   } catch (error) {
-    console.error("Create client error:", error);
+    logger.error("Create client failed", error);
     return res.status(500).json({ error: "Eroare la crearea clientului." });
   }
 });

@@ -24,7 +24,7 @@ async function sendEmail(options: nodemailer.SendMailOptions) {
   });
 
   if (!process.env.SMTP_HOST) {
-    console.info("[Email preview]", info.message?.toString() ?? info.envelope);
+    console.info("[Email preview]", info.envelope || info.messageId || "unknown");
   } else {
     console.info("[Email dispatched]", info.messageId ?? "unknown-id");
   }

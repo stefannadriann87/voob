@@ -6,15 +6,22 @@ import { LayoutDashboard } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
 import AIChatWidget from "../../components/AIChatWidget";
 import NotificationBell from "../../components/NotificationBell";
+import TrialBanner from "../../components/TrialBanner";
+import TrialExpiredModal from "../../components/TrialExpiredModal";
 import useAuth from "../../hooks/useAuth";
+import useBusiness from "../../hooks/useBusiness";
 
 export default function BusinessLayout({ children }: { children: ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { user } = useAuth();
+  const { businesses } = useBusiness();
   const homePath = user?.role === "BUSINESS" ? "/business/dashboard" : "/";
+  const currentBusinessId = businesses.length > 0 ? businesses[0].id : null;
 
   return (
     <div className="min-h-screen bg-[#0B0E17] text-white">
+      <TrialBanner businessId={currentBusinessId} />
+      <TrialExpiredModal businessId={currentBusinessId} />
       {/* Mobile header with logo */}
       <header className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between border-b border-white/5 bg-[#0B0E17]/80 backdrop-blur px-4 py-3 lg:hidden transition-all duration-300 ${
         isSidebarOpen ? "-translate-y-full opacity-0" : "translate-y-0 opacity-100"

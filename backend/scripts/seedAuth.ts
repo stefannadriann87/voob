@@ -21,27 +21,41 @@ async function seed() {
   const hashedSuperAdminPassword = await bcrypt.hash(superAdminPasswordPlain, 10);
   const hashedDefaultPassword = await bcrypt.hash(defaultPasswordPlain, 10);
 
-  const [starterPlan, proPlan] = await Promise.all([
+  const [proPlan, businessPlan] = await Promise.all([
     prisma.subscriptionPlan.upsert({
-      where: { name: "Starter" },
-      update: {},
+      where: { name: "LARSTEF PRO" },
+      update: {
+        price: 149,
+        smsIncluded: 150,
+        maxEmployees: 1,
+        description: "Plan de bază cu 1 utilizator și 150 SMS/lună",
+      },
       create: {
-        name: "Starter",
-        price: 299,
-        description: "Funcționalități de bază pentru saloane mici",
-        smsIncluded: 200,
-        aiIncluded: 1000,
+        name: "LARSTEF PRO",
+        price: 149,
+        currency: "RON",
+        billingCycle: "MONTHLY",
+        smsIncluded: 150,
+        maxEmployees: 1, // 1 utilizator business (doar owner, fără angajați adiționali)
+        description: "Plan de bază cu 1 utilizator și 150 SMS/lună",
       },
     }),
     prisma.subscriptionPlan.upsert({
-      where: { name: "Pro" },
-      update: {},
+      where: { name: "LARSTEF BUSINESS" },
+      update: {
+        price: 299,
+        smsIncluded: 500,
+        maxEmployees: 5,
+        description: "Plan premium cu 5 utilizatori și 500 SMS/lună",
+      },
       create: {
-        name: "Pro",
-        price: 699,
-        description: "Pentru clinici și saloane cu volum ridicat",
-        smsIncluded: 1000,
-        aiIncluded: 5000,
+        name: "LARSTEF BUSINESS",
+        price: 299,
+        currency: "RON",
+        billingCycle: "MONTHLY",
+        smsIncluded: 500,
+        maxEmployees: 5, // 5 utilizatori incluși (owner + 4 angajați)
+        description: "Plan premium cu 5 utilizatori și 500 SMS/lună",
       },
     }),
   ]);
@@ -71,7 +85,7 @@ async function seed() {
   const barberBusiness = await prisma.business.upsert({
     where: { domain: "fresh-cuts" },
     update: {
-      currentPlanId: starterPlan.id,
+      currentPlanId: proPlan.id,
       status: BusinessStatus.ACTIVE,
     },
     create: {
@@ -87,7 +101,7 @@ async function seed() {
         ],
       },
       status: BusinessStatus.ACTIVE,
-      currentPlan: { connect: { id: starterPlan.id } },
+      currentPlan: { connect: { id: proPlan.id } },
     },
     include: { services: true },
   });
@@ -106,7 +120,7 @@ async function seed() {
   const dentistBusiness = await prisma.business.upsert({
     where: { domain: "smile-care" },
     update: {
-      currentPlanId: proPlan.id,
+      currentPlanId: businessPlan.id,
       status: BusinessStatus.ACTIVE,
     },
     create: {
@@ -217,12 +231,12 @@ async function seed() {
   const barberSubscription = await prisma.subscription.create({
     data: {
       businessId: barberBusiness.id,
-      planId: starterPlan.id,
+      planId: proPlan.id,
       status: SubscriptionStatus.ACTIVE,
       currentPeriodStart: new Date(now.getFullYear(), now.getMonth(), 1),
       currentPeriodEnd: new Date(now.getFullYear(), now.getMonth() + 1, 1),
         billingMethod: PaymentMethod.CARD,
-      amount: starterPlan.price,
+      amount: proPlan.price,
     },
   });
 
@@ -243,10 +257,10 @@ async function seed() {
       data: {
         subscriptionId: barberSubscription.id,
         businessId: barberBusiness.id,
-        amount: starterPlan.price,
+        amount: proPlan.price,
         paymentMethod: PaymentMethod.CARD,
         status: InvoiceStatus.PAID,
-        applicationFee: starterPlan.price * 0.08,
+        applicationFee: proPlan.price * 0.08,
       },
     }),
     prisma.invoice.create({
@@ -286,10 +300,10 @@ async function seed() {
       {
         businessId: barberBusiness.id,
         invoiceId: barberInvoice.id,
-        amount: starterPlan.price,
+        amount: proPlan.price,
         method: PaymentMethod.CARD,
         status: PaymentStatus.SUCCEEDED,
-        applicationFee: starterPlan.price * 0.08,
+        applicationFee: proPlan.price * 0.08,
       },
       {
         businessId: dentistBusiness.id,

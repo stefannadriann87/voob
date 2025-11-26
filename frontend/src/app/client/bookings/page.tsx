@@ -15,6 +15,7 @@ import useBusiness from "../../../hooks/useBusiness";
 import { requiresConsentForBusiness } from "../../../constants/consentTemplates";
 import useApi from "../../../hooks/useApi";
 import { isBookingTooSoon, MIN_LEAD_MESSAGE, MIN_BOOKING_LEAD_MS } from "../../../utils/bookingRules";
+import { HOURS, getWeekStart, formatDayLabel } from "../../../utils/calendarUtils";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -38,32 +39,7 @@ type ConsentTemplate = {
   fields: ConsentTemplateField[];
 };
 
-const HOURS = [
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "12:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-  "18:00",
-  "19:00",
-];
-
-const getWeekStart = (date: Date) => {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
-const formatDayLabel = (date: Date) =>
-  date.toLocaleDateString("ro-RO", { weekday: "short", day: "numeric" });
+// Calendar utilities importate din utils/calendarUtils
 
 function PaymentFormComponent({ onSuccess }: { onSuccess: () => void }) {
   const stripe = useStripe();

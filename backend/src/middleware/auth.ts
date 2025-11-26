@@ -2,8 +2,14 @@ import express = require("express");
 import jwt = require("jsonwebtoken");
 const { Role } = require("@prisma/client");
 import type { Role as RoleType } from "@prisma/client";
+const { validateEnv } = require("../lib/envValidator");
+const { logger } = require("../lib/logger");
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+// Validează JWT_SECRET - aruncă eroare dacă nu este setat (nu mai folosim fallback)
+const JWT_SECRET = validateEnv("JWT_SECRET", {
+  required: true,
+  minLength: 32,
+});
 
 interface AuthUser {
   userId: string;
@@ -44,7 +50,7 @@ const verifyJWT = (req: express.Request, res: express.Response, next: express.Ne
     
     next();
   } catch (error) {
-    console.error("JWT verify error:", error);
+    logger.error("JWT verification failed", error, { token: token.substring(0, 10) + "..." });
     return res.status(401).json({ error: "Token invalid sau expirat." });
   }
 };

@@ -43,6 +43,7 @@ const menuConfig: Record<Role, MenuItem[]> = {
   ],
   BUSINESS: [
     { label: "Dashboard", path: "/business/dashboard", icon: LayoutDashboard },
+    { label: "Onboarding", path: "/business/onboarding", icon: ShieldCheck },
     { label: "Programări", path: "/business/bookings", icon: CalendarDays },
     { label: "Consimțăminte", path: "/business/consents", icon: FileText },
     { label: "Setări", path: "/business/settings", icon: Settings },
