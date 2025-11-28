@@ -3,7 +3,7 @@
  * Gestionează logica de free trial pentru business-uri
  */
 
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 const TRIAL_DURATION_DAYS = 30;
 
@@ -12,7 +12,7 @@ const TRIAL_DURATION_DAYS = 30;
  * @param businessId - ID-ul business-ului
  * @returns Trial dates
  */
-export async function startTrial(businessId: string): Promise<{
+async function startTrial(businessId: string): Promise<{
   trialStartDate: Date;
   trialEndDate: Date;
 }> {
@@ -37,7 +37,7 @@ export async function startTrial(businessId: string): Promise<{
  * @param businessId - ID-ul business-ului
  * @returns true dacă trial-ul a expirat
  */
-export async function isTrialExpired(businessId: string): Promise<boolean> {
+async function isTrialExpired(businessId: string): Promise<boolean> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: {
@@ -73,7 +73,7 @@ export async function isTrialExpired(businessId: string): Promise<boolean> {
  * @param businessId - ID-ul business-ului
  * @returns Status trial
  */
-export async function checkTrialStatus(businessId: string): Promise<{
+async function checkTrialStatus(businessId: string): Promise<{
   isExpired: boolean;
   daysRemaining: number | null;
   trialStartDate: Date | null;

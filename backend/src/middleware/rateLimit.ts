@@ -14,7 +14,7 @@ const {
 /**
  * Middleware pentru rate limiting la înregistrare
  */
-export async function rateLimitRegistration(
+async function rateLimitRegistration(
   req: express.Request,
   res: express.Response,
   next: express.NextFunction
@@ -44,7 +44,7 @@ export async function rateLimitRegistration(
 /**
  * Middleware pentru rate limiting la login
  */
-export async function rateLimitLogin(
+async function rateLimitLogin(
   req: express.Request,
   res: express.Response,
   next: express.NextFunction

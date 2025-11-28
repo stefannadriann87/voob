@@ -1,9 +1,10 @@
-import bcrypt = require("bcryptjs");
-import { BusinessStatus, PaymentMethod, Role } from "@prisma/client";
+const bcrypt = require("bcryptjs");
+const { BusinessStatus, Role } = require("@prisma/client");
 
-const prisma = require("../../lib/prisma").default;
+const prisma = require("../../lib/prisma");
 const { logSystemAction } = require("../../services/auditService");
-import type { BusinessDetail, BusinessOverviewItem } from "../types";
+type BusinessDetail = import("../types").BusinessDetail;
+type BusinessOverviewItem = import("../types").BusinessOverviewItem;
 
 const TEMP_PASSWORD_LENGTH = 12;
 
@@ -40,7 +41,7 @@ async function listBusinessesOverview(): Promise<BusinessOverviewItem[]> {
     },
   });
 
-  const businessIds = businesses.map((b) => b.id);
+  const businessIds = businesses.map((b: (typeof businesses)[number]) => b.id);
 
   if (businessIds.length === 0) {
     return [];
@@ -71,7 +72,8 @@ async function listBusinessesOverview(): Promise<BusinessOverviewItem[]> {
   const smsMap = mapCounts(smsCounts);
   const aiMap = mapCounts(aiCounts);
 
-  return businesses.map((business) => {
+  type BusinessWithRelations = (typeof businesses)[number];
+  return businesses.map((business: BusinessWithRelations) => {
     const subscription = business.subscriptions[0];
     return {
       id: business.id,
@@ -151,11 +153,14 @@ async function getBusinessDetails(businessId: string): Promise<BusinessDetail> {
     prisma.aiUsageLog.count({ where: { businessId } }),
   ]);
 
-  const bookingsTotal = bookingStats.reduce((sum, entry) => sum + entry._count._all, 0);
+  const bookingsTotal = bookingStats.reduce(
+    (sum: number, entry: typeof bookingStats[number]) => sum + entry._count._all,
+    0
+  );
   const cancelled =
-    bookingStats.find((entry) => entry.status === "CANCELLED")?._count._all ?? 0;
+    bookingStats.find((entry: typeof bookingStats[number]) => entry.status === "CANCELLED")?._count._all ?? 0;
   const confirmed =
-    bookingStats.find((entry) => entry.status === "CONFIRMED")?._count._all ?? 0;
+    bookingStats.find((entry: typeof bookingStats[number]) => entry.status === "CONFIRMED")?._count._all ?? 0;
 
   return {
     business: {
@@ -175,7 +180,7 @@ async function getBusinessDetails(businessId: string): Promise<BusinessDetail> {
           currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
         }
       : null,
-    invoices: invoices.map((invoice) => ({
+    invoices: invoices.map((invoice: typeof invoices[number]) => ({
       id: invoice.id,
       amount: invoice.amount,
       status: invoice.status,
@@ -183,12 +188,15 @@ async function getBusinessDetails(businessId: string): Promise<BusinessDetail> {
       issuedAt: invoice.issuedAt.toISOString(),
     })),
     payments: {
-      totalProcessed: paymentSummary.reduce((sum, entry) => sum + (entry._sum.amount ?? 0), 0),
-      applicationFee: paymentSummary.reduce(
-        (sum, entry) => sum + (entry._sum.applicationFee ?? 0),
+      totalProcessed: paymentSummary.reduce(
+        (sum: number, entry: typeof paymentSummary[number]) => sum + (entry._sum.amount ?? 0),
         0
       ),
-      methods: paymentSummary.reduce<Record<string, number>>((acc, entry) => {
+      applicationFee: paymentSummary.reduce(
+        (sum: number, entry: typeof paymentSummary[number]) => sum + (entry._sum.applicationFee ?? 0),
+        0
+      ),
+      methods: paymentSummary.reduce((acc: Record<string, number>, entry: typeof paymentSummary[number]) => {
         if (!entry.method) return acc;
         acc[entry.method] = entry._sum.amount ?? 0;
         return acc;
@@ -234,10 +242,13 @@ async function getBusinessDetails(businessId: string): Promise<BusinessDetail> {
   };
 }
 
+type RoleEnum = (typeof Role)[keyof typeof Role];
+type BusinessStatusEnum = (typeof BusinessStatus)[keyof typeof BusinessStatus];
+
 async function updateBusinessStatus(
   businessId: string,
-  status: BusinessStatus,
-  actor: { id?: string; role?: Role }
+  status: BusinessStatusEnum,
+  actor: { id?: string; role?: RoleEnum }
 ): Promise<void> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
@@ -270,7 +281,7 @@ async function updateBusinessStatus(
 
 async function resetOwnerPassword(
   businessId: string,
-  actor: { id?: string; role?: Role }
+  actor: { id?: string; role?: RoleEnum }
 ): Promise<{ temporaryPassword: string }> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },

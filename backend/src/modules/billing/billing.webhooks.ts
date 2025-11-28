@@ -3,9 +3,11 @@
  * Gestionează webhook-urile Stripe pentru subscription events
  */
 
-import express = require("express");
-const { getStripeClient } = require("../../services/stripeService");
-const prisma = require("../../lib/prisma").default;
+type ExpressRequest = import("express").Request;
+type ExpressResponse = import("express").Response;
+const { verifyStripeWebhook, getWebhookSecret } = require("../../middleware/webhookSignature");
+const { logger } = require("../../lib/logger");
+const prisma = require("../../lib/prisma");
 
 /**
  * Handler pentru invoice.payment_succeeded
@@ -34,7 +36,7 @@ async function handleInvoicePaymentSucceeded(invoice: any) {
     },
   });
 
-  console.log(`✅ Invoice payment succeeded pentru subscription ${subscriptionId}`);
+    logger.info(`Invoice payment succeeded for subscription`, { subscriptionId });
 }
 
 /**
@@ -57,7 +59,7 @@ async function handleInvoicePaymentFailed(invoice: any) {
     },
   });
 
-  console.log(`⚠️ Invoice payment failed pentru subscription ${subscriptionId}`);
+    logger.warn(`Invoice payment failed for subscription`, { subscriptionId });
 }
 
 /**
@@ -99,7 +101,7 @@ async function handleSubscriptionUpdated(stripeSubscription: any) {
     },
   });
 
-  console.log(`📝 Subscription updated: ${stripeSubscription.id} -> ${status}`);
+    logger.info(`Subscription updated`, { subscriptionId: stripeSubscription.id, status });
 }
 
 /**
@@ -120,39 +122,32 @@ async function handleSubscriptionDeleted(stripeSubscription: any) {
     },
   });
 
-  console.log(`🗑️ Subscription deleted: ${stripeSubscription.id}`);
+    logger.info(`Subscription deleted`, { subscriptionId: stripeSubscription.id });
 }
 
 /**
  * POST /billing/webhooks
  * Webhook handler pentru Stripe subscription events
  */
-export async function billingWebhookHandler(
-  req: express.Request & { rawBody?: Buffer },
-  res: express.Response
+async function billingWebhookHandler(
+  req: ExpressRequest & { rawBody?: Buffer },
+  res: ExpressResponse
 ) {
-  const stripe = getStripeClient();
-  const signature = req.headers["stripe-signature"];
-
-  if (!signature) {
-    return res.status(400).send("Missing Stripe signature");
-  }
-
-  const webhookSecret =
-    process.env.STRIPE_BILLING_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
-
+  const webhookSecret = getWebhookSecret("billing");
   if (!webhookSecret) {
+    logger.error("Billing webhook secret not configured", { path: req.path });
     return res.status(500).send("Stripe webhook secret is not configured");
   }
 
-  let event: any;
-  try {
-    const payload = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
-    event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
-  } catch (error: any) {
-    console.error("Stripe webhook verification failed:", error);
-    return res.status(400).send(`Webhook Error: ${error.message}`);
-  }
+  // Verifică semnătura folosind middleware-ul unificat
+  const verifyMiddleware = verifyStripeWebhook(webhookSecret);
+  
+  // Aplică middleware-ul manual
+  return verifyMiddleware(req, res, async () => {
+    const event = (req as ExpressRequest & { webhookEvent?: any }).webhookEvent;
+    if (!event) {
+      return res.status(400).send("Webhook event not found");
+    }
 
   try {
     switch (event.type) {
@@ -173,17 +168,17 @@ export async function billingWebhookHandler(
         break;
 
       default:
-        console.log(`Unhandled event type: ${event.type}`);
+        logger.warn(`Unhandled webhook event type`, { eventType: event.type });
     }
 
     return res.json({ received: true });
-  } catch (error: any) {
-    console.error("Billing webhook handler error:", error);
-    return res.status(500).send("Webhook handler error");
-  }
+    } catch (error: any) {
+      console.error("Billing webhook handler error:", error);
+      return res.status(500).send("Webhook handler error");
+    }
+  });
 }
 
 module.exports = {
   billingWebhookHandler,
 };
-

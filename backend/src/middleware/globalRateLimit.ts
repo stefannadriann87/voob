@@ -65,23 +65,29 @@ const createRateLimiter = (options: RateLimitOptions) => {
 };
 
 // Rate limiter global: 100 requests per 15 minute
-export const globalRateLimiter = createRateLimiter({
+const globalRateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minute
   max: 100,
   message: "Too many requests from this IP. Please try again later.",
 });
 
 // Rate limiter strict pentru booking creation: 10 requests per minute
-export const bookingRateLimiter = createRateLimiter({
+const bookingRateLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minut
   max: 10,
   message: "Too many booking requests. Please wait a moment before trying again.",
 });
 
 // Rate limiter pentru payment intents: 5 requests per minute
-export const paymentRateLimiter = createRateLimiter({
+const paymentRateLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minut
   max: 5,
   message: "Too many payment requests. Please wait a moment before trying again.",
 });
+
+module.exports = {
+  globalRateLimiter,
+  bookingRateLimiter,
+  paymentRateLimiter,
+};
 

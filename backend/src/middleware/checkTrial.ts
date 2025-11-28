@@ -3,11 +3,11 @@
  * Verifică dacă trial-ul a expirat și blochează accesul dacă da
  */
 
-import { Request, Response, NextFunction } from "express";
+import express = require("express");
 const { isTrialExpired } = require("../services/trialService");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
-interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest extends express.Request {
   user?: {
     userId: string;
     role: string;
@@ -20,7 +20,7 @@ interface AuthenticatedRequest extends Request {
  * 
  * Folosit pe toate rutele business (except subscription, billing, support)
  */
-export function checkTrial(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+const checkTrial = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
   // Skip pentru rutele de subscription, billing, support
   const allowedPaths = ["/subscription", "/platform-settings", "/business-onboarding"];
   const path = req.path;
@@ -66,8 +66,8 @@ export function checkTrial(req: AuthenticatedRequest, res: Response, next: NextF
 async function checkTrialForBusiness(
   businessId: string,
   req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
+  res: express.Response,
+  next: express.NextFunction
 ) {
   try {
     const expired = await isTrialExpired(businessId);

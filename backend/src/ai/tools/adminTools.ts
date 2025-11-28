@@ -1,9 +1,9 @@
-const prisma = require("../../lib/prisma").default;
+const prisma = require("../../lib/prisma");
 
 /**
  * Vizualizează toate business-urile
  */
-async function viewAllBusinesses() {
+async function viewAllBusinesses(args: any = {}, context: any) {
   const businesses = await prisma.business.findMany({
     include: {
       owner: { select: { name: true, email: true } },
@@ -25,7 +25,7 @@ async function viewAllBusinesses() {
 /**
  * Vizualizează tranzacțiile
  */
-async function viewTransactions(args: { period: { start: string; end: string } }) {
+async function viewTransactions(args: { period: { start: string; end: string } }, context: any) {
   const bookings = await prisma.booking.findMany({
     where: {
       paid: true,
@@ -61,7 +61,7 @@ async function viewTransactions(args: { period: { start: string; end: string } }
 /**
  * Generează un raport global
  */
-async function generateGlobalReport(args: { period: { start: string; end: string } }) {
+async function generateGlobalReport(args: { period: { start: string; end: string } }, context: any) {
   const bookings = await prisma.booking.findMany({
     where: {
       date: {

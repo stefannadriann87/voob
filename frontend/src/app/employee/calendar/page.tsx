@@ -8,13 +8,15 @@ import useAuth from "../../../hooks/useAuth";
 import useBookings, { Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import useApi from "../../../hooks/useApi";
+import useWorkingHours from "../../../hooks/useWorkingHours";
+import useCalendarUpdates from "../../../hooks/useCalendarUpdates";
 import {
   getBookingCancellationStatus,
   isBookingTooSoon,
   MIN_LEAD_MESSAGE,
   MIN_BOOKING_LEAD_MS,
 } from "../../../utils/bookingRules";
-import { HOURS, getWeekStart, formatDayLabel, CLIENT_COLORS, getClientColor } from "../../../utils/calendarUtils";
+import { getWeekStart, formatDayLabel, CLIENT_COLORS, getClientColor, getDefaultHours } from "../../../utils/calendarUtils";
 
 // Calendar utilities importate din utils/calendarUtils
 
@@ -25,6 +27,7 @@ export default function EmployeeCalendarPage() {
   const { bookings, fetchBookings, loading, cancelBooking, updateBooking, createBooking } = useBookings();
   const { businesses, fetchBusinesses } = useBusiness();
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
+  const [viewType, setViewType] = useState<"week" | "day">("week");
   const [calendarDate, setCalendarDate] = useState<string>(() => {
     const today = new Date();
     return today.toISOString().split("T")[0];
@@ -71,45 +74,78 @@ export default function EmployeeCalendarPage() {
     if (bypassCancellationLimits) return { canCancel: true };
     return getBookingCancellationStatus(bookingToCancel.date, bookingToCancel.reminderSentAt);
   }, [bookingToCancel, bypassCancellationLimits]);
-  const [workingHours, setWorkingHours] = useState<any>(null);
   const [holidays, setHolidays] = useState<Array<{ id: string; startDate: string; endDate: string; reason: string | null }>>([]);
 
-  // Get business ID from employee association
-  const businessId = useMemo(() => {
-    if (!user?.id || businesses.length === 0) return null;
+  // Get business ID from employee association and business object
+  const { businessId, business } = useMemo(() => {
+    if (!user?.id || businesses.length === 0) return { businessId: null, business: null };
     const employeeBusiness = businesses.find((item) =>
       item.employees.some((employee) => employee.id === user.id)
     );
-    return employeeBusiness?.id || null;
+    return {
+      businessId: employeeBusiness?.id || null,
+      business: employeeBusiness || null,
+    };
   }, [user?.id, businesses]);
 
-  // Fetch working hours from employee settings
-  useEffect(() => {
-    if (!user?.id) return;
-    const fetchWorkingHours = async () => {
-      try {
-        const { data } = await api.get<{ workingHours: any }>(`/employee/${user.id}/working-hours`);
-        setWorkingHours(data.workingHours);
-      } catch (error) {
-        console.error("Failed to fetch working hours:", error);
-      }
-    };
-    void fetchWorkingHours();
-  }, [user?.id, api]);
+  // Get slot duration from business, or calculate from minimum service duration, or default to 60
+  const slotDurationMinutes = useMemo(() => {
+    if (!business) return 60;
+    if (business.slotDuration !== null && business.slotDuration !== undefined) {
+      return business.slotDuration;
+    }
+    // Calculate from minimum service duration
+    if (business.services && business.services.length > 0) {
+      const minDuration = Math.min(...business.services.map((s) => s.duration));
+      // Round to nearest valid slot duration (15, 30, 45, 60)
+      const validDurations = [15, 30, 45, 60];
+      return validDurations.reduce((prev, curr) =>
+        Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
+      );
+    }
+    return 60; // Default
+  }, [business]);
 
-  // Fetch holidays from employee settings
+  // Use working hours hook
+  const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook } = useWorkingHours({
+    employeeId: user?.id || null,
+    slotDurationMinutes,
+  });
+
+  // DISABLED: Automatic polling removed to prevent excessive requests
+  // Real-time updates will happen only on:
+  // - Manual refresh (user action)
+  // - After creating/canceling a booking
+  // - After page becomes visible (if needed)
+  // useCalendarUpdates({
+  //   enabled: false, // Disabled to prevent excessive requests
+  //   interval: 60000,
+  //   businessId: businessId || null,
+  //   onUpdate: () => {},
+  // });
+
+  // Fetch holidays from employee settings - only once when user.id changes
+  const holidaysFetchedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!user?.id) return;
+    // Only fetch if we haven't fetched for this user.id yet
+    if (holidaysFetchedRef.current === user.id) return;
+    
     const fetchHolidays = async () => {
       try {
         const { data } = await api.get<{ holidays: Array<{ id: string; startDate: string; endDate: string; reason: string | null }> }>(`/employee/${user.id}/holidays`);
         setHolidays(data.holidays);
+        holidaysFetchedRef.current = user.id;
       } catch (error) {
         console.error("Failed to fetch holidays:", error);
       }
     };
     void fetchHolidays();
-  }, [user?.id, api]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]); // Removed api from dependencies (it's stable)
+
+  // Track if initial fetch has been done to prevent duplicate requests
+  const hasInitialFetchRef = useRef(false);
 
   useEffect(() => {
     if (!hydrated) {
@@ -136,8 +172,14 @@ export default function EmployeeCalendarPage() {
       }
       return;
     }
-    void Promise.all([fetchBookings(), fetchBusinesses()]);
-  }, [hydrated, user, fetchBookings, fetchBusinesses, router]);
+    
+    // Only fetch once on mount, not on every render
+    if (!hasInitialFetchRef.current) {
+      hasInitialFetchRef.current = true;
+      void Promise.all([fetchBookings(), fetchBusinesses()]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, user, router]); // Removed fetchBookings and fetchBusinesses from dependencies
 
   // Fetch clients when modal opens or search query changes
   useEffect(() => {
@@ -161,12 +203,6 @@ export default function EmployeeCalendarPage() {
     const timeoutId = setTimeout(fetchClients, 300); // Debounce search
     return () => clearTimeout(timeoutId);
   }, [createBookingModalOpen, clientSearchQuery, api]);
-  
-  // Get business with employees
-  const business = useMemo(() => {
-    if (!businessId) return null;
-    return businesses.find((b) => b.id === businessId);
-  }, [businesses, businessId]);
 
   // Filter bookings by business and only for this employee
   const businessBookings = useMemo(() => {
@@ -175,6 +211,21 @@ export default function EmployeeCalendarPage() {
       booking.businessId === businessId && booking.employeeId === user.id
     );
   }, [bookings, businessId, user?.id]);
+
+  // Sync weekStart when viewType changes
+  useEffect(() => {
+    if (calendarDate) {
+      const selectedDateObj = new Date(calendarDate);
+      if (viewType === "day") {
+        // In day view, set weekStart to the exact day
+        selectedDateObj.setHours(0, 0, 0, 0);
+        setWeekStart(selectedDateObj);
+      } else {
+        // In week view, set weekStart to the start of the week
+        setWeekStart(getWeekStart(selectedDateObj));
+      }
+    }
+  }, [viewType, calendarDate]);
 
   const weekDays = useMemo(() => {
     const days: Date[] = [];
@@ -186,46 +237,8 @@ export default function EmployeeCalendarPage() {
     return days;
   }, [weekStart]);
 
-  const slotDurationMinutes = 60;
-
-  // Get available hours for a specific day based on working hours
-  const getAvailableHoursForDay = useCallback((date: Date): string[] => {
-    if (!workingHours) return HOURS; // Fallback to default hours if no working hours set
-    
-    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-    const dayName = dayNames[date.getDay()] as keyof typeof workingHours;
-    const daySchedule = workingHours[dayName];
-    
-    if (!daySchedule || !daySchedule.enabled || !daySchedule.slots || daySchedule.slots.length === 0) {
-      return []; // Day is disabled or has no slots
-    }
-    
-    // Generate all hours from all slots for this day
-    const availableHours: string[] = [];
-    daySchedule.slots.forEach((slot: { start: string; end: string }) => {
-      const [startH, startM] = slot.start.split(":").map(Number);
-      const [endH, endM] = slot.end.split(":").map(Number);
-      
-      let currentH = startH;
-      let currentM = startM;
-      
-      while (currentH < endH || (currentH === endH && currentM < endM)) {
-        const hourStr = `${String(currentH).padStart(2, "0")}:${String(currentM).padStart(2, "0")}`;
-        if (!availableHours.includes(hourStr)) {
-          availableHours.push(hourStr);
-        }
-        
-        // Move to next hour
-        currentM += slotDurationMinutes;
-        if (currentM >= 60) {
-          currentM = 0;
-          currentH += 1;
-        }
-      }
-    });
-    
-    return availableHours.sort();
-  }, [workingHours, slotDurationMinutes]);
+  // Use getAvailableHoursForDay from hook
+  const getAvailableHoursForDay = getAvailableHoursForDayFromHook;
 
   const slotsMatrix = useMemo(() => {
     const now = Date.now();
@@ -255,11 +268,12 @@ export default function EmployeeCalendarPage() {
         const booking = businessBookings.find((b) => {
           const bookingStart = new Date(b.date);
           const bookingStartMs = bookingStart.getTime();
-          const bookingDurationMs = (b.service?.duration ?? slotDurationMinutes) * 60 * 1000;
+          // Use booking.duration if available, otherwise service.duration, otherwise default to slotDurationMinutes
+          const bookingDurationMs = (b.duration ?? b.service?.duration ?? slotDurationMinutes) * 60 * 1000;
           const bookingEndMs = bookingStartMs + bookingDurationMs;
           const slotEndMs = slotStartMs + slotDurationMinutes * 60 * 1000;
           const sameDay = bookingStart.toDateString() === slotDate.toDateString();
-          // Check if booking overlaps with this slot
+          // Check if booking overlaps with this slot: bookingStart < slotEnd && bookingEnd > slotStart
           return sameDay && bookingStartMs < slotEndMs && bookingEndMs > slotStartMs;
         });
 
@@ -311,10 +325,37 @@ export default function EmployeeCalendarPage() {
             <div>
               <h1 className="text-xl font-semibold text-white mb-2">Calendar programări</h1>
               <p className="text-xs text-white/50">
-                Zilele sunt pe coloane, orele pe rânduri. Click pe o rezervare pentru detalii.
+                {viewType === "week" && "Zilele sunt pe coloane, orele pe rânduri. Click pe o rezervare pentru detalii."}
+                {viewType === "day" && "Vizualizare detaliată pentru o singură zi."}
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+              {/* View Type Toggle - Mobile optimized */}
+              <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-[#0B0E17]/40 p-1 overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setViewType("week")}
+                  className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                    viewType === "week"
+                      ? "bg-[#6366F1] text-white"
+                      : "text-white/60 hover:text-white hover:bg-white/5"
+                  }`}
+                >
+                  <span className="hidden sm:inline">Săptămână</span>
+                  <span className="sm:hidden">Săpt.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewType("day")}
+                  className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                    viewType === "day"
+                      ? "bg-[#6366F1] text-white"
+                      : "text-white/60 hover:text-white hover:bg-white/5"
+                  }`}
+                >
+                  Zi
+                </button>
+              </div>
               
               {/* Calendar picker */}
               <div className="hidden sm:block">
@@ -323,9 +364,16 @@ export default function EmployeeCalendarPage() {
                   onChange={(date) => {
                     setCalendarDate(date);
                     const selectedDateObj = new Date(date);
-                    setWeekStart(getWeekStart(selectedDateObj));
+                    // In day view, set weekStart to the exact day; in week view, set to week start
+                    if (viewType === "day") {
+                      selectedDateObj.setHours(0, 0, 0, 0);
+                      setWeekStart(selectedDateObj);
+                    } else {
+                      setWeekStart(getWeekStart(selectedDateObj));
+                    }
                   }}
                   placeholder="Selectează data"
+                  viewType={viewType}
                 />
               </div>
             </div>
@@ -340,9 +388,10 @@ export default function EmployeeCalendarPage() {
             <div className="overflow-x-auto">
               <div className="w-full rounded-3xl border border-white/10 bg-[#0B0E17]/40 p-4">
                 <div
-                  className="grid gap-1.5"
+                  className="grid"
                   style={{
                     gridTemplateColumns: `repeat(${weekDays.length}, minmax(100px, 1fr))`,
+                    gap: "12px",
                   }}
                 >
                   {weekDays.map((day, index) => (
@@ -383,7 +432,7 @@ export default function EmployeeCalendarPage() {
                           "bg-[#0B0E17]/60 text-white/70 border border-white/10 hover:brightness-110";
                         if (slot.status === "blocked") {
                           stateClasses =
-                            "bg-red-500/20 text-white/40 border border-red-500/30 cursor-not-allowed hover:brightness-110";
+                            "bg-red-600/30 text-red-400 border border-red-500/60 cursor-not-allowed hover:brightness-110";
                         } else if (slot.status === "booked") {
                           // Use client-specific color if available
                           if (slot.clientColor) {
@@ -565,7 +614,7 @@ export default function EmployeeCalendarPage() {
                                 setTooltipPosition(null);
                               }
                             }}
-                            className={`flex h-[52px] w-full flex-col items-center justify-center rounded-2xl px-2 text-xs font-semibold transition ${stateClasses}`}
+                            className={`flex h-[44px] w-full flex-col items-center justify-center rounded-2xl px-2 text-xs font-semibold transition ${stateClasses}`}
                             style={{
                               cursor: slot.booking ? "pointer" : slot.status === "past" ? "not-allowed" : "pointer",
                               pointerEvents: "auto",

@@ -7,7 +7,7 @@
  * Validează CUI-ul românesc folosind algoritmul de verificare
  * CUI-ul are 2-10 cifre, ultima cifră este cifra de control
  */
-export function validateCUI(cui: string): { valid: boolean; error?: string } {
+function validateCUI(cui: string): { valid: boolean; error?: string } {
   if (!cui) {
     return { valid: false, error: "CUI-ul este obligatoriu." };
   }
@@ -37,7 +37,9 @@ export function validateCUI(cui: string): { valid: boolean; error?: string } {
   // Calculăm suma ponderată
   for (let i = 0; i < numberWithoutCheck.length; i++) {
     const multiplierIndex = i % multiplier.length;
-    sum += numberWithoutCheck[i] * multiplier[multiplierIndex];
+    const digit = numberWithoutCheck[i] ?? 0;
+    const weight = multiplier[multiplierIndex] ?? 0;
+    sum += digit * weight;
   }
 
   // Calculăm cifra de control
@@ -61,7 +63,7 @@ export function validateCUI(cui: string): { valid: boolean; error?: string } {
 /**
  * Formatează CUI-ul pentru afișare (adaugă spații dacă e necesar)
  */
-export function formatCUI(cui: string): string {
+function formatCUI(cui: string): string {
   const cleaned = cui.replace(/\s/g, "").replace(/\D/g, "");
   // Nu formatăm CUI-ul, îl returnăm așa cum este
   return cleaned;

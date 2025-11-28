@@ -26,7 +26,7 @@ class EnvValidationError extends Error {
  * @returns Valoarea validată sau default
  * @throws EnvValidationError dacă validarea eșuează
  */
-export function validateEnv(key: string, options: EnvValidationOptions = {}): string {
+function validateEnv(key: string, options: EnvValidationOptions = {}): string {
   const {
     required = false,
     minLength,
@@ -91,7 +91,7 @@ export function validateEnv(key: string, options: EnvValidationOptions = {}): st
  * Validează toate variabilele de mediu necesare la startup
  * Aruncă eroare dacă variabilele critice lipsesc
  */
-export function validateRequiredEnv(): void {
+function validateRequiredEnv(): void {
   const requiredVars: Array<{ key: string; options: EnvValidationOptions }> = [
     { key: "JWT_SECRET", options: { required: true, minLength: 32 } },
     { key: "DATABASE_URL", options: { required: true } },
@@ -120,14 +120,14 @@ export function validateRequiredEnv(): void {
 /**
  * Helper pentru variabile opționale cu default
  */
-export function getEnv(key: string, defaultValue: string): string {
+function getEnv(key: string, defaultValue: string): string {
   return process.env[key] || defaultValue;
 }
 
 /**
  * Helper pentru variabile boolean
  */
-export function getEnvBool(key: string, defaultValue: boolean = false): boolean {
+function getEnvBool(key: string, defaultValue: boolean = false): boolean {
   const value = process.env[key];
   if (!value) return defaultValue;
   return value.toLowerCase() === "true" || value === "1";
@@ -136,10 +136,19 @@ export function getEnvBool(key: string, defaultValue: boolean = false): boolean 
 /**
  * Helper pentru variabile number
  */
-export function getEnvNumber(key: string, defaultValue: number): number {
+function getEnvNumber(key: string, defaultValue: number): number {
   const value = process.env[key];
   if (!value) return defaultValue;
   const num = Number(value);
   return Number.isNaN(num) ? defaultValue : num;
 }
+
+module.exports = {
+  validateEnv,
+  validateRequiredEnv,
+  getEnv,
+  getEnvBool,
+  getEnvNumber,
+  EnvValidationError,
+};
 

@@ -5,6 +5,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "../../../components/Navbar";
+import CustomSelect from "../../../components/CustomSelect";
 import useAuth, { Role } from "../../../hooks/useAuth";
 import { BUSINESS_TYPE_OPTIONS, type BusinessTypeValue } from "../../../constants/businessTypes";
 import Captcha from "../../../components/Captcha";
@@ -149,32 +150,33 @@ export default function RegisterPage() {
 
               <label className="flex flex-col gap-2 text-sm">
                 <span className="text-white/70">Tip cont</span>
-                <select
+                <CustomSelect
                   value={role}
-                  onChange={(event) => setRole(event.target.value as Role)}
-                  className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                >
-                  <option value="CLIENT">Client</option>
-                  <option value="BUSINESS">Business</option>
-                  <option value="EMPLOYEE">Specialist</option>
-                </select>
+                  onChange={(value) => setRole(value as Role)}
+                  options={[
+                    { value: "CLIENT", label: "Client" },
+                    { value: "BUSINESS", label: "Business" },
+                    { value: "EMPLOYEE", label: "Specialist" },
+                  ]}
+                  placeholder="Selectează tipul de cont"
+                  size="lg"
+                />
               </label>
 
               {role === "BUSINESS" && (
                 <>
                   <label className="flex flex-col gap-2 text-sm">
                     <span className="text-white/70">Tipul cabinetului / businessului</span>
-                    <select
+                    <CustomSelect
                       value={businessType}
-                      onChange={(event) => setBusinessType(event.target.value as BusinessTypeValue)}
-                      className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                    >
-                      {BUSINESS_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(value) => setBusinessType(value as BusinessTypeValue)}
+                      options={BUSINESS_TYPE_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                      placeholder="Selectează tipul de business"
+                      size="lg"
+                    />
                     <span className="text-xs text-white/50">
                       Tipul selectat ne ajută să pregătim automat consimțămintele necesare clienților tăi.
                     </span>

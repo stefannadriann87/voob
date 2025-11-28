@@ -28,6 +28,8 @@ export interface Business {
   phone?: string | null;
   qrCodeUrl?: string | null;
   businessType: BusinessTypeValue;
+  slotDuration?: number | null; // Durata sloturilor în minute (15, 30, 45, 60). Dacă null, se calculează automat
+  timezone?: string | null; // Timezone-ul business-ului (ex: "Europe/Bucharest", "America/New_York")
   ownerId?: string;
   owner?: { id: string; name: string; email: string };
   services: Service[];

@@ -1,4 +1,4 @@
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 // Define AuthUser locally (matches middleware/auth.ts)
 interface AuthUser {
@@ -74,7 +74,9 @@ async function buildAIContext(user: AuthUser): Promise<any> {
       where: {
         OR: [{ ownerId: user.userId }, { employees: { some: { id: user.userId } } }],
       },
-      include: {
+      select: {
+        id: true,
+        name: true,
         services: {
           select: {
             id: true,
@@ -97,6 +99,18 @@ async function buildAIContext(user: AuthUser): Promise<any> {
       context.businessName = business.name;
       context.businessServices = business.services;
       context.businessEmployees = business.employees;
+      
+      // Obține timezone separat pentru a evita eroarea Prisma
+      try {
+        const businessWithTimezone = await prisma.business.findUnique({
+          where: { id: business.id },
+          select: { timezone: true },
+        });
+        context.businessTimezone = businessWithTimezone?.timezone || "Europe/Bucharest";
+      } catch (error) {
+        // Dacă timezone nu există în baza de date, folosește default
+        context.businessTimezone = "Europe/Bucharest";
+      }
     }
   }
 

@@ -1,6 +1,34 @@
-import { PaymentMethod, Role } from "@prisma/client";
+const { Role, PaymentMethod } = require("@prisma/client");
+type PaymentMethodEnum = (typeof PaymentMethod)[keyof typeof PaymentMethod];
+type RoleEnum = (typeof Role)[keyof typeof Role];
 
-const prisma = require("../../lib/prisma").default;
+type AggregatedPaymentStats = {
+  businessId: string;
+  businessName: string;
+  totalProcessed: number;
+  applicationFee: number;
+  methods: Record<PaymentMethodEnum, number>;
+};
+
+function buildEmptyMethodBuckets(): Record<PaymentMethodEnum, number> {
+  const buckets = {} as Record<PaymentMethodEnum, number>;
+  Object.values(PaymentMethod).forEach((method) => {
+    buckets[method as PaymentMethodEnum] = 0;
+  });
+  return buckets;
+}
+
+function createAggregatedPayment(businessId: string, businessName: string): AggregatedPaymentStats {
+  return {
+    businessId,
+    businessName,
+    totalProcessed: 0,
+    applicationFee: 0,
+    methods: buildEmptyMethodBuckets(),
+  };
+}
+
+const prisma = require("../../lib/prisma");
 const { upsertSettings } = require("../../services/settingsService");
 const { logSystemAction } = require("../../services/auditService");
 
@@ -19,7 +47,7 @@ async function listSubscriptions() {
     },
   });
 
-  return subscriptions.map((sub) => ({
+  return subscriptions.map((sub: typeof subscriptions[number]) => ({
     id: sub.id,
     businessId: sub.business.id,
     businessName: sub.business.name,
@@ -38,48 +66,30 @@ async function listPlatformPayments() {
     _sum: { amount: true, applicationFee: true },
   });
 
-  const businessIds = Array.from(new Set(payments.map((p) => p.businessId))).filter(Boolean) as string[];
-  const businessMap = new Map(
-    (
-      await prisma.business.findMany({
-        where: { id: { in: businessIds } },
-        select: { id: true, name: true },
-      })
-    ).map((business) => [business.id, business.name])
-  );
+  const businessIds = Array.from(new Set(payments.map((p: typeof payments[number]) => p.businessId))).filter(Boolean) as string[];
+  const businessTuples = (
+    await prisma.business.findMany({
+      where: { id: { in: businessIds } },
+      select: { id: true, name: true },
+    })
+  ).map((business: { id: string; name: string }) => [business.id, business.name] as [string, string]);
+  const businessMap = new Map<string, string>(businessTuples);
 
-  const aggregated: Record<
-    string,
-    {
-      businessId: string;
-      businessName: string;
-      totalProcessed: number;
-      applicationFee: number;
-      methods: Record<PaymentMethod, number>;
-    }
-  > = {};
+  const aggregated: Record<string, AggregatedPaymentStats> = {};
 
-  for (const payment of payments) {
+  for (const payment of payments as Array<typeof payments[number]>) {
     if (!payment.businessId) continue;
-    if (!aggregated[payment.businessId]) {
-      aggregated[payment.businessId] = {
-        businessId: payment.businessId,
-        businessName: businessMap.get(payment.businessId) ?? "Business",
-        totalProcessed: 0,
-        applicationFee: 0,
-        methods: {
-          CARD: 0,
-          APPLE_PAY: 0,
-          GOOGLE_PAY: 0,
-          KLARNA: 0,
-          OFFLINE: 0,
-        },
-      };
-    }
-    aggregated[payment.businessId].totalProcessed += payment._sum.amount ?? 0;
-    aggregated[payment.businessId].applicationFee += payment._sum.applicationFee ?? 0;
+    const stats =
+      aggregated[payment.businessId] ??
+      (aggregated[payment.businessId] = createAggregatedPayment(
+        payment.businessId,
+        businessMap.get(payment.businessId) ?? "Business"
+      ));
+    stats.totalProcessed += payment._sum.amount ?? 0;
+    stats.applicationFee += payment._sum.applicationFee ?? 0;
     if (payment.method) {
-      aggregated[payment.businessId].methods[payment.method] += payment._sum.amount ?? 0;
+      const method = payment.method as PaymentMethodEnum;
+      stats.methods[method] = (stats.methods[method] ?? 0) + (payment._sum.amount ?? 0);
     }
   }
 
@@ -90,7 +100,7 @@ async function getPlatformSettings() {
   const settings = await prisma.platformSetting.findMany({
     orderBy: { key: "asc" },
   });
-  return settings.map((setting) => ({
+  return settings.map((setting: typeof settings[number]) => ({
     key: setting.key,
     value: setting.value,
     description: setting.description,
@@ -100,7 +110,7 @@ async function getPlatformSettings() {
 
 async function updatePlatformSettings(
   settings: { key: string; value: string; description?: string }[],
-  actor: { id?: string; role?: Role }
+  actor: { id?: string; role?: RoleEnum }
 ) {
   await upsertSettings(settings);
   await logSystemAction({
@@ -119,7 +129,7 @@ async function getSystemLogs(limit: number = 50) {
     take: limit,
   });
 
-  return logs.map((log) => ({
+  return logs.map((log: typeof logs[number]) => ({
     id: log.id,
     actorId: log.actorId,
     actorRole: log.actorRole,

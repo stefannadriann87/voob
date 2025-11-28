@@ -5,6 +5,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "../../../components/Navbar";
+import CustomSelect from "../../../components/CustomSelect";
 import useAuth, { Role } from "../../../hooks/useAuth";
 import Captcha from "../../../components/Captcha";
 
@@ -102,15 +103,17 @@ export default function LoginPage() {
               {!isSuperAdminEmail && (
                 <label className="flex flex-col gap-2 text-sm">
                   <span className="text-white/70">Rol</span>
-                  <select
+                  <CustomSelect
                     value={role}
-                    onChange={(event) => setRole(event.target.value as Role)}
-                    className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                  >
-                    <option value="CLIENT">Client</option>
-                    <option value="BUSINESS">Business</option>
-                    <option value="EMPLOYEE">Employee</option>
-                  </select>
+                    onChange={(value) => setRole(value as Role)}
+                    options={[
+                      { value: "CLIENT", label: "Client" },
+                      { value: "BUSINESS", label: "Business" },
+                      { value: "EMPLOYEE", label: "Employee" },
+                    ]}
+                    placeholder="Selectează tipul de cont"
+                    size="lg"
+                  />
                 </label>
               )}
 

@@ -1,3 +1,4 @@
+import type { Request, Response } from "express";
 const express = require("express");
 const { verifyJWT } = require("../middleware/auth");
 const { buildAIContext } = require("./contextBuilder");
@@ -10,7 +11,7 @@ const router = express.Router();
  * POST /api/ai/agent
  * Endpoint principal pentru AI Agent
  */
-router.post("/agent", verifyJWT, async (req, res) => {
+router.post("/agent", verifyJWT, async (req: Request, res: Response) => {
   try {
     console.log("🔵 AI Agent request received");
     const authReq = req as any;

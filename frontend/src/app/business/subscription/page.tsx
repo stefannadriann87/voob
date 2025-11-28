@@ -6,6 +6,7 @@ import useAuth from "../../../hooks/useAuth";
 import useBusiness from "../../../hooks/useBusiness";
 import useSubscription from "../../../hooks/useSubscription";
 import useApi from "../../../hooks/useApi";
+import CustomSelect from "../../../components/CustomSelect";
 
 interface SubscriptionPlan {
   id: string;
@@ -116,17 +117,16 @@ export default function BusinessSubscriptionPage() {
         {businesses.length > 1 && (
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2">Selectează business-ul:</label>
-            <select
+            <CustomSelect
               value={selectedBusinessId || ""}
-              onChange={(e) => setSelectedBusinessId(e.target.value)}
-              className="bg-[#0B0E17] border border-white/10 rounded-lg px-4 py-2 text-white"
-            >
-              {businesses.map((business) => (
-                <option key={business.id} value={business.id}>
-                  {business.name}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setSelectedBusinessId(value)}
+              options={businesses.map((business) => ({
+                value: business.id,
+                label: business.name,
+              }))}
+              placeholder="Selectează business-ul"
+              size="md"
+            />
           </div>
         )}
 

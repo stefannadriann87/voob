@@ -3,8 +3,10 @@
 import express = require("express");
 const { verifyJWT } = require("../middleware/auth");
 const { getStripeClient, mapClientMethodToPrisma } = require("../services/stripeService");
+const { validate } = require("../middleware/validate");
+const { createPaymentIntentSchema } = require("../validators/paymentSchemas");
 
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 const router = express.Router();
 
@@ -37,7 +39,7 @@ const validateBookingPayload = async ({
   return service;
 };
 
-router.post("/create-intent", verifyJWT, async (req: express.Request, res: express.Response) => {
+router.post("/create-intent", verifyJWT, validate(createPaymentIntentSchema), async (req: express.Request, res: express.Response) => {
   try {
     const {
       businessId,
@@ -46,17 +48,11 @@ router.post("/create-intent", verifyJWT, async (req: express.Request, res: expre
       date,
       paymentMethod,
       clientNotes,
-    }: {
-      businessId?: string;
-      serviceId?: string;
-      employeeId?: string;
-      date?: string;
-      paymentMethod?: "card" | "offline";
-      clientNotes?: string;
-    } = req.body;
+      duration,
+    } = req.body; // Body este deja validat
 
-    if (!paymentMethod || paymentMethod === "offline") {
-      return res.status(400).json({ error: "Metoda de plată nu este validă pentru Stripe." });
+    if (paymentMethod === "offline") {
+      return res.status(400).json({ error: "Metoda de plată 'offline' nu necesită payment intent." });
     }
 
     if (!businessId || !serviceId) {

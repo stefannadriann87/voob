@@ -9,6 +9,7 @@ interface DatePickerProps {
   maxDate?: string; // Format: YYYY-MM-DD
   label?: string;
   placeholder?: string;
+  viewType?: "week" | "day"; // Navigation type: week = 7 days, day = 1 day
 }
 
 const parseDateString = (dateString: string) => {
@@ -23,7 +24,7 @@ const formatDateString = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-export default function DatePicker({ value, onChange, minDate, maxDate, label, placeholder }: DatePickerProps) {
+export default function DatePicker({ value, onChange, minDate, maxDate, label, placeholder, viewType = "week" }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() => {
     if (value) {
@@ -150,9 +151,10 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     : placeholder || "Selectează data";
 
   const handlePrevWeek = useCallback(() => {
+    const daysToMove = viewType === "day" ? 1 : 7;
     if (!selectedDate) {
       const today = new Date();
-      today.setDate(today.getDate() - 7);
+      today.setDate(today.getDate() - daysToMove);
       const dateString = formatDateString(today);
       if (!minDateObj || today >= minDateObj) {
         if (!maxDateObj || today <= maxDateObj) {
@@ -162,7 +164,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
       return;
     }
     const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() - 7);
+    newDate.setDate(newDate.getDate() - daysToMove);
     const dateString = formatDateString(newDate);
     
     // Check if date is within min/max range
@@ -178,12 +180,13 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     }
     
     onChange(dateString);
-  }, [selectedDate, onChange, minDateObj, maxDateObj]);
+  }, [selectedDate, onChange, minDateObj, maxDateObj, viewType]);
 
   const handleNextWeek = useCallback(() => {
+    const daysToMove = viewType === "day" ? 1 : 7;
     if (!selectedDate) {
       const today = new Date();
-      today.setDate(today.getDate() + 7);
+      today.setDate(today.getDate() + daysToMove);
       const dateString = formatDateString(today);
       if (!minDateObj || today >= minDateObj) {
         if (!maxDateObj || today <= maxDateObj) {
@@ -193,7 +196,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
       return;
     }
     const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() + 7);
+    newDate.setDate(newDate.getDate() + daysToMove);
     const dateString = formatDateString(newDate);
     
     // Check if date is within min/max range
@@ -209,7 +212,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
     }
     
     onChange(dateString);
-  }, [selectedDate, onChange, minDateObj, maxDateObj]);
+  }, [selectedDate, onChange, minDateObj, maxDateObj, viewType]);
 
   return (
     <div className="relative">
@@ -219,7 +222,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
           type="button"
           onClick={handlePrevWeek}
           className="rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 text-white/70 transition hover:bg-white/10 hover:text-white"
-          title="Săptămâna anterioară"
+          title={viewType === "day" ? "Ziua anterioară" : "Săptămâna anterioară"}
         >
           <i className="fas fa-chevron-left" />
         </button>
@@ -237,7 +240,7 @@ export default function DatePicker({ value, onChange, minDate, maxDate, label, p
           type="button"
           onClick={handleNextWeek}
           className="rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 text-white/70 transition hover:bg-white/10 hover:text-white"
-          title="Săptămâna următoare"
+          title={viewType === "day" ? "Ziua următoare" : "Săptămâna următoare"}
         >
           <i className="fas fa-chevron-right" />
         </button>

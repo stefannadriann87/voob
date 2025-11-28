@@ -5,7 +5,7 @@
 
 import express = require("express");
 const { verifyJWT } = require("../middleware/auth");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 const { validateIBAN, validateIBANOwnership } = require("../services/ibanValidator");
 const { validateCUI } = require("../services/cuiValidator");
 const { startTrial } = require("../services/trialService");

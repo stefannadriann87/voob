@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import useAuth from "../../../hooks/useAuth";
 import useApi from "../../../hooks/useApi";
+import CustomSelect from "../../../components/CustomSelect";
 
 type OnboardingStep = "business" | "legal" | "representative" | "bank" | "review";
 
@@ -270,7 +271,6 @@ export default function BusinessOnboardingPage() {
               legal: "Date Legale",
               representative: "Reprezentant",
               bank: "Cont Bancar",
-              documents: "Documente",
               review: "Review",
             };
             const currentIdx = ["business", "legal", "representative", "bank", "review"].indexOf(currentStep);
@@ -329,18 +329,21 @@ export default function BusinessOnboardingPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Tip Business</label>
-                <select
+                <CustomSelect
                   value={businessType}
-                  onChange={(e) => setBusinessType(e.target.value)}
-                  className="w-full bg-[#0A0D14] border border-white/10 rounded-lg px-4 py-2 text-white"
-                >
-                  <option value="GENERAL">General</option>
-                  <option value="STOMATOLOGIE">Stomatologie</option>
-                  <option value="BEAUTY">Beauty</option>
-                  <option value="OFTALMOLOGIE">Oftalmologie</option>
-                  <option value="PSIHOLOGIE">Psihologie</option>
-                  <option value="TERAPIE">Terapie</option>
-                </select>
+                  onChange={setBusinessType}
+                  options={[
+                    { value: "GENERAL", label: "General" },
+                    { value: "STOMATOLOGIE", label: "Stomatologie" },
+                    { value: "BEAUTY", label: "Beauty" },
+                    { value: "OFTALMOLOGIE", label: "Oftalmologie" },
+                    { value: "PSIHOLOGIE", label: "Psihologie" },
+                    { value: "TERAPIE", label: "Terapie" },
+                  ]}
+                  placeholder="Selectează tipul de business"
+                  size="md"
+                  className="w-full"
+                />
               </div>
               <button
                 onClick={handleRegisterBusiness}
@@ -417,17 +420,20 @@ export default function BusinessOnboardingPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-2">Tip Business</label>
-                  <select
+                  <CustomSelect
                     value={businessTypeLegal}
-                    onChange={(e) => setBusinessTypeLegal(e.target.value)}
-                    className="w-full bg-[#0A0D14] border border-white/10 rounded-lg px-4 py-2 text-white"
-                  >
-                    <option value="SRL">SRL</option>
-                    <option value="PFA">PFA</option>
-                    <option value="II">II</option>
-                    <option value="ONG">ONG</option>
-                    <option value="SA">SA</option>
-                  </select>
+                    onChange={setBusinessTypeLegal}
+                    options={[
+                      { value: "SRL", label: "SRL" },
+                      { value: "PFA", label: "PFA" },
+                      { value: "II", label: "II" },
+                      { value: "ONG", label: "ONG" },
+                      { value: "SA", label: "SA" },
+                    ]}
+                    placeholder="Selectează tipul legal"
+                    size="md"
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-2">Stradă *</label>
@@ -475,7 +481,7 @@ export default function BusinessOnboardingPage() {
                   />
                 </div>
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-4 mt-6">
                 <button
                   onClick={() => setCurrentStep("business")}
                   className="flex-1 bg-white/10 text-white py-3 rounded-lg font-semibold hover:bg-white/20 transition-colors"
@@ -552,7 +558,7 @@ export default function BusinessOnboardingPage() {
                   />
                 </div>
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-4 mt-6">
                 <button
                   onClick={() => setCurrentStep("legal")}
                   className="flex-1 bg-white/10 text-white py-3 rounded-lg font-semibold hover:bg-white/20 transition-colors"
@@ -603,7 +609,7 @@ export default function BusinessOnboardingPage() {
                   />
                 </div>
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-4 mt-6">
                 <button
                   onClick={() => setCurrentStep("representative")}
                   className="flex-1 bg-white/10 text-white py-3 rounded-lg font-semibold hover:bg-white/20 transition-colors"
@@ -643,7 +649,7 @@ export default function BusinessOnboardingPage() {
                   <p className="text-white/70">{iban}</p>
                 </div>
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-4 mt-6">
                 <button
                   onClick={() => setCurrentStep("bank")}
                   className="flex-1 bg-white/10 text-white py-3 rounded-lg font-semibold hover:bg-white/20 transition-colors"

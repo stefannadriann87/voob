@@ -1,9 +1,10 @@
 import express = require("express");
 import bcrypt = require("bcryptjs");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 import type { Prisma } from "@prisma/client";
 const { BusinessType } = require("@prisma/client");
 const { verifyJWT } = require("../middleware/auth");
+const { logger } = require("../lib/logger");
 const {
   generateBusinessQrDataUrl,
   generateBusinessQrBuffer,
@@ -117,9 +118,33 @@ router.get("/", async (_req, res) => {
       include: defaultBusinessInclude,
     });
 
-    return res.json(businesses);
+    // Calculate slotDuration for each business if not set
+    const businessesWithSlotDuration = await Promise.all(
+      businesses.map(async (business: any) => {
+        if (business.slotDuration !== null && business.slotDuration !== undefined) {
+          return business;
+        }
+
+        // Calculate from minimum service duration
+        const services = business.services || [];
+        if (services.length === 0) {
+          return { ...business, slotDuration: 60 }; // Default to 60 minutes
+        }
+
+        const minDuration = Math.min(...services.map((s: { duration: number }) => s.duration));
+        // Round to nearest valid slot duration (15, 30, 45, 60)
+        const validDurations = [15, 30, 45, 60];
+        const calculatedSlotDuration = validDurations.reduce((prev, curr) =>
+          Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
+        );
+
+        return { ...business, slotDuration: calculatedSlotDuration };
+      })
+    );
+
+    return res.json(businessesWithSlotDuration);
   } catch (error) {
-    console.error("Business list error:", error);
+    logger.error("Failed to list businesses", error);
     return res.status(500).json({ error: "Eroare la listarea business-urilor." });
   }
 });
@@ -158,7 +183,7 @@ router.post("/:businessId/generate-qr", verifyJWT, async (req, res) => {
 
     return res.json({ qrCodeUrl: updated.qrCodeUrl });
   } catch (error) {
-    console.error("Regenerate QR error:", error);
+    logger.error("QR code regeneration failed", error);
     return res.status(500).json({ error: "Nu am putut regenera codul QR." });
   }
 });
@@ -292,7 +317,7 @@ router.get("/:businessId/insights", verifyJWT, async (req, res) => {
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("Business insights error:", error);
+    logger.error("Failed to fetch business insights", error);
     return res.status(500).json({ error: "Nu am putut genera insight-urile." });
   }
 });
@@ -335,7 +360,7 @@ router.get("/:businessId/qr", async (req, res) => {
     }
     return res.send(buffer);
   } catch (error) {
-    console.error("Business QR download error:", error);
+    logger.error("QR code download failed", error);
     return res.status(500).json({ error: "Nu am putut genera codul QR." });
   }
 });
@@ -366,7 +391,7 @@ router.post("/:businessId/services", async (req, res) => {
 
     return res.status(201).json(service);
   } catch (error) {
-    console.error("Add service error:", error);
+    logger.error("Service creation failed", error);
     return res.status(500).json({ error: "Eroare la adăugarea serviciului." });
   }
 });
@@ -409,7 +434,7 @@ router.put("/:businessId/services/:serviceId", async (req, res) => {
 
     return res.json(service);
   } catch (error) {
-    console.error("Update service error:", error);
+    logger.error("Service update failed", error);
     return res.status(500).json({ error: "Eroare la actualizarea serviciului." });
   }
 });
@@ -440,7 +465,7 @@ router.delete("/:businessId/services/:serviceId", async (req, res) => {
 
     return res.json({ success: true });
   } catch (error) {
-    console.error("Delete service error:", error);
+    logger.error("Service deletion failed", error);
     return res.status(500).json({ error: "Eroare la ștergerea serviciului." });
   }
 });
@@ -527,7 +552,7 @@ router.post("/:businessId/employees", async (req, res) => {
 
     return res.status(201).json(employeeResponse);
   } catch (error) {
-    console.error("Add employee error:", error);
+    logger.error("Employee creation failed", error);
     return res.status(500).json({ error: "Eroare la adăugarea employee-ului." });
   }
 });
@@ -602,7 +627,7 @@ router.put("/:businessId/employees/:employeeId", async (req, res) => {
 
     return res.json(updatedEmployee);
   } catch (error) {
-    console.error("Update employee error:", error);
+    logger.error("Employee update failed", error);
     return res.status(500).json({ error: "Eroare la actualizarea angajatului." });
   }
 });
@@ -650,7 +675,7 @@ router.delete("/:businessId/employees/:employeeId", async (req, res) => {
 
     return res.json({ success: true });
   } catch (error) {
-    console.error("Delete employee error:", error);
+    logger.error("Employee deletion failed", error);
     return res.status(500).json({ error: "Eroare la ștergerea angajatului." });
   }
 });
@@ -675,7 +700,7 @@ router.get("/:businessId/working-hours", async (req, res) => {
 
     return res.json({ workingHours: business.workingHours });
   } catch (error) {
-    console.error("Get working hours error:", error);
+    logger.error("Failed to fetch working hours", error);
     return res.status(500).json({ error: "Eroare la obținerea programului de lucru." });
   }
 });
@@ -709,8 +734,76 @@ router.put("/:businessId/working-hours", async (req, res) => {
 
     return res.json({ workingHours: updatedBusiness.workingHours });
   } catch (error) {
-    console.error("Update working hours error:", error);
+    logger.error("Working hours update failed", error);
     return res.status(500).json({ error: "Eroare la actualizarea programului de lucru." });
+  }
+});
+
+// Update slot duration for a business
+router.put("/:businessId/slot-duration", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const { slotDuration }: { slotDuration?: number } = req.body;
+  const authReq = req as AuthenticatedRequest;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  // Validate slotDuration if provided
+  if (slotDuration !== undefined && slotDuration !== null) {
+    const validDurations = [15, 30, 45, 60];
+    if (!validDurations.includes(slotDuration)) {
+      return res.status(400).json({
+        error: "slotDuration trebuie să fie unul dintre: 15, 30, 45, 60 minute.",
+      });
+    }
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, ownerId: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    // Authorization: only owner or superadmin can update
+    const userId = authReq.user?.userId;
+    const role = authReq.user?.role;
+    const isOwner = !!userId && business.ownerId === userId;
+    const isSuperAdmin = role === "SUPERADMIN";
+
+    if (!isOwner && !isSuperAdmin) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a actualiza slot duration." });
+    }
+
+    const updated = await prisma.business.update({
+      where: { id: businessId },
+      data: { slotDuration: slotDuration ?? null },
+      include: defaultBusinessInclude,
+    });
+
+    // Calculate slotDuration if set to null (for response)
+    let finalSlotDuration = updated.slotDuration;
+    if (finalSlotDuration === null) {
+      const services = updated.services || [];
+      if (services.length > 0) {
+        const minDuration = Math.min(...services.map((s: { duration: number }) => s.duration));
+        const validDurations = [15, 30, 45, 60];
+        finalSlotDuration = validDurations.reduce((prev, curr) =>
+          Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
+        );
+      } else {
+        finalSlotDuration = 60;
+      }
+    }
+
+    return res.json({ ...updated, slotDuration: finalSlotDuration });
+  } catch (error) {
+    logger.error("Failed to update slot duration", error);
+    return res.status(500).json({ error: "Eroare la actualizarea slot duration." });
   }
 });
 
@@ -739,7 +832,7 @@ router.get("/:businessId/holidays", async (req, res) => {
 
     return res.json({ holidays });
   } catch (error) {
-    console.error("Get holidays error:", error);
+    logger.error("Failed to fetch holidays", error);
     return res.status(500).json({ error: "Eroare la obținerea perioadelor de concediu." });
   }
 });
@@ -800,7 +893,7 @@ router.post("/:businessId/holidays", async (req, res) => {
 
     return res.status(201).json({ holiday });
   } catch (error) {
-    console.error("Create holiday error:", error);
+    logger.error("Holiday creation failed", error);
     return res.status(500).json({ error: "Eroare la crearea perioadei de concediu." });
   }
 });
@@ -832,7 +925,7 @@ router.delete("/:businessId/holidays/:holidayId", async (req, res) => {
 
     return res.json({ success: true });
   } catch (error) {
-    console.error("Delete holiday error:", error);
+    logger.error("Holiday deletion failed", error);
     return res.status(500).json({ error: "Eroare la ștergerea perioadei de concediu." });
   }
 });

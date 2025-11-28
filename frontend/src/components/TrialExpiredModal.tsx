@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import useTrialStatus from "../hooks/useTrialStatus";
 import useSubscription from "../hooks/useSubscription";

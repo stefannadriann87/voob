@@ -3,7 +3,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import BookingCard from "../../../components/BookingCard";
-import ServiceCard from "../../../components/ServiceCard";
 import useAuth from "../../../hooks/useAuth";
 import useBookings from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";

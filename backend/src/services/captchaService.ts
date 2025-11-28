@@ -3,7 +3,7 @@
  * Gestionează verificarea reCAPTCHA v3
  */
 
-import axios from "axios";
+const axios = require("axios");
 
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
@@ -21,7 +21,7 @@ interface CaptchaVerificationResult {
  * @param ip - IP-ul clientului (opțional, dar recomandat)
  * @returns Rezultatul verificării cu score (0.0 - 1.0)
  */
-export async function verifyCaptcha(
+async function verifyCaptcha(
   token: string,
   ip?: string
 ): Promise<CaptchaVerificationResult> {
@@ -99,7 +99,7 @@ export async function verifyCaptcha(
  * @param threshold - Threshold minim (default 0.5)
  * @returns true dacă score >= threshold
  */
-export function isCaptchaScoreValid(score: number, threshold: number = 0.5): boolean {
+function isCaptchaScoreValid(score: number, threshold: number = 0.5): boolean {
   return score >= threshold;
 }
 

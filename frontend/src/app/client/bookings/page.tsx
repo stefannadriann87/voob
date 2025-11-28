@@ -14,8 +14,11 @@ import useBookings, { type Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import { requiresConsentForBusiness } from "../../../constants/consentTemplates";
 import useApi from "../../../hooks/useApi";
+import useWorkingHours from "../../../hooks/useWorkingHours";
+import useCalendarUpdates from "../../../hooks/useCalendarUpdates";
 import { isBookingTooSoon, MIN_LEAD_MESSAGE, MIN_BOOKING_LEAD_MS } from "../../../utils/bookingRules";
-import { HOURS, getWeekStart, formatDayLabel } from "../../../utils/calendarUtils";
+import { getWeekStart, formatDayLabel, getDefaultHours } from "../../../utils/calendarUtils";
+import { formatInTimezone, getCurrentTimeInTimezone, isPastInTimezone, toUTC } from "../../../utils/timezoneUtils";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -116,6 +119,7 @@ export default function ClientBookingsPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
+  const [viewType, setViewType] = useState<"week" | "day">("week");
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
   const [calendarDate, setCalendarDate] = useState<string>(() => {
     const today = new Date();
@@ -136,7 +140,6 @@ export default function ClientBookingsPage() {
   const [confirmationStep, setConfirmationStep] = useState<"review" | "success">("review");
   const [recentBooking, setRecentBooking] = useState<Booking | null>(null);
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
-  const [workingHours, setWorkingHours] = useState<any>(null);
   const openConsentModal = useCallback(
     async (newBooking: Booking) => {
       console.log("=== openConsentModal CALLED ===", {
@@ -327,25 +330,41 @@ export default function ClientBookingsPage() {
     [selectedBusiness, selectedEmployeeId]
   );
 
-  // Fetch working hours when business is selected
-  useEffect(() => {
-    if (!selectedBusinessId) {
-      setWorkingHours(null);
-      return;
+  // Get slot duration from business, or calculate from minimum service duration, or default to 60
+  const slotDurationMinutes = useMemo(() => {
+    if (!selectedBusiness) return 60;
+    if (selectedBusiness.slotDuration !== null && selectedBusiness.slotDuration !== undefined) {
+      return selectedBusiness.slotDuration;
     }
-    const fetchWorkingHours = async () => {
-      try {
-        const { data } = await api.get<{ workingHours: any }>(`/business/${selectedBusinessId}/working-hours`);
-        setWorkingHours(data.workingHours);
-      } catch (error: any) {
-        // Network errors or API errors - fallback to default hours
-        console.error("Failed to fetch working hours:", error?.message || error);
-        // Set to null on error, will fallback to default hours in getAvailableHoursForDay
-        setWorkingHours(null);
-      }
-    };
-    void fetchWorkingHours();
-  }, [selectedBusinessId, api]);
+    // Calculate from minimum service duration
+    if (selectedBusiness.services && selectedBusiness.services.length > 0) {
+      const minDuration = Math.min(...selectedBusiness.services.map((s) => s.duration));
+      // Round to nearest valid slot duration (15, 30, 45, 60)
+      const validDurations = [15, 30, 45, 60];
+      return validDurations.reduce((prev, curr) =>
+        Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
+      );
+    }
+    return 60; // Default
+  }, [selectedBusiness]);
+
+  // Use working hours hook (after selectedBusinessId and slotDurationMinutes are defined)
+  const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook } = useWorkingHours({
+    businessId: selectedBusinessId,
+    slotDurationMinutes,
+  });
+
+  // DISABLED: Automatic polling removed to prevent excessive requests
+  // Real-time updates will happen only on:
+  // - Manual refresh (user action)
+  // - After creating/canceling a booking
+  // - After page becomes visible (if needed)
+  // useCalendarUpdates({
+  //   enabled: false, // Disabled to prevent excessive requests
+  //   interval: 60000,
+  //   businessId: selectedBusinessId,
+  //   onUpdate: () => {},
+  // });
 
   // Auto-create payment intent when online payment method is selected
   useEffect(() => {
@@ -412,6 +431,21 @@ export default function ClientBookingsPage() {
     selectedEmployeeId,
     api,
   ]);
+
+  // Sync weekStart when viewType changes
+  useEffect(() => {
+    if (calendarDate) {
+      const selectedDateObj = new Date(calendarDate);
+      if (viewType === "day") {
+        // In day view, set weekStart to the exact day
+        selectedDateObj.setHours(0, 0, 0, 0);
+        setWeekStart(selectedDateObj);
+      } else {
+        // In week view, set weekStart to the start of the week
+        setWeekStart(getWeekStart(selectedDateObj));
+      }
+    }
+  }, [viewType, calendarDate]);
 
   const weekDays = useMemo(() => {
     const days: Date[] = [];
@@ -489,49 +523,12 @@ export default function ClientBookingsPage() {
   }, [cancelledPaidBooking, selectedService]);
 
   const serviceDurationMinutes = selectedService?.duration ?? 60;
-  const slotDurationMinutes = 60;
   const serviceDurationMs = serviceDurationMinutes * 60 * 1000;
 
   const focusedDate = useMemo(() => (calendarDate ? new Date(calendarDate) : null), [calendarDate]);
 
-  // Get available hours for a specific day based on working hours
-  const getAvailableHoursForDay = useCallback((date: Date): string[] => {
-    if (!workingHours) return HOURS; // Fallback to default hours if no working hours set
-    
-    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-    const dayName = dayNames[date.getDay()] as keyof typeof workingHours;
-    const daySchedule = workingHours[dayName];
-    
-    if (!daySchedule || !daySchedule.enabled || !daySchedule.slots || daySchedule.slots.length === 0) {
-      return []; // Day is disabled or has no slots
-    }
-    
-    // Generate all hours from all slots for this day
-    const availableHours: string[] = [];
-    daySchedule.slots.forEach((slot: { start: string; end: string }) => {
-      const [startH, startM] = slot.start.split(":").map(Number);
-      const [endH, endM] = slot.end.split(":").map(Number);
-      
-      let currentH = startH;
-      let currentM = startM;
-      
-      while (currentH < endH || (currentH === endH && currentM < endM)) {
-        const hourStr = `${String(currentH).padStart(2, "0")}:${String(currentM).padStart(2, "0")}`;
-        if (!availableHours.includes(hourStr)) {
-          availableHours.push(hourStr);
-        }
-        
-        // Move to next hour
-        currentM += slotDurationMinutes;
-        if (currentM >= 60) {
-          currentM = 0;
-          currentH += 1;
-        }
-      }
-    });
-    
-    return availableHours.sort();
-  }, [workingHours, slotDurationMinutes]);
+  // Use getAvailableHoursForDay from hook
+  const getAvailableHoursForDay = getAvailableHoursForDayFromHook;
 
 const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) => {
   const initial: Record<string, boolean | string> = {};
@@ -556,6 +553,7 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
   const slotsMatrix = useMemo(() => {
     if (!selectedServiceId) return null;
 
+    const businessTimezone = selectedBusiness?.timezone || "Europe/Bucharest";
     const selectedStart = selectedDate ? new Date(selectedDate).getTime() : null;
     const selectedEnd = selectedStart !== null ? selectedStart + serviceDurationMs : null;
     const now = Date.now();
@@ -568,24 +566,84 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
         const slotDate = new Date(day);
         slotDate.setHours(h, m, 0, 0);
         const slotStartMs = slotDate.getTime();
-        const slotEndMs = slotStartMs + serviceDurationMs;
+        const slotEndMs = slotStartMs + slotDurationMinutes * 60 * 1000; // Slot duration, not service duration
         const iso = slotDate.toISOString();
-        const isPast = slotStartMs < now;
+        // Check if past using business timezone
+        const isPast = isPastInTimezone(slotDate, businessTimezone);
         const isTooSoon = !isPast && slotStartMs < minBookingTime;
 
+        // Check if this slot is booked by any existing booking
+        // A slot is booked if the booking overlaps with this slot's time range
         const isBooked = relevantBookings.some((booking) => {
           const bookingStart = new Date(booking.date);
           const bookingStartMs = bookingStart.getTime();
-          const bookingDurationMs = (booking.service?.duration ?? slotDurationMinutes) * 60 * 1000;
+          // Use booking.duration if available, otherwise service.duration, otherwise default to slotDurationMinutes
+          const bookingDurationMs = (booking.duration ?? booking.service?.duration ?? slotDurationMinutes) * 60 * 1000;
           const bookingEndMs = bookingStartMs + bookingDurationMs;
           const sameDay = bookingStart.toDateString() === slotDate.toDateString();
+          // Check overlap: bookingStart < slotEnd && bookingEnd > slotStart
           return sameDay && bookingStartMs < slotEndMs && bookingEndMs > slotStartMs;
         });
+
+        // Check if this slot has enough consecutive slots available for the service
+        // Only check if a service is selected and it requires more than one slot
+        const slotsNeeded = selectedServiceId ? Math.ceil(serviceDurationMinutes / slotDurationMinutes) : 1;
+        const hasEnoughConsecutiveSlots = (() => {
+          if (slotsNeeded <= 1) return true; // Single slot service, always available if not booked
+          if (isBooked || isPast) return false; // Can't use booked or past slots
+          
+          // Find the current slot index in the available hours for this day
+          const currentSlotIndex = availableHours.findIndex((h) => h === hour);
+          if (currentSlotIndex === -1) return false;
+          
+          // Check if we have enough consecutive slots from this position
+          const remainingSlots = availableHours.length - currentSlotIndex;
+          if (remainingSlots < slotsNeeded) return false; // Not enough slots remaining in the day
+          
+          // Check each consecutive slot to see if it's available
+          for (let i = 0; i < slotsNeeded; i++) {
+            const nextHourIndex = currentSlotIndex + i;
+            if (nextHourIndex >= availableHours.length) return false;
+            
+            const nextHour = availableHours[nextHourIndex];
+            const [nextH, nextM] = nextHour.split(":").map(Number);
+            const nextSlotDate = new Date(day);
+            nextSlotDate.setHours(nextH, nextM, 0, 0);
+            const nextSlotStartMs = nextSlotDate.getTime();
+            const nextSlotEndMs = nextSlotStartMs + slotDurationMinutes * 60 * 1000;
+            
+            // Check if this consecutive slot is past
+            const nextSlotIsPast = isPastInTimezone(nextSlotDate, businessTimezone);
+            if (nextSlotIsPast) return false;
+            
+            // Check if this consecutive slot is too soon
+            const nextSlotIsTooSoon = !nextSlotIsPast && nextSlotStartMs < minBookingTime;
+            if (nextSlotIsTooSoon) return false;
+            
+            // Check if this consecutive slot is booked
+            const nextSlotIsBooked = relevantBookings.some((booking) => {
+              const bookingStart = new Date(booking.date);
+              const bookingStartMs = bookingStart.getTime();
+              const bookingDurationMs = (booking.duration ?? booking.service?.duration ?? slotDurationMinutes) * 60 * 1000;
+              const bookingEndMs = bookingStartMs + bookingDurationMs;
+              const sameDay = bookingStart.toDateString() === nextSlotDate.toDateString();
+              return sameDay && bookingStartMs < nextSlotEndMs && bookingEndMs > nextSlotStartMs;
+            });
+            
+            if (nextSlotIsBooked) return false;
+          }
+          
+          return true; // All consecutive slots are available
+        })();
 
         let status: "available" | "booked" | "past" | "selected" | "blocked" = "available";
         if (isPast) status = "past";
         if (isBooked) status = "booked";
         if (isTooSoon) status = "blocked";
+        // Block slot if it doesn't have enough consecutive slots available for the service
+        if (!hasEnoughConsecutiveSlots && selectedServiceId && !isPast && !isBooked && !isTooSoon) {
+          status = "blocked";
+        }
         if (
           selectedStart !== null &&
           selectedEnd !== null &&
@@ -595,10 +653,16 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
           status = "selected";
         }
 
+        // Store reason for blocking if applicable
+        const blockReason = !hasEnoughConsecutiveSlots && selectedServiceId && !isPast && !isBooked && !isTooSoon
+          ? `Serviciul necesită ${slotsNeeded} sloturi consecutive. Sloturile următoare nu sunt disponibile.`
+          : null;
+
         return {
           iso,
-          label: slotDate.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" }),
+          label: formatInTimezone(slotDate, "HH:mm", businessTimezone),
           status,
+          blockReason, // Reason why slot is blocked (for tooltip)
         };
       });
     });
@@ -607,9 +671,11 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
     selectedServiceId,
     relevantBookings,
     selectedDate,
-    serviceDurationMs,
-    slotDurationMinutes,
     getAvailableHoursForDay,
+    serviceDurationMs,
+    serviceDurationMinutes,
+    slotDurationMinutes,
+    selectedBusiness?.timezone,
   ]);
 
   const uniqueHours = useMemo(() => {
@@ -622,7 +688,7 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
       });
     });
     const sortedHours = Array.from(allHours).sort();
-    return sortedHours.length > 0 ? sortedHours : HOURS;
+    return sortedHours.length > 0 ? sortedHours : getDefaultHours(slotDurationMinutes);
   }, [slotsMatrix]);
 
   const closeConfirmationModal = useCallback(() => {
@@ -723,23 +789,84 @@ const handleConsentSubmit = async () => {
       return;
     }
 
+    const businessTimezone = selectedBusiness?.timezone || "Europe/Bucharest";
     const slotDate = new Date(selectedDate);
     if (Number.isNaN(slotDate.getTime())) {
       setConfirmationError("Data selectată nu este validă.");
       return;
     }
+    
+    // Convert to UTC using business timezone
+    const utcDate = toUTC(slotDate, businessTimezone);
 
     if (bookingTooSoon) {
       setConfirmationError(MIN_LEAD_MESSAGE);
       return;
     }
 
-    const isoDate = slotDate.toISOString();
+    // VALIDATION: Check that all consecutive slots needed for the service are available
+    const slotsNeeded = Math.ceil(serviceDurationMinutes / slotDurationMinutes);
+    const slotDateDay = slotDate.toDateString();
+    const slotDateHour = slotDate.getHours();
+    const slotDateMinute = slotDate.getMinutes();
+    
+    // Find the day in slotsMatrix
+    const dayIndex = weekDays.findIndex((day) => day.toDateString() === slotDateDay);
+    if (dayIndex === -1) {
+      setConfirmationError("Data selectată nu este în intervalul vizibil.");
+      return;
+    }
+
+    const daySlots = slotsMatrix?.[dayIndex];
+    if (!daySlots) {
+      setConfirmationError("Nu s-au putut încărca sloturile pentru această zi.");
+      return;
+    }
+
+    // Find the starting slot
+    const startingSlotIndex = daySlots.findIndex((slot) => {
+      const slotDateObj = new Date(slot.iso);
+      return (
+        slotDateObj.getHours() === slotDateHour &&
+        slotDateObj.getMinutes() === slotDateMinute
+      );
+    });
+
+    if (startingSlotIndex === -1) {
+      setConfirmationError("Slotul selectat nu este disponibil.");
+      return;
+    }
+
+    // Check that all consecutive slots needed are available
+    const slotsToCheck = daySlots.slice(startingSlotIndex, startingSlotIndex + slotsNeeded);
+    const unavailableSlots = slotsToCheck.filter(
+      (slot) => slot.status !== "available" && slot.status !== "selected"
+    );
+
+    if (unavailableSlots.length > 0) {
+      const unavailableSlot = unavailableSlots[0];
+      if (unavailableSlot.status === "booked") {
+        setConfirmationError(
+          `Serviciul necesită ${slotsNeeded} sloturi consecutive. Unele sloturi sunt deja ocupate.`
+        );
+      } else if (unavailableSlot.status === "past") {
+        setConfirmationError("Nu poți rezerva în trecut.");
+      } else if (unavailableSlot.status === "blocked") {
+        setConfirmationError("Unele sloturi necesare sunt blocate sau prea apropiate de momentul actual.");
+      } else {
+        setConfirmationError(
+          `Serviciul necesită ${slotsNeeded} sloturi consecutive. Unele sloturi nu sunt disponibile.`
+        );
+      }
+      return;
+    }
+
+    const isoDate = utcDate.toISOString();
     const conflict = slotsMatrix?.some((daySlots) =>
       daySlots.some((slot) => {
         if (slot.status === "booked") {
           const slotTime = new Date(slot.iso).getTime();
-          const startTime = slotDate.getTime();
+          const startTime = utcDate.getTime();
           const endTime = startTime + serviceDurationMs;
           return slotTime >= startTime && slotTime < endTime;
         }
@@ -757,16 +884,61 @@ const handleConsentSubmit = async () => {
       setPaymentProcessing(true);
 
       if (selectedPayment === "offline" || paymentAlreadyMade) {
-        const booking = await createBooking({
+        // Create optimistic booking for immediate UI update
+        const optimisticBookingId = `temp-${Date.now()}`;
+        const optimisticBooking: Booking = {
+          id: optimisticBookingId,
           clientId: user.id,
           businessId: selectedBusinessId,
           serviceId: selectedServiceId,
           employeeId: selectedEmployeeId || undefined,
           date: isoDate,
           paid: paymentAlreadyMade,
-          paymentMethod: "OFFLINE",
           paymentReused: paymentAlreadyMade,
-        });
+          status: "CONFIRMED",
+          business: selectedBusiness
+            ? {
+                id: selectedBusiness.id,
+                name: selectedBusiness.name,
+                businessType: selectedBusiness.businessType,
+              }
+            : { id: "", name: "", businessType: "GENERAL" },
+          service: selectedService
+            ? {
+                id: selectedService.id,
+                name: selectedService.name,
+                duration: selectedService.duration,
+                price: selectedService.price,
+              }
+            : { id: "", name: "", duration: 60, price: 0 },
+          client: {
+            id: user.id,
+            name: user.name || "",
+            email: user.email || "",
+            phone: user.phone || null,
+          },
+          employee: selectedEmployee
+            ? {
+                id: selectedEmployee.id,
+                name: selectedEmployee.name,
+                email: selectedEmployee.email,
+              }
+            : null,
+        };
+
+        const booking = await createBooking(
+          {
+            clientId: user.id,
+            businessId: selectedBusinessId,
+            serviceId: selectedServiceId,
+            employeeId: selectedEmployeeId || undefined,
+            date: isoDate,
+            paid: paymentAlreadyMade,
+            paymentMethod: "OFFLINE",
+            paymentReused: paymentAlreadyMade,
+          },
+          optimisticBooking
+        );
         // Check if consent is required based on business type
         // Use booking.business.businessType as fallback if selectedBusiness is not available
         const businessType = selectedBusiness?.businessType ?? booking.business?.businessType;
@@ -881,7 +1053,10 @@ const handleConsentSubmit = async () => {
     selectedPayment,
     selectedServiceId,
     serviceDurationMs,
+    serviceDurationMinutes,
+    slotDurationMinutes,
     slotsMatrix,
+    weekDays,
     user,
   ]);
 
@@ -1061,7 +1236,8 @@ const handleConsentSubmit = async () => {
                   <div>
                     <h2 className="text-xl font-semibold text-white">3. Alege data și ora</h2>
                     <p className="text-xs text-white/50">
-                      Zilele sunt pe coloane, orele pe rânduri. Alege un interval disponibil din această săptămână.
+                      {viewType === "week" && "Zilele sunt pe coloane, orele pe rânduri. Alege un interval disponibil din această săptămână."}
+                      {viewType === "day" && "Vizualizare detaliată pentru o singură zi. Alege un interval disponibil."}
                     </p>
                     {selectedEmployee && (
                       <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-300">
@@ -1071,6 +1247,33 @@ const handleConsentSubmit = async () => {
                     )}
                   </div>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+                    {/* View Type Toggle - Mobile optimized */}
+                    <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-[#0B0E17]/40 p-1 overflow-x-auto">
+                      <button
+                        type="button"
+                        onClick={() => setViewType("week")}
+                        className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                          viewType === "week"
+                            ? "bg-[#6366F1] text-white"
+                            : "text-white/60 hover:text-white hover:bg-white/5"
+                        }`}
+                      >
+                        <span className="hidden sm:inline">Săptămână</span>
+                        <span className="sm:hidden">Săpt.</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewType("day")}
+                        className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                          viewType === "day"
+                            ? "bg-[#6366F1] text-white"
+                            : "text-white/60 hover:text-white hover:bg-white/5"
+                        }`}
+                      >
+                        Zi
+                      </button>
+                    </div>
+                    
                     {/* Calendar picker */}
                     <div className="hidden sm:block">
                       <DatePicker
@@ -1080,9 +1283,16 @@ const handleConsentSubmit = async () => {
                           setSelectedDate("");
                           setHoveredSlot(null);
                           const selectedDateObj = new Date(date);
-                          setWeekStart(getWeekStart(selectedDateObj));
+                          // In day view, set weekStart to the exact day; in week view, set to week start
+                          if (viewType === "day") {
+                            selectedDateObj.setHours(0, 0, 0, 0);
+                            setWeekStart(selectedDateObj);
+                          } else {
+                            setWeekStart(getWeekStart(selectedDateObj));
+                          }
                         }}
                         placeholder="Selectează data"
+                        viewType={viewType}
                       />
                     </div>
                   </div>
@@ -1092,13 +1302,92 @@ const handleConsentSubmit = async () => {
                   <div className="rounded-xl border border-dashed border-white/10 bg-[#0B0E17]/40 px-4 py-6 text-sm text-white/60">
                     Selectează mai întâi un serviciu pentru a vedea intervalele disponibile.
                   </div>
+                ) : viewType === "day" ? (
+                  // Day View - O singură zi detaliată
+                  <div className="space-y-4">
+                    <div className="text-center mb-4">
+                      <h3 className="text-lg font-semibold text-white">
+                        {weekDays[0].toLocaleDateString("ro-RO", {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </h3>
+                    </div>
+                    <div className="space-y-1 max-h-[600px] overflow-y-auto">
+                      {(() => {
+                        const day = weekDays[0];
+                        const availableHours = getAvailableHoursForDay(day);
+                        const daySlots = slotsMatrix?.[0] || [];
+                        const now = Date.now();
+                        
+                        // Filter to show only available slots (not booked, not blocked, not past)
+                        const availableSlots = availableHours
+                          .map((hour: string, index: number) => {
+                            const slot = daySlots[index];
+                            if (!slot) return null;
+                            const slotDate = new Date(slot.iso);
+                            const isPast = slotDate.getTime() < now;
+                            const isAvailable = slot.status === "available" && !isPast;
+                            
+                            if (!isAvailable) return null;
+                            
+                            return {
+                              hour,
+                              slot,
+                              slotDate,
+                            };
+                          })
+                          .filter((item): item is { hour: string; slot: typeof daySlots[0]; slotDate: Date } => item !== null);
+                        
+                        if (availableSlots.length === 0) {
+                          return (
+                            <div className="rounded-xl border border-dashed border-white/10 bg-[#0B0E17]/40 px-4 py-6 text-center text-sm text-white/60">
+                              Nu există sloturi disponibile pentru acest serviciu în această zi.
+                            </div>
+                          );
+                        }
+                        
+                        return availableSlots.map(({ hour, slot, slotDate }) => (
+                          <div
+                            key={hour}
+                            className="flex items-center gap-4 rounded-xl border border-white/10 bg-[#0B0E17]/40 p-4 transition hover:bg-[#0B0E17]/60 cursor-pointer"
+                            onClick={() => {
+                              setSelectedDate(slot.iso);
+                              if (serviceDurationMinutes > slotDurationMinutes) {
+                                const endMs = slotDate.getTime() + serviceDurationMs;
+                                setHoveredSlot(new Date(endMs).toISOString());
+                              } else {
+                                setHoveredSlot(null);
+                              }
+                              setConfirmationStep("review");
+                              setRecentBooking(null);
+                              setSuccessMessage(null);
+                              setShowConfirmationModal(true);
+                            }}
+                          >
+                            <div className="w-20 text-sm font-medium text-white/70">{hour}</div>
+                            <div className="flex-1">
+                              <div className="text-white text-sm font-medium">Disponibil</div>
+                            </div>
+                            <div className="text-xs text-white/50">
+                              <i className="fas fa-check-circle text-emerald-400" />
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
                 ) : (
+                  // Week View - Vizualizare săptămânală (existentă)
                   <div className="overflow-x-auto">
                     <div className="w-full rounded-3xl border border-white/10 bg-[#0B0E17]/40 p-4">
                       <div
-                        className="grid gap-1.5"
+                        className="grid"
                         style={{
                           gridTemplateColumns: `repeat(${weekDays.length}, minmax(100px, 1fr))`,
+                          gap: "12px",
                         }}
                       >
                         {weekDays.map((day, index) => {
@@ -1141,19 +1430,22 @@ const handleConsentSubmit = async () => {
                                   focusedDate && slotDate.toDateString() === focusedDate.toDateString();
 
                                 let stateClasses =
-                                  "bg-[#0B0E17]/60 text-white/70 hover:bg-white/10 border border-white/10";
+                                  "bg-[#0B0E17]/60 text-white/70 hover:bg-white/10 hover:scale-[1.01] border border-white/10 transition-all duration-300 ease-in-out";
                                 if (slot.status === "booked") {
                                   stateClasses =
-                                    "bg-red-500/20 text-red-300 border border-red-400/40 cursor-not-allowed";
+                                    "bg-red-600/30 text-red-400 border border-red-500/60 cursor-not-allowed";
                                 } else if (slot.status === "past") {
                                   stateClasses =
                                     "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed";
                                 } else if (slot.status === "blocked") {
-                                  stateClasses =
-                                    "bg-[#0B0E17]/20 text-white/35 border border-white/5 cursor-not-allowed";
+                                  // Different styling for blocked slots (consecutive slots unavailable)
+                                  const isBlockedDueToConsecutive = selectedServiceId && serviceDurationMinutes > slotDurationMinutes;
+                                  stateClasses = isBlockedDueToConsecutive
+                                    ? "bg-[#0B0E17]/20 text-white/35 border border-orange-500/30 cursor-not-allowed opacity-60"
+                                    : "bg-[#0B0E17]/20 text-white/35 border border-white/5 cursor-not-allowed";
                                 } else if (slot.status === "selected") {
                                   stateClasses =
-                                    "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 shadow-lg shadow-[#6366F1]/40";
+                                    "bg-gradient-to-r from-indigo-500/70 via-indigo-500/60 to-indigo-500/50 text-white border border-[#6366F1]/70 shadow-lg shadow-[#6366F1]/40 scale-[1.02] transition-all duration-300 ease-out animate-pulse";
                                 }
 
                                 const isHoverHighlight =
@@ -1203,7 +1495,7 @@ const handleConsentSubmit = async () => {
                                     onMouseLeave={() => {
                                       setHoveredSlot((prev) => (prev === slot.iso ? null : prev));
                                     }}
-                                    className={`flex h-[52px] w-full items-center justify-center rounded-2xl px-3 text-xs font-semibold transition ${
+                                    className={`flex h-[44px] w-full items-center justify-center rounded-2xl px-3 text-xs font-semibold transition ${
                                       isFocusedDay && slot.status === "available"
                                         ? `${stateClasses} border-[#6366F1]/40 bg-[#6366F1]/10`
                                         : stateClasses
@@ -1214,6 +1506,13 @@ const handleConsentSubmit = async () => {
                                           ? "not-allowed"
                                           : "pointer",
                                     }}
+                                    title={
+                                      slot.status === "blocked" && slot.blockReason
+                                        ? slot.blockReason
+                                        : slot.status === "blocked"
+                                          ? "Slot indisponibil"
+                                          : undefined
+                                    }
                                   >
                                     {slot.status === "booked" ? "Ocupat" : slot.label}
                                   </button>
@@ -1820,38 +2119,6 @@ const handleConsentSubmit = async () => {
                   </div>
                 </button>
               ))}
-              <button
-                type="button"
-                onClick={() => {
-                  if (selectedBusinessId != null && pendingServiceId) {
-                    // Clear employee selection (optional)
-                    setEmployeeSelections((prev) => {
-                      const next = { ...prev };
-                      delete next[selectedBusinessId];
-                      return next;
-                    });
-                    // Set service selection without employee
-                    setServiceSelections((prev) => ({
-                      ...prev,
-                      [selectedBusinessId]: pendingServiceId,
-                    }));
-                    // Close popup
-                    setShowEmployeePopup(false);
-                    setPendingServiceId(null);
-                  }
-                }}
-                className="rounded-2xl border border-dashed border-white/20 bg-white/5 px-5 py-4 text-left transition hover:border-[#6366F1]/60 hover:bg-[#6366F1]/10"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/60">
-                    <i className="fas fa-question" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-white">Nu contează</h3>
-                    <p className="text-xs text-white/60">Orice specialist disponibil</p>
-                  </div>
-                </div>
-              </button>
             </div>
           </div>
         </div>

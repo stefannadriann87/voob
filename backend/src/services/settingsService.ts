@@ -1,4 +1,4 @@
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 async function getSettingValue(key: string): Promise<string | null> {
   const setting = await prisma.platformSetting.findUnique({ where: { key } });

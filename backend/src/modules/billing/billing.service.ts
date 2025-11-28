@@ -3,13 +3,13 @@
  * Gestionează logica de billing recurent pentru business-uri
  */
 
-const prisma = require("../../lib/prisma").default;
+const prisma = require("../../lib/prisma");
 const { getStripeClient } = require("../../services/stripeService");
 
 /**
  * Creează un SetupIntent pentru salvarea cardului
  */
-export async function createSetupIntent(businessId: string): Promise<string> {
+async function createSetupIntent(businessId: string): Promise<string> {
   const stripe = getStripeClient();
 
   // Verifică dacă există customer Stripe
@@ -75,7 +75,7 @@ export async function createSetupIntent(businessId: string): Promise<string> {
 /**
  * Atașează PaymentMethod la Customer și îl setează ca default
  */
-export async function attachPaymentMethod(
+async function attachPaymentMethod(
   customerId: string,
   paymentMethodId: string
 ): Promise<void> {
@@ -97,7 +97,7 @@ export async function attachPaymentMethod(
 /**
  * Creează Stripe Subscription pentru un business
  */
-export async function createSubscription(
+async function createSubscription(
   businessId: string,
   planId: string,
   paymentMethodId: string,
@@ -235,7 +235,7 @@ export async function createSubscription(
 /**
  * Anulează subscription (cancel_at_period_end)
  */
-export async function cancelSubscription(businessId: string): Promise<void> {
+async function cancelSubscription(businessId: string): Promise<void> {
   const stripe = getStripeClient();
 
   const subscription = await prisma.subscription.findFirst({
@@ -264,7 +264,7 @@ export async function cancelSubscription(businessId: string): Promise<void> {
 /**
  * Obține statusul subscription-ului pentru un business
  */
-export async function getSubscriptionStatus(businessId: string) {
+async function getSubscriptionStatus(businessId: string) {
   const subscription = await prisma.subscription.findFirst({
     where: { businessId },
     include: {

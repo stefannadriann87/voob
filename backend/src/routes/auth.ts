@@ -3,7 +3,7 @@ import bcrypt = require("bcryptjs");
 import jwt = require("jsonwebtoken");
 import nodemailer = require("nodemailer");
 const { randomBytes } = require("node:crypto");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 const { Role, BusinessType } = require("@prisma/client");
 import type { Role as RoleType, BusinessType as BusinessTypeType } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
@@ -13,8 +13,6 @@ const {
   getClientIp,
   checkSuspiciousPattern,
   recordRegistrationAttempt,
-  checkAndBlockFailedLogins,
-  recordLoginAttempt,
 } = require("../services/rateLimitService");
 const { rateLimitRegistration, rateLimitLogin } = require("../middleware/rateLimit");
 

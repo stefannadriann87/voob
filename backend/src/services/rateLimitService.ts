@@ -3,7 +3,7 @@
  * Gestionează rate limiting folosind Redis
  */
 
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 const { getRedisClient } = require("../lib/redis");
 
 const REGISTRATION_RATE_LIMIT = Number(process.env.REGISTRATION_RATE_LIMIT || 5); // Max 5 înregistrări/24h

@@ -3,7 +3,7 @@
  * Toate tools-urile au RBAC (Role-Based Access Control)
  */
 
-const prisma = require("../../lib/prisma").default;
+const prisma = require("../../lib/prisma");
 const { sendBookingCancellationSms } = require("../../services/smsService");
 
 const HOUR_IN_MS = 60 * 60 * 1000;

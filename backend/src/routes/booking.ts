@@ -5,13 +5,18 @@ import type {
   BookingStatus,
 } from "@prisma/client";
 const { PaymentMethod, BookingPaymentStatus } = require("@prisma/client");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 const {
   sendBookingConfirmationSms,
   sendBookingCancellationSms,
 } = require("../services/smsService");
 const { getStripeClient } = require("../services/stripeService");
 const { verifyJWT } = require("../middleware/auth");
+const { validate } = require("../middleware/validate");
+const {
+  createBookingSchema,
+} = require("../validators/bookingSchemas");
+const { logger } = require("../lib/logger");
 
 const router = express.Router();
 
@@ -29,7 +34,7 @@ const CONSENT_REQUIRED_TYPES: BusinessType[] = ["STOMATOLOGIE", "OFTALMOLOGIE", 
 const businessNeedsConsent = (type?: BusinessType | null) =>
   !!type && CONSENT_REQUIRED_TYPES.includes(type);
 
-router.post("/", async (req, res) => {
+router.post("/", validate(createBookingSchema), async (req, res) => {
   const {
     clientId,
     businessId,
@@ -39,27 +44,12 @@ router.post("/", async (req, res) => {
     paid,
     paymentMethod,
     paymentReused,
-  }: {
-    clientId?: string;
-    businessId?: string;
-    serviceId?: string;
-    employeeId?: string;
-    date?: string;
-    paid?: boolean;
-    paymentMethod?: typeof PaymentMethod[keyof typeof PaymentMethod];
-    paymentReused?: boolean;
-  } = req.body;
-
-  if (!clientId || !businessId || !serviceId || !date) {
-    return res.status(400).json({
-      error: "clientId, businessId, serviceId și date sunt obligatorii.",
-    });
-  }
+    clientNotes,
+    duration,
+  } = req.body; // Body este deja validat de middleware
 
   const bookingDate = new Date(date);
-  if (Number.isNaN(bookingDate.getTime())) {
-    return res.status(400).json({ error: "Data rezervării este invalidă." });
-  }
+  // Validarea de date este deja făcută de Zod (datetime format)
 
   const now = new Date();
   if (bookingDate.getTime() - now.getTime() < MIN_BOOKING_LEAD_MS) {
@@ -74,7 +64,7 @@ router.post("/", async (req, res) => {
       }),
       prisma.service.findFirst({
         where: { id: serviceId, businessId },
-        select: { id: true },
+        select: { id: true, duration: true },
       }),
     ]);
 
@@ -88,6 +78,109 @@ router.post("/", async (req, res) => {
 
     if (!service) {
       return res.status(404).json({ error: "Serviciul nu a fost găsit pentru acest business." });
+    }
+
+    // Calculate booking end time based on service duration or override duration
+    const serviceDurationMinutes = duration ?? service.duration;
+    const bookingStart = new Date(bookingDate);
+    const bookingEnd = new Date(bookingStart.getTime() + serviceDurationMinutes * 60 * 1000);
+
+    // VALIDATION: Check for overlapping bookings with the same employee
+    if (employeeId) {
+      const overlappingBookings = await prisma.booking.findMany({
+        where: {
+          employeeId,
+          businessId,
+          status: { not: "CANCELLED" }, // Exclude cancelled bookings
+          date: {
+            // Check for overlap: bookingStart < existingEnd && bookingEnd > existingStart
+            // We need to check bookings that overlap with our time range
+            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS), // Start search from 24h before
+            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS), // End search 24h after
+          },
+        },
+        include: {
+          service: { select: { duration: true } },
+        },
+      });
+
+      // Check each existing booking for actual overlap
+      for (const existingBooking of overlappingBookings) {
+        const existingStart = new Date(existingBooking.date);
+        const existingDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
+        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+
+        // Check if bookings overlap: bookingStart < existingEnd && bookingEnd > existingStart
+        if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
+          return res.status(409).json({
+            error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.",
+          });
+        }
+      }
+    } else {
+      // If no employee specified, check for overlapping bookings without employee
+      const overlappingBookings = await prisma.booking.findMany({
+        where: {
+          businessId,
+          employeeId: null,
+          status: { not: "CANCELLED" },
+          date: {
+            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
+            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+          },
+        },
+        include: {
+          service: { select: { duration: true } },
+        },
+      });
+
+      for (const existingBooking of overlappingBookings) {
+        const existingStart = new Date(existingBooking.date);
+        const existingDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
+        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+
+        if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
+          return res.status(409).json({
+            error: "Există deja o rezervare care se suprapune cu intervalul selectat.",
+          });
+        }
+      }
+    }
+
+    // VALIDATION: Check for business holidays
+    const businessHolidays = await prisma.holiday.findMany({
+      where: {
+        businessId,
+        startDate: { lte: bookingEnd },
+        endDate: { gte: bookingStart },
+      },
+    });
+
+    if (businessHolidays.length > 0) {
+      const holiday = businessHolidays[0];
+      const reason = holiday.reason ? ` (${holiday.reason})` : "";
+      return res.status(409).json({
+        error: `Intervalul selectat se suprapune cu o perioadă de închidere a business-ului${reason}.`,
+      });
+    }
+
+    // VALIDATION: Check for employee holidays (if employee is specified)
+    if (employeeId) {
+      const employeeHolidays = await prisma.employeeHoliday.findMany({
+        where: {
+          employeeId,
+          startDate: { lte: bookingEnd },
+          endDate: { gte: bookingStart },
+        },
+      });
+
+      if (employeeHolidays.length > 0) {
+        const holiday = employeeHolidays[0];
+        const reason = holiday.reason ? ` (${holiday.reason})` : "";
+        return res.status(409).json({
+          error: `Angajatul este în concediu în perioada selectată${reason}.`,
+        });
+      }
     }
 
     const needsConsent = businessNeedsConsent(business.businessType);
@@ -130,6 +223,7 @@ router.post("/", async (req, res) => {
         service: { connect: { id: serviceId } },
         ...(employeeId ? { employee: { connect: { id: employeeId } } } : {}),
         date: new Date(date),
+        ...(duration ? { duration } : {}),
         paid: isPaid,
         paymentMethod: paymentMethod ?? PaymentMethod.OFFLINE,
         paymentStatus,
@@ -156,14 +250,14 @@ router.post("/", async (req, res) => {
         booking.service?.name,
         booking.business.id
       ).catch((error: unknown) => {
-        console.error("Failed to send confirmation SMS:", error);
+        logger.error("Failed to send confirmation SMS", error);
         // Nu aruncăm eroarea, doar logăm
       });
     }
 
     return res.status(201).json(booking);
   } catch (error) {
-    console.error("Booking create error:", error);
+    logger.error("Booking creation failed", error);
     return res.status(500).json({ error: "Eroare la crearea rezervării." });
   }
 });
@@ -183,7 +277,7 @@ router.get("/", async (_req, res) => {
 
     return res.json(bookings);
   } catch (error) {
-    console.error("Booking list error:", error);
+    logger.error("Failed to list bookings", error);
     return res.status(500).json({ error: "Eroare la listarea rezervărilor." });
   }
 });
@@ -209,10 +303,130 @@ router.put("/:id", async (req, res) => {
   try {
     const existingBooking = await prisma.booking.findUnique({
       where: { id },
+      include: {
+        service: { select: { id: true, duration: true } },
+      },
     });
 
     if (!existingBooking) {
       return res.status(404).json({ error: "Rezervarea nu există." });
+    }
+
+    // Determine the final values after update
+    const finalServiceId = serviceId ?? existingBooking.serviceId;
+    const finalEmployeeId = employeeId !== undefined ? (employeeId || null) : existingBooking.employeeId;
+    const finalDate = date ? new Date(date) : existingBooking.date;
+
+    // Get service duration (use existing service if serviceId not changed, or fetch new one)
+    let serviceDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
+    if (serviceId && serviceId !== existingBooking.serviceId) {
+      const newService = await prisma.service.findUnique({
+        where: { id: serviceId },
+        select: { duration: true },
+      });
+      if (newService) {
+        serviceDuration = newService.duration;
+      }
+    }
+
+    // Calculate booking end time
+    const bookingStart = new Date(finalDate);
+    const bookingEnd = new Date(bookingStart.getTime() + serviceDuration * 60 * 1000);
+
+    // VALIDATION: Check for overlapping bookings (excluding the current booking being updated)
+    if (finalEmployeeId) {
+      const overlappingBookings = await prisma.booking.findMany({
+        where: {
+          employeeId: finalEmployeeId,
+          businessId: existingBooking.businessId,
+          id: { not: id }, // Exclude the current booking
+          status: { not: "CANCELLED" },
+          date: {
+            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
+            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+          },
+        },
+        include: {
+          service: { select: { duration: true } },
+        },
+      });
+
+      for (const overlappingBooking of overlappingBookings) {
+        const existingStart = new Date(overlappingBooking.date);
+        const existingDuration = overlappingBooking.duration ?? overlappingBooking.service?.duration ?? 60;
+        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+
+        if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
+          return res.status(409).json({
+            error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.",
+          });
+        }
+      }
+    } else {
+      // Check for overlapping bookings without employee
+      const overlappingBookings = await prisma.booking.findMany({
+        where: {
+          businessId: existingBooking.businessId,
+          employeeId: null,
+          id: { not: id },
+          status: { not: "CANCELLED" },
+          date: {
+            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
+            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+          },
+        },
+        include: {
+          service: { select: { duration: true } },
+        },
+      });
+
+      for (const overlappingBooking of overlappingBookings) {
+        const existingStart = new Date(overlappingBooking.date);
+        const existingDuration = overlappingBooking.duration ?? overlappingBooking.service?.duration ?? 60;
+        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+
+        if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
+          return res.status(409).json({
+            error: "Există deja o rezervare care se suprapune cu intervalul selectat.",
+          });
+        }
+      }
+    }
+
+    // VALIDATION: Check for business holidays
+    const businessHolidays = await prisma.holiday.findMany({
+      where: {
+        businessId: existingBooking.businessId,
+        startDate: { lte: bookingEnd },
+        endDate: { gte: bookingStart },
+      },
+    });
+
+    if (businessHolidays.length > 0) {
+      const holiday = businessHolidays[0];
+      const reason = holiday.reason ? ` (${holiday.reason})` : "";
+      return res.status(409).json({
+        error: `Intervalul selectat se suprapune cu o perioadă de închidere a business-ului${reason}.`,
+      });
+    }
+
+    // VALIDATION: Check for employee holidays (if employee is specified)
+    if (finalEmployeeId) {
+      const employeeHolidays = await prisma.employeeHoliday.findMany({
+        where: {
+          employeeId: finalEmployeeId,
+          startDate: { lte: bookingEnd },
+          endDate: { gte: bookingStart },
+        },
+      });
+
+      if (employeeHolidays.length > 0) {
+        const holiday = employeeHolidays[0];
+        const reason = holiday.reason ? ` (${holiday.reason})` : "";
+        return res.status(409).json({
+          error: `Angajatul este în concediu în perioada selectată${reason}.`,
+        });
+      }
     }
 
     const updateData: {
@@ -241,7 +455,7 @@ router.put("/:id", async (req, res) => {
 
     return res.json(booking);
   } catch (error) {
-    console.error("Booking update error:", error);
+    logger.error("Booking update failed", error);
     return res.status(500).json({ error: "Eroare la actualizarea rezervării." });
   }
 });
@@ -341,7 +555,7 @@ router.delete("/:id", verifyJWT, async (req, res) => {
         booking.business?.id
       ).catch(
         (error: unknown) => {
-          console.error("Failed to send cancellation SMS:", error);
+          logger.error("Failed to send cancellation SMS", error);
           // Nu aruncăm eroarea, doar logăm
         }
       );
@@ -349,7 +563,7 @@ router.delete("/:id", verifyJWT, async (req, res) => {
 
     return res.json({ success: true });
   } catch (error) {
-    console.error("Booking delete error:", error);
+    logger.error("Booking deletion failed", error);
     return res.status(500).json({ error: "Eroare la anularea rezervării." });
   }
 });
@@ -418,7 +632,7 @@ router.post("/confirm", verifyJWT, async (req, res) => {
       }),
       prisma.service.findFirst({
         where: { id: pending.serviceId, businessId: pending.businessId },
-        select: { id: true },
+        select: { id: true, duration: true },
       }),
     ]);
 
@@ -428,6 +642,105 @@ router.post("/confirm", verifyJWT, async (req, res) => {
 
     if (business.status === "SUSPENDED") {
       return res.status(403).json({ error: "Business-ul este suspendat. Rezervările sunt oprite temporar." });
+    }
+
+    // Calculate booking end time
+    const bookingStart = new Date(pending.date);
+    const serviceDuration = service.duration;
+    const bookingEnd = new Date(bookingStart.getTime() + serviceDuration * 60 * 1000);
+
+    // VALIDATION: Check for overlapping bookings with the same employee
+    if (pending.employeeId) {
+      const overlappingBookings = await prisma.booking.findMany({
+        where: {
+          employeeId: pending.employeeId,
+          businessId: pending.businessId,
+          status: { not: "CANCELLED" },
+          date: {
+            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
+            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+          },
+        },
+        include: {
+          service: { select: { duration: true } },
+        },
+      });
+
+      for (const existingBooking of overlappingBookings) {
+        const existingStart = new Date(existingBooking.date);
+        const existingDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
+        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+
+        if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
+          return res.status(409).json({
+            error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.",
+          });
+        }
+      }
+    } else {
+      // Check for overlapping bookings without employee
+      const overlappingBookings = await prisma.booking.findMany({
+        where: {
+          businessId: pending.businessId,
+          employeeId: null,
+          status: { not: "CANCELLED" },
+          date: {
+            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
+            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+          },
+        },
+        include: {
+          service: { select: { duration: true } },
+        },
+      });
+
+      for (const existingBooking of overlappingBookings) {
+        const existingStart = new Date(existingBooking.date);
+        const existingDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
+        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+
+        if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
+          return res.status(409).json({
+            error: "Există deja o rezervare care se suprapune cu intervalul selectat.",
+          });
+        }
+      }
+    }
+
+    // VALIDATION: Check for business holidays
+    const businessHolidays = await prisma.holiday.findMany({
+      where: {
+        businessId: pending.businessId,
+        startDate: { lte: bookingEnd },
+        endDate: { gte: bookingStart },
+      },
+    });
+
+    if (businessHolidays.length > 0) {
+      const holiday = businessHolidays[0];
+      const reason = holiday.reason ? ` (${holiday.reason})` : "";
+      return res.status(409).json({
+        error: `Intervalul selectat se suprapune cu o perioadă de închidere a business-ului${reason}.`,
+      });
+    }
+
+    // VALIDATION: Check for employee holidays (if employee is specified)
+    if (pending.employeeId) {
+      const employeeHolidays = await prisma.employeeHoliday.findMany({
+        where: {
+          employeeId: pending.employeeId,
+          startDate: { lte: bookingEnd },
+          endDate: { gte: bookingStart },
+        },
+      });
+
+      if (employeeHolidays.length > 0) {
+        const holiday = employeeHolidays[0];
+        const reason = holiday.reason ? ` (${holiday.reason})` : "";
+        return res.status(409).json({
+          error: `Angajatul este în concediu în perioada selectată${reason}.`,
+        });
+      }
     }
 
     const needsConsent = businessNeedsConsent(business.businessType);
@@ -491,7 +804,7 @@ router.post("/confirm", verifyJWT, async (req, res) => {
 
     return res.json(booking);
   } catch (error) {
-    console.error("Booking confirm error:", error);
+    logger.error("Booking confirmation failed", error);
     return res.status(500).json({ error: "Nu am putut confirma rezervarea." });
   }
 });

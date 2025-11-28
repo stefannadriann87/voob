@@ -1,7 +1,7 @@
 "use strict";
 
 import express = require("express");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 const { verifyJWT } = require("../middleware/auth");
 
 const router = express.Router();
@@ -88,7 +88,27 @@ router.get("/businesses", verifyJWT, async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    const businesses = links.map((link) => link.business);
+    const businesses = links.map((link: { business: any }) => {
+      const business = link.business;
+      // Calculate slotDuration if not set
+      if (business.slotDuration !== null && business.slotDuration !== undefined) {
+        return business;
+      }
+
+      const services = business.services || [];
+      if (services.length === 0) {
+        return { ...business, slotDuration: 60 }; // Default to 60 minutes
+      }
+
+      const minDuration = Math.min(...services.map((s: { duration: number }) => s.duration));
+      // Round to nearest valid slot duration (15, 30, 45, 60)
+      const validDurations = [15, 30, 45, 60];
+      const calculatedSlotDuration = validDurations.reduce((prev, curr) =>
+        Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
+      );
+
+      return { ...business, slotDuration: calculatedSlotDuration };
+    });
     return res.json(businesses);
   } catch (error) {
     console.error("Client linked businesses error:", error);

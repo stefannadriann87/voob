@@ -1,7 +1,7 @@
 import express = require("express");
 import type { Request, Response } from "express";
 const { randomBytes } = require("node:crypto");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 const { sendSms } = require("../services/smsService");
 const { sendEmail } = require("../services/emailService");
 

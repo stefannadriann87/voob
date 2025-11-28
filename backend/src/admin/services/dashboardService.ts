@@ -1,22 +1,18 @@
-import { PaymentMethod } from "@prisma/client";
-
-const prisma = require("../../lib/prisma").default;
+const prisma = require("../../lib/prisma");
 const { getNumericSetting } = require("../../services/settingsService");
 import type { DashboardSummary } from "../types";
 
 function buildPaymentDistribution(
-  groups: Array<{ method: PaymentMethod | null; _sum: { amount: number | null } }>
+  groups: Array<{ method: string | null; _sum: { amount: number | null } }>
 ): Record<string, number> {
   const distribution: Record<string, number> = {
     CARD: 0,
-    APPLE_PAY: 0,
-    GOOGLE_PAY: 0,
-    KLARNA: 0,
     OFFLINE: 0,
   };
 
   for (const entry of groups) {
     if (!entry.method) continue;
+    if (!(entry.method in distribution)) continue;
     distribution[entry.method] = Number(entry._sum.amount ?? 0);
   }
 
@@ -48,9 +44,12 @@ async function getDashboardSummary(): Promise<DashboardSummary> {
     getNumericSetting("openai_cost_per_1k_tokens", 0.015),
   ]);
 
-  const totalRevenue = payments.reduce((sum: number, item) => sum + (item._sum.amount ?? 0), 0);
+  const totalRevenue = payments.reduce(
+    (sum: number, item: typeof payments[number]) => sum + (item._sum.amount ?? 0),
+    0
+  );
   const platformRevenue = payments.reduce(
-    (sum: number, item) => sum + (item._sum.applicationFee ?? 0),
+    (sum: number, item: typeof payments[number]) => sum + (item._sum.applicationFee ?? 0),
     0
   );
 
@@ -113,16 +112,20 @@ async function getAnalyticsOverview() {
     }),
   ]);
 
-  const totalBookings = cancellations.reduce((sum, item) => sum + item._count._all, 0);
-  const cancelled = cancellations.find((item) => item.status === "CANCELLED")?._count._all ?? 0;
+  const totalBookings = cancellations.reduce(
+    (sum: number, item: typeof cancellations[number]) => sum + item._count._all,
+    0
+  );
+  const cancelled =
+    cancellations.find((item: typeof cancellations[number]) => item.status === "CANCELLED")?._count._all ?? 0;
 
   return {
-    bookingsDaily: dailyBookings.map((entry) => ({
+    bookingsDaily: dailyBookings.map((entry: typeof dailyBookings[number]) => ({
       date: entry.date.toISOString().split("T")[0],
       count: entry._count._all,
     })),
     serviceMix: await Promise.all(
-      serviceMix.map(async (entry) => {
+      serviceMix.map(async (entry: typeof serviceMix[number]) => {
         const service = await prisma.service.findUnique({
           where: { id: entry.serviceId },
           select: { name: true },
@@ -133,7 +136,7 @@ async function getAnalyticsOverview() {
         };
       })
     ),
-    paymentSplit: paymentSplit.map((entry) => ({
+    paymentSplit: paymentSplit.map((entry: typeof paymentSplit[number]) => ({
       method: entry.method,
       amount: entry._sum.amount ?? 0,
     })),
@@ -163,24 +166,27 @@ async function getAiUsageOverview() {
     }),
   ]);
 
+  const businessIds = topBusinesses.map((b: typeof topBusinesses[number]) => b.businessId).filter(Boolean) as string[];
   const businessNames = await prisma.business.findMany({
-    where: { id: { in: topBusinesses.map((b) => b.businessId).filter(Boolean) as string[] } },
+    where: { id: { in: businessIds } },
     select: { id: true, name: true },
   });
 
-  const businessNameMap = new Map(businessNames.map((b) => [b.id, b.name]));
+  const businessNameMap = new Map(
+    businessNames.map((b: typeof businessNames[number]) => [b.id, b.name] as [string, string])
+  );
 
   return {
     totalRequests: aggregate._count._all,
     estimatedCost: aggregate._sum.costEstimate ?? 0,
     tokensUsed: aggregate._sum.tokensUsed ?? 0,
-    topBusinesses: topBusinesses.map((entry) => ({
+    topBusinesses: topBusinesses.map((entry: typeof topBusinesses[number]) => ({
       businessId: entry.businessId,
       businessName: entry.businessId ? businessNameMap.get(entry.businessId) ?? "Business" : "N/A",
       requests: entry._count._all,
       tokens: entry._sum.tokensUsed ?? 0,
     })),
-    errors: errors.map((entry) => ({
+    errors: errors.map((entry: typeof errors[number]) => ({
       statusCode: entry.statusCode,
       count: entry._count._all,
     })),

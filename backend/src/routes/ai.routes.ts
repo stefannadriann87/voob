@@ -50,6 +50,7 @@ router.post("/agent", verifyJWT, async (req: any, res: any) => {
     const result = await runAIAgent({
       message,
       context,
+      conversationHistory,
     });
     console.log("✅ AI response generated");
 

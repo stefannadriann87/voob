@@ -1,7 +1,7 @@
 "use strict";
 
 import express = require("express");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 const { verifyJWT } = require("../middleware/auth");
 
 const router = express.Router();
@@ -78,7 +78,7 @@ router.post("/attach-business", verifyJWT, async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    const businesses = links.map((link) => link.business);
+    const businesses = links.map((link: typeof links[number]) => link.business);
 
     return res.status(201).json({
       success: true,

@@ -5,7 +5,7 @@
 
 import express = require("express");
 const { verifyJWT } = require("../middleware/auth");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 const router = express.Router();
 

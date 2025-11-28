@@ -8,7 +8,7 @@
  * Format: RO + 2 cifre verificare + 4 litere BIC + 16 caractere alfanumerice
  * Exemplu: RO49 AAAA 1B31 0075 9384 0000
  */
-export function validateIBAN(iban: string): { valid: boolean; error?: string } {
+function validateIBAN(iban: string): { valid: boolean; error?: string } {
   if (!iban) {
     return { valid: false, error: "IBAN-ul este obligatoriu." };
   }
@@ -72,7 +72,7 @@ export function validateIBAN(iban: string): { valid: boolean; error?: string } {
  * Formatează IBAN-ul pentru afișare (adaugă spații)
  * RO49AAAA1B31007593840000 -> RO49 AAAA 1B31 0075 9384 0000
  */
-export function formatIBAN(iban: string): string {
+function formatIBAN(iban: string): string {
   const cleaned = iban.replace(/\s/g, "").toUpperCase();
   if (cleaned.length !== 24) {
     return iban; // Returnează original dacă nu e valid
@@ -84,7 +84,7 @@ export function formatIBAN(iban: string): string {
  * Verifică dacă IBAN-ul aparține unei entități legale
  * (Verificare simplă - în producție ar trebui să verifici cu banca)
  */
-export function validateIBANOwnership(
+function validateIBANOwnership(
   iban: string,
   legalEntityName: string
 ): { valid: boolean; error?: string } {

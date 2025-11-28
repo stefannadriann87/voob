@@ -5,8 +5,9 @@
 const OpenAI = require("openai");
 const fs = require("fs");
 const path = require("path");
-const { bookingTools, bookingToolExecutors } = require("./tools/bookingTools");
+const { toolsByRole, allToolExecutors } = require("./tools/allTools");
 const { recordAiUsage } = require("../services/usageService");
+const { logSystemAction } = require("../services/auditService");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_COST_PER_1K_TOKENS = Number(process.env.OPENAI_COST_PER_1K_TOKENS || "0.015");
@@ -38,9 +39,7 @@ function loadSystemPrompt(): string {
  * Determină ce tools sunt disponibile pentru un rol
  */
 function getAvailableToolsForRole(role: string): any[] {
-  // Toate tools-urile sunt disponibile pentru toate rolurile
-  // RBAC este verificat în fiecare tool executor
-  return bookingTools;
+  return toolsByRole[role] || [];
 }
 
 /**
@@ -51,7 +50,7 @@ async function executeTool(
   args: any,
   context: any
 ): Promise<any> {
-  const executor = bookingToolExecutors[toolName];
+  const executor = allToolExecutors[toolName];
 
   if (!executor) {
     throw new Error(`Tool necunoscut: ${toolName}`);
@@ -66,9 +65,11 @@ async function executeTool(
 async function runAIAgent({
   message,
   context,
+  conversationHistory = [],
 }: {
   message: string;
   context: any;
+  conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<{ reply: string; toolCalls?: any[] }> {
   if (!client) {
     return {
@@ -78,8 +79,51 @@ async function runAIAgent({
 
   const systemPrompt = loadSystemPrompt();
   
+  // Obține data curentă și formatează-o
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  // Formatează datele în română
+  const formatDateRomanian = (date: Date) => {
+    const days = ["duminică", "luni", "marți", "miercuri", "joi", "vineri", "sâmbătă"];
+    const months = ["ianuarie", "februarie", "martie", "aprilie", "mai", "iunie", "iulie", "august", "septembrie", "octombrie", "noiembrie", "decembrie"];
+    return `${days[date.getDay()]}, ${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+  };
+  
+  // Formatează datele ISO folosind timezone-ul local (nu UTC)
+  const formatDateISO = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  
+  const currentDateISO = formatDateISO(now);
+  const currentDateRomanian = formatDateRomanian(now);
+  const yesterdayRomanian = formatDateRomanian(yesterday);
+  const tomorrowRomanian = formatDateRomanian(tomorrow);
+  const yesterdayISO = formatDateISO(yesterday);
+  const todayISO = formatDateISO(today);
+  const tomorrowISO = formatDateISO(tomorrow);
+  
   // Construiește un system prompt extins cu informații despre user și business-uri
   let enhancedSystemPrompt = systemPrompt;
+  
+  // Adaugă informații despre data curentă
+  enhancedSystemPrompt += `\n\n## DATA CURENTĂ:
+Astăzi este: ${currentDateRomanian} (${currentDateISO}).
+Ieri a fost: ${yesterdayRomanian} (${yesterdayISO}).
+Mâine va fi: ${tomorrowRomanian} (${tomorrowISO}).
+
+IMPORTANT: Când utilizatorul spune "ieri", înseamnă ${yesterdayRomanian} (${yesterdayISO}).
+Când spune "astăzi", înseamnă ${currentDateRomanian} (${currentDateISO}).
+Când spune "mâine", înseamnă ${tomorrowRomanian} (${tomorrowISO}).
+Folosește aceste date EXACTE când cauți rezervări sau creezi rezervări noi.`;
+  
   if (context.userName) {
     enhancedSystemPrompt += `\n\nUtilizatorul se numește ${context.userName} (ID: ${context.userId}).`;
   }
@@ -88,16 +132,28 @@ async function runAIAgent({
     enhancedSystemPrompt += `\nPentru a crea o rezervare, poți folosi numele business-ului în loc de ID.`;
   }
   
+  // Adaugă timezone-ul business-ului dacă există
+  if (context.businessId && context.businessTimezone) {
+    enhancedSystemPrompt += `\n\nBusiness-ul folosește timezone-ul: ${context.businessTimezone}.`;
+  }
+  
   const tools = getAvailableToolsForRole(context.role);
 
   try {
+    // Construiește mesajele cu conversation history
+    const messages: any[] = [
+      { role: "system", content: enhancedSystemPrompt },
+      ...conversationHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      })),
+      { role: "user", content: message },
+    ];
+
     // Prima apelare - OpenAI decide dacă să apeleze tools
     const response = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: enhancedSystemPrompt },
-        { role: "user", content: message },
-      ],
+      messages,
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? "auto" : undefined,
     });
@@ -136,6 +192,20 @@ async function runAIAgent({
       try {
         console.log(`🔧 Executing tool: ${toolName}`, toolArgs);
         const result = await executeTool(toolName, toolArgs, context);
+        
+        // Audit logging pentru acțiuni AI
+        logSystemAction({
+          actorId: context.userId,
+          actorRole: context.role,
+          action: `ai_${toolName}`,
+          entity: "ai_action",
+          entityId: null,
+          before: null,
+          after: { toolName, args: toolArgs, result },
+        }).catch((error: unknown) => {
+          console.error("Failed to log AI action:", error);
+        });
+        
         toolResults.push({
           tool_call_id: toolCall.id,
           role: "tool",
@@ -157,6 +227,10 @@ async function runAIAgent({
     // Trimite rezultatele înapoi la OpenAI pentru răspuns final
     const finalMessages: any[] = [
       { role: "system", content: enhancedSystemPrompt },
+      ...conversationHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      })),
       { role: "user", content: message },
       {
         role: "assistant",

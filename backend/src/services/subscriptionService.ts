@@ -6,7 +6,7 @@
  * - Limita de SMS pe lună
  */
 
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 interface PlanLimits {
   maxEmployees: number | null;

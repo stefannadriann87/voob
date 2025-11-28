@@ -3,11 +3,11 @@
  * Singleton pentru conexiunea Redis
  */
 
-import { createClient } from "redis";
+const { createClient } = require("redis");
 
 let redisClient: any = null;
 
-export async function getRedisClient() {
+async function getRedisClient() {
   // Dacă Redis nu e instalat sau configurat, returnează null (folosim fallback la DB)
   if (!createClient || !process.env.REDIS_URL) {
     return null;
@@ -47,7 +47,7 @@ export async function getRedisClient() {
 /**
  * Închide conexiunea Redis (pentru cleanup)
  */
-export async function closeRedisClient() {
+async function closeRedisClient() {
   if (redisClient && redisClient.isOpen) {
     await redisClient.quit();
     redisClient = null;

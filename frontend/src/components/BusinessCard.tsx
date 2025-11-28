@@ -12,7 +12,6 @@ interface BusinessCardProps {
 export default function BusinessCard({
   id,
   name,
-  domain,
   description,
   note,
   services,

@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import useAuth from "../../../../hooks/useAuth";
 import useApi from "../../../../hooks/useApi";
 
 export default function KycReturnPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, hydrated } = useAuth();
   const api = useApi();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");

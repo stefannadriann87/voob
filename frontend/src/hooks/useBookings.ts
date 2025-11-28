@@ -16,6 +16,7 @@ export interface Booking {
   paid: boolean;
   paymentReused?: boolean;
   status: BookingStatus;
+  duration?: number | null; // Durata în minute (opțional, override service duration)
   business: { id: string; name: string; businessType: BusinessTypeValue };
   service: { id: string; name: string; duration: number; price: number };
   client: { id: string; name: string; email: string; phone?: string | null };
@@ -82,14 +83,28 @@ export default function useBookings() {
   );
 
   const createBooking = useCallback(
-    async (input: CreateBookingInput) => {
+    async (input: CreateBookingInput, optimisticBooking?: Booking) => {
+      // Optimistic update: add booking immediately if provided
+      if (optimisticBooking) {
+        setBookings((prev) => [optimisticBooking, ...prev]);
+      }
+
       setLoading(true);
       setError(null);
       try {
         const { data } = await api.post<Booking>("/booking", input);
-        setBookings((prev) => [data, ...prev]);
+        // Replace optimistic booking with real one
+        if (optimisticBooking) {
+          setBookings((prev) => prev.map((b) => (b.id === optimisticBooking.id ? data : b)));
+        } else {
+          setBookings((prev) => [data, ...prev]);
+        }
         return data;
       } catch (err) {
+        // Rollback optimistic update on error
+        if (optimisticBooking) {
+          setBookings((prev) => prev.filter((b) => b.id !== optimisticBooking.id));
+        }
         const axiosError = err as AxiosError<{ error?: string }>;
         const message =
           axiosError.response?.data?.error ??
@@ -140,7 +155,15 @@ export default function useBookings() {
   );
 
   const cancelBooking = useCallback(
-    async (id: string) => {
+    async (id: string, optimistic?: boolean) => {
+      // Optimistic update: mark as cancelled immediately
+      const originalBooking = bookings.find((b) => b.id === id);
+      if (optimistic && originalBooking) {
+        setBookings((prev) =>
+          prev.map((b) => (b.id === id ? { ...b, status: "CANCELLED" as const } : b))
+        );
+      }
+
       setLoading(true);
       setError(null);
       try {
@@ -152,6 +175,12 @@ export default function useBookings() {
         // Update local state with fetched bookings
         setBookings(updatedBookings);
       } catch (err) {
+        // Rollback optimistic update on error
+        if (optimistic && originalBooking) {
+          setBookings((prev) =>
+            prev.map((b) => (b.id === id ? originalBooking : b))
+          );
+        }
         const axiosError = err as AxiosError<{ error?: string }>;
         const message =
           axiosError.response?.data?.error ??
@@ -163,7 +192,7 @@ export default function useBookings() {
         setLoading(false);
       }
     },
-    [api, fetchBookings]
+    [api, fetchBookings, bookings]
   );
 
   return {

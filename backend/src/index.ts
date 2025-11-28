@@ -21,6 +21,7 @@ const subscriptionRouter = require("./routes/subscription");
 const platformSettingsRouter = require("./routes/platformSettings");
 const billingRouter = require("./modules/billing/billing.routes");
 const { billingWebhookHandler } = require("./modules/billing/billing.webhooks");
+const healthRouter = require("./routes/health");
 
 dotenv.config();
 
@@ -70,6 +71,9 @@ app.use(globalRateLimiter);
 app.get("/", (req, res) => {
   res.json({ message: "LARSTEF API running ✅" });
 });
+
+// Health check endpoints (înainte de rate limiting pentru monitoring)
+app.use("/health", healthRouter);
 
 app.use("/auth", authRouter);
 app.use("/business", businessRouter);

@@ -4,14 +4,14 @@
  */
 
 const { getStripeClient } = require("./stripeService");
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 /**
  * Creează un Stripe Connect account pentru un business
  * @param businessId - ID-ul business-ului
  * @returns Stripe Connect account ID
  */
-export async function createConnectAccount(businessId: string): Promise<string> {
+async function createConnectAccount(businessId: string): Promise<string> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     include: {
@@ -99,7 +99,7 @@ export async function createConnectAccount(businessId: string): Promise<string> 
  * @param returnUrl - URL-ul de return după onboarding
  * @returns Link de onboarding
  */
-export async function createOnboardingLink(
+async function createOnboardingLink(
   accountId: string,
   returnUrl: string
 ): Promise<string> {
@@ -124,7 +124,7 @@ export async function createOnboardingLink(
  * @param accountId - ID-ul contului Stripe Connect
  * @returns Status de verificare
  */
-export async function getVerificationStatus(accountId: string): Promise<{
+async function getVerificationStatus(accountId: string): Promise<{
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;

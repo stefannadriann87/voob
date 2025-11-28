@@ -1,4 +1,4 @@
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 interface AuditLogPayload {
   actorId?: string | null;

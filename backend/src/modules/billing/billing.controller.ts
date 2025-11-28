@@ -17,7 +17,7 @@ interface AuthenticatedRequest extends express.Request {
  * POST /billing/setup-intent
  * Creează SetupIntent pentru salvarea cardului
  */
-export async function createSetupIntentController(
+async function createSetupIntentController(
   req: express.Request,
   res: express.Response
 ) {
@@ -29,7 +29,7 @@ export async function createSetupIntentController(
   }
 
   // Verifică autorizarea
-  const prisma = require("../../lib/prisma").default;
+  const prisma = require("../../lib/prisma");
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { ownerId: true },
@@ -52,7 +52,7 @@ export async function createSetupIntentController(
  * POST /billing/subscribe
  * Activează subscription pentru un business
  */
-export async function subscribeController(req: express.Request, res: express.Response) {
+async function subscribeController(req: express.Request, res: express.Response) {
   const authReq = req as AuthenticatedRequest;
   const { businessId, planId, payment_method_id, auto_billing_consent, ip_address } = req.body;
 
@@ -67,7 +67,7 @@ export async function subscribeController(req: express.Request, res: express.Res
   }
 
   // Verifică autorizarea
-  const prisma = require("../../lib/prisma").default;
+  const prisma = require("../../lib/prisma");
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { ownerId: true },
@@ -98,7 +98,7 @@ export async function subscribeController(req: express.Request, res: express.Res
  * POST /billing/cancel
  * Anulează subscription pentru un business
  */
-export async function cancelController(req: express.Request, res: express.Response) {
+async function cancelController(req: express.Request, res: express.Response) {
   const authReq = req as AuthenticatedRequest;
   const { businessId } = req.body;
 
@@ -107,7 +107,7 @@ export async function cancelController(req: express.Request, res: express.Respon
   }
 
   // Verifică autorizarea
-  const prisma = require("../../lib/prisma").default;
+  const prisma = require("../../lib/prisma");
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { ownerId: true },
@@ -130,7 +130,7 @@ export async function cancelController(req: express.Request, res: express.Respon
  * GET /billing/status/:businessId
  * Obține statusul subscription-ului pentru un business
  */
-export async function getStatusController(req: express.Request, res: express.Response) {
+async function getStatusController(req: express.Request, res: express.Response) {
   const authReq = req as AuthenticatedRequest;
   const { businessId } = req.params;
 
@@ -139,7 +139,7 @@ export async function getStatusController(req: express.Request, res: express.Res
   }
 
   // Verifică autorizarea
-  const prisma = require("../../lib/prisma").default;
+  const prisma = require("../../lib/prisma");
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { ownerId: true },

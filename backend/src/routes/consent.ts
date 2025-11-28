@@ -2,7 +2,7 @@ import express = require("express");
 import type { Prisma } from "@prisma/client";
 const pdfLib = require("pdf-lib") as typeof import("pdf-lib");
 const { PDFDocument, StandardFonts } = pdfLib;
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 const { verifyJWT } = require("../middleware/auth");
 
 interface AuthenticatedRequest extends express.Request {

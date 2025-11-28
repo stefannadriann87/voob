@@ -1,11 +1,13 @@
-import crypto = require("crypto");
-import { SmsUsageType, Role } from "@prisma/client";
+const crypto = require("crypto");
+const { SmsUsageType, Role } = require("@prisma/client");
+type SmsUsageTypeEnum = (typeof SmsUsageType)[keyof typeof SmsUsageType];
+type RoleEnum = (typeof Role)[keyof typeof Role];
 
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 interface SmsUsagePayload {
   businessId?: string | null;
-  type?: SmsUsageType;
+  type?: SmsUsageTypeEnum;
   messageId?: string | null;
   phone?: string | null;
   cost?: number | null;
@@ -43,7 +45,7 @@ async function recordSmsUsage({
 interface AiUsagePayload {
   businessId?: string | null;
   userId?: string | null;
-  userRole?: Role | null;
+  userRole?: RoleEnum | null;
   toolName?: string | null;
   tokensUsed?: number | null;
   costEstimate?: number | null;

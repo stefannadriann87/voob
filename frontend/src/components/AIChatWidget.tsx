@@ -94,9 +94,24 @@ export default function AIChatWidget({ initialOpen = false, onBookingCreated }: 
         statusText: error?.response?.statusText,
         data: error?.response?.data,
         message: error?.message,
+        code: error?.code,
+        config: error?.config,
       });
-      const errorMessage =
-        error?.response?.data?.error || error?.message || "Eroare la comunicarea cu AI-ul. Te rugăm să încerci din nou.";
+      
+      let errorMessage = "Eroare la comunicarea cu AI-ul. Te rugăm să încerci din nou.";
+      
+      if (error?.code === "ECONNABORTED" || error?.message === "Network Error") {
+        errorMessage = "Nu mă pot conecta la server. Te rugăm să verifici că backend-ul rulează și să încerci din nou.";
+      } else if (error?.response?.status === 401) {
+        errorMessage = "Sesiunea a expirat. Te rugăm să te autentifici din nou.";
+      } else if (error?.response?.status === 500) {
+        errorMessage = "Eroare internă a serverului. Te rugăm să încerci din nou sau să contactezi suportul.";
+      } else if (error?.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
       setMessages((prev) => [...prev, { from: "ai", text: `Eroare: ${errorMessage}` }]);
     } finally {
       setLoading(false);

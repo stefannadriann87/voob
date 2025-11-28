@@ -1,8 +1,8 @@
 import express = require("express");
-const Stripe = require("stripe");
-const { getStripeClient } = require("../services/stripeService");
+const { verifyStripeWebhook, getWebhookSecret } = require("../middleware/webhookSignature");
+const { logger } = require("../lib/logger");
 
-const prisma = require("../lib/prisma").default;
+const prisma = require("../lib/prisma");
 
 const handlePaymentSucceeded = async (intent: any) => {
   const payment = await prisma.payment.findFirst({
@@ -67,25 +67,21 @@ const handlePaymentFailed = async (intent: any) => {
 };
 
 module.exports = async (req: express.Request & { rawBody?: Buffer }, res: express.Response) => {
-  const stripe = getStripeClient();
-  const signature = req.headers["stripe-signature"];
-  if (!signature) {
-    return res.status(400).send("Missing Stripe signature");
-  }
-
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecret = getWebhookSecret("payment");
   if (!webhookSecret) {
+    logger.error("Stripe webhook secret not configured", { path: req.path });
     return res.status(500).send("Stripe webhook secret is not configured");
   }
 
-  let event: any;
-  try {
-    const payload = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
-    event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
-  } catch (error) {
-    console.error("Stripe webhook verification failed:", error);
-    return res.status(400).send(`Webhook Error: ${(error as Error).message}`);
-  }
+  // Verifică semnătura folosind middleware-ul unificat
+  const verifyMiddleware = verifyStripeWebhook(webhookSecret);
+  
+  // Aplică middleware-ul manual (pentru că este un handler direct, nu un router)
+  return verifyMiddleware(req, res, async () => {
+    const event = (req as express.Request & { webhookEvent?: any }).webhookEvent;
+    if (!event) {
+      return res.status(400).send("Webhook event not found");
+    }
 
   try {
     switch (event.type) {
@@ -101,8 +97,9 @@ module.exports = async (req: express.Request & { rawBody?: Buffer }, res: expres
 
     return res.json({ received: true });
   } catch (error) {
-    console.error("Stripe webhook handler error:", error);
+    logger.error("Stripe webhook handler error", error);
     return res.status(500).send("Webhook handler error");
   }
+  });
 };
 

@@ -1,6 +1,5 @@
 import express = require("express");
 import jwt = require("jsonwebtoken");
-const { Role } = require("@prisma/client");
 import type { Role as RoleType } from "@prisma/client";
 const { validateEnv } = require("../lib/envValidator");
 const { logger } = require("../lib/logger");
