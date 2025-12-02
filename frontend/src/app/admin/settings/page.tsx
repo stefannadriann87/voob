@@ -143,7 +143,7 @@ export default function AdminSettingsPage() {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-2xl bg-[#6366F1] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-2xl bg-[#6366F1] mt-6 px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? "Se salvează..." : "Salvează setările"}
             </button>

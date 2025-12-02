@@ -43,7 +43,22 @@ npm run dev
    JWT_SECRET="your_jwt_secret"
    PORT=3001
    OPENAI_API_KEY="your_openai_api_key"  # Opțional - pentru funcționalitate AI completă
+   
+   # Configurare SMTP pentru trimitere emailuri (opțional pentru development)
+   # Fără aceste variabile, emailurile vor fi doar logate în consolă
+   SMTP_HOST="smtp.gmail.com"           # sau alt server SMTP
+   SMTP_PORT=587
+   SMTP_SECURE="false"                   # true pentru port 465, false pentru 587
+   SMTP_USER="your-email@gmail.com"
+   SMTP_PASS="your-app-password"         # Pentru Gmail, folosește "App Password"
+   EMAIL_FROM="no-reply@larstef.app"
+   DEMO_ADMIN_EMAIL="admin@larstef.app"  # Email pentru notificări demo
    ```
+
+   **Notă**: Pentru Gmail, trebuie să:
+   - Activezi "2-Step Verification" în contul tău Google
+   - Generezi un "App Password" din setările contului
+   - Folosești acel App Password în `SMTP_PASS`
 
 2. Rulează migrațiile Prisma:
    ```bash

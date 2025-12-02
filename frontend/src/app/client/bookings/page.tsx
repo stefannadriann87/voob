@@ -349,7 +349,7 @@ export default function ClientBookingsPage() {
   }, [selectedBusiness]);
 
   // Use working hours hook (after selectedBusinessId and slotDurationMinutes are defined)
-  const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook } = useWorkingHours({
+  const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook, isBreakTime } = useWorkingHours({
     businessId: selectedBusinessId,
     slotDurationMinutes,
   });
@@ -572,6 +572,9 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
         const isPast = isPastInTimezone(slotDate, businessTimezone);
         const isTooSoon = !isPast && slotStartMs < minBookingTime;
 
+        // Check if this slot is a break/pause period
+        const isBreak = isBreakTime(day, hour);
+
         // Check if this slot is booked by any existing booking
         // A slot is booked if the booking overlaps with this slot's time range
         const isBooked = relevantBookings.some((booking) => {
@@ -639,9 +642,9 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
         let status: "available" | "booked" | "past" | "selected" | "blocked" = "available";
         if (isPast) status = "past";
         if (isBooked) status = "booked";
-        if (isTooSoon) status = "blocked";
+        if (isTooSoon || isBreak) status = "blocked";
         // Block slot if it doesn't have enough consecutive slots available for the service
-        if (!hasEnoughConsecutiveSlots && selectedServiceId && !isPast && !isBooked && !isTooSoon) {
+        if (!hasEnoughConsecutiveSlots && selectedServiceId && !isPast && !isBooked && !isTooSoon && !isBreak) {
           status = "blocked";
         }
         if (
@@ -663,6 +666,7 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
           label: formatInTimezone(slotDate, "HH:mm", businessTimezone),
           status,
           blockReason, // Reason why slot is blocked (for tooltip)
+          isBreak, // Flag to indicate if this is a break/pause period
         };
       });
     });
@@ -676,6 +680,7 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
     serviceDurationMinutes,
     slotDurationMinutes,
     selectedBusiness?.timezone,
+    isBreakTime,
   ]);
 
   const uniqueHours = useMemo(() => {
@@ -972,20 +977,20 @@ const handleConsentSubmit = async () => {
           bookingStatusNormalized: bookingStatus,
           needsConsentModal,
           willOpenModal: needsConsentModal,
-          CONSENT_REQUIRED_TYPES: ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"],
-          isStomatologie: businessType === "STOMATOLOGIE",
+          CONSENT_REQUIRED_TYPES: ["MEDICAL_DENTAL", "THERAPY_COACHING"],
+          isMedicalDental: businessType === "MEDICAL_DENTAL",
         });
 
-        // Force check: if business is STOMATOLOGIE and status is PENDING_CONSENT, open modal
-        const isStomatologie = businessType === "STOMATOLOGIE" || booking.business?.businessType === "STOMATOLOGIE";
+        // Force check: if business is MEDICAL_DENTAL and status is PENDING_CONSENT, open modal
+        const isMedicalDental = businessType === "MEDICAL_DENTAL" || booking.business?.businessType === "MEDICAL_DENTAL";
         const isPendingConsent = bookingStatus === "PENDING_CONSENT" || booking.status === "PENDING_CONSENT";
         
-        if (needsConsentModal || (isStomatologie && isPendingConsent)) {
+        if (needsConsentModal || (isMedicalDental && isPendingConsent)) {
           console.log("Opening consent modal for booking:", booking.id, {
             needsConsentModal,
-            isStomatologie,
+            isMedicalDental,
             isPendingConsent,
-            forceOpen: !needsConsentModal && isStomatologie && isPendingConsent,
+            forceOpen: !needsConsentModal && isMedicalDental && isPendingConsent,
           });
           // Close confirmation modal first
           closeConfirmationModal();
@@ -999,7 +1004,7 @@ const handleConsentSubmit = async () => {
             bookingStatus: booking.status,
             bookingStatusNormalized: bookingStatus,
             conditionMet: needsConsentModal,
-            isStomatologie,
+            isMedicalDental,
             isPendingConsent,
             businessType,
           });
@@ -1098,20 +1103,20 @@ const handleConsentSubmit = async () => {
         bookingStatusNormalized: bookingStatus,
         needsConsentModal,
         willOpenModal: needsConsentModal,
-        CONSENT_REQUIRED_TYPES: ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"],
-        isStomatologie: businessType === "STOMATOLOGIE",
+        CONSENT_REQUIRED_TYPES: ["MEDICAL_DENTAL", "THERAPY_COACHING"],
+        isMedicalDental: businessType === "MEDICAL_DENTAL",
       });
 
-      // Force check: if business is STOMATOLOGIE and status is PENDING_CONSENT, open modal
-      const isStomatologie = businessType === "STOMATOLOGIE" || booking.data.business?.businessType === "STOMATOLOGIE";
+      // Force check: if business is MEDICAL_DENTAL and status is PENDING_CONSENT, open modal
+      const isMedicalDental = businessType === "MEDICAL_DENTAL" || booking.data.business?.businessType === "MEDICAL_DENTAL";
       const isPendingConsent = bookingStatus === "PENDING_CONSENT" || booking.data.status === "PENDING_CONSENT";
       
-      if (needsConsentModal || (isStomatologie && isPendingConsent)) {
+      if (needsConsentModal || (isMedicalDental && isPendingConsent)) {
         console.log("Opening consent modal for booking:", booking.data.id, {
           needsConsentModal,
-          isStomatologie,
+          isMedicalDental,
           isPendingConsent,
-          forceOpen: !needsConsentModal && isStomatologie && isPendingConsent,
+          forceOpen: !needsConsentModal && isMedicalDental && isPendingConsent,
         });
         // Close confirmation modal first
         closeConfirmationModal();
@@ -1125,7 +1130,7 @@ const handleConsentSubmit = async () => {
           bookingStatus: booking.data.status,
           bookingStatusNormalized: bookingStatus,
           conditionMet: needsConsentModal,
-          isStomatologie,
+          isMedicalDental,
           isPendingConsent,
           businessType,
         });
@@ -1248,11 +1253,11 @@ const handleConsentSubmit = async () => {
                   </div>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
                     {/* View Type Toggle - Mobile optimized */}
-                    <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-[#0B0E17]/40 p-1 overflow-x-auto">
+                    <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 overflow-x-auto">
                       <button
                         type="button"
                         onClick={() => setViewType("week")}
-                        className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                        className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                           viewType === "week"
                             ? "bg-[#6366F1] text-white"
                             : "text-white/60 hover:text-white hover:bg-white/5"
@@ -1264,7 +1269,7 @@ const handleConsentSubmit = async () => {
                       <button
                         type="button"
                         onClick={() => setViewType("day")}
-                        className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                        className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                           viewType === "day"
                             ? "bg-[#6366F1] text-white"
                             : "text-white/60 hover:text-white hover:bg-white/5"
@@ -1507,14 +1512,21 @@ const handleConsentSubmit = async () => {
                                           : "pointer",
                                     }}
                                     title={
-                                      slot.status === "blocked" && slot.blockReason
-                                        ? slot.blockReason
-                                        : slot.status === "blocked"
-                                          ? "Slot indisponibil"
-                                          : undefined
+                                      slot.status === "blocked" && slot.isBreak
+                                        ? "Pauză"
+                                        : slot.status === "blocked" && slot.blockReason
+                                          ? slot.blockReason
+                                          : slot.status === "blocked"
+                                            ? "Slot indisponibil"
+                                            : undefined
                                     }
                                   >
-                                    {slot.status === "booked" ? "Ocupat" : slot.label}
+                                    {slot.status === "booked" ? "Ocupat" : slot.status === "blocked" && slot.isBreak ? (
+                                      <>
+                                        <i className="fas fa-coffee mr-1" />
+                                        Pauză
+                                      </>
+                                    ) : slot.label}
                                   </button>
                                 );
                               })}

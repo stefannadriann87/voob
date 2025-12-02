@@ -145,7 +145,13 @@ router.get("/", async (_req, res) => {
     return res.json(businessesWithSlotDuration);
   } catch (error) {
     logger.error("Failed to list businesses", error);
-    return res.status(500).json({ error: "Eroare la listarea business-urilor." });
+    const errorMessage = error instanceof Error ? error.message : "Eroare necunoscută";
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    logger.error("Business list error details", { errorMessage, errorStack });
+    return res.status(500).json({ 
+      error: "Eroare la listarea business-urilor.",
+      details: process.env.NODE_ENV === "development" ? errorMessage : undefined,
+    });
   }
 });
 
@@ -684,7 +690,10 @@ router.delete("/:businessId/employees/:employeeId", async (req, res) => {
 router.get("/:businessId/working-hours", async (req, res) => {
   const { businessId } = req.params;
 
+  logger.info(`GET /business/${businessId}/working-hours - Request received`);
+
   if (!businessId) {
+    logger.warn("GET /business/:businessId/working-hours - Missing businessId");
     return res.status(400).json({ error: "businessId este obligatoriu." });
   }
 
@@ -695,9 +704,11 @@ router.get("/:businessId/working-hours", async (req, res) => {
     });
 
     if (!business) {
+      logger.warn(`GET /business/${businessId}/working-hours - Business not found`);
       return res.status(404).json({ error: "Business-ul nu a fost găsit." });
     }
 
+    logger.info(`GET /business/${businessId}/working-hours - Success`);
     return res.json({ workingHours: business.workingHours });
   } catch (error) {
     logger.error("Failed to fetch working hours", error);
@@ -740,6 +751,101 @@ router.put("/:businessId/working-hours", async (req, res) => {
 });
 
 // Update slot duration for a business
+/**
+ * PUT /business/:businessId
+ * Actualizează informațiile unui business
+ */
+router.put("/:businessId", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const authReq = req as AuthenticatedRequest;
+  const { name, email, address, phone, latitude, longitude } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // Verifică autorizarea
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { ownerId: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    if (business.ownerId !== authReq.user?.userId && authReq.user?.role !== "SUPERADMIN") {
+      return res.status(403).json({ error: "Nu ai permisiunea de a actualiza acest business." });
+    }
+
+    // Validare
+    if (name !== undefined && (!name || name.trim().length === 0)) {
+      return res.status(400).json({ error: "Numele business-ului este obligatoriu." });
+    }
+
+    if (email !== undefined && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Email-ul nu este valid." });
+    }
+
+    // Verifică dacă email-ul este deja folosit de alt business
+    if (email !== undefined && email) {
+      const existingBusiness = await prisma.business.findFirst({
+        where: {
+          email: email,
+          id: { not: businessId },
+        },
+      });
+
+      if (existingBusiness) {
+        return res.status(409).json({ error: "Acest email este deja folosit de alt business." });
+      }
+    }
+
+    // Actualizează business-ul
+    const updateData: any = {};
+    if (name !== undefined) {
+      updateData.name = name.trim();
+    }
+    if (email !== undefined) {
+      updateData.email = email && email.trim() ? email.trim() : null;
+    }
+    if (address !== undefined) {
+      updateData.address = address && address.trim() ? address.trim() : null;
+    }
+    if (phone !== undefined) {
+      updateData.phone = phone && phone.trim() ? phone.trim() : null;
+    }
+    if (latitude !== undefined) {
+      updateData.latitude = latitude !== null && latitude !== undefined ? parseFloat(latitude) : null;
+    }
+    if (longitude !== undefined) {
+      updateData.longitude = longitude !== null && longitude !== undefined ? parseFloat(longitude) : null;
+    }
+
+    // Verifică dacă există date de actualizat
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: "Nu există date de actualizat." });
+    }
+
+    const updated = await prisma.business.update({
+      where: { id: businessId },
+      data: updateData,
+      include: defaultBusinessInclude,
+    });
+
+    logger.info(`Business ${businessId} updated by user ${authReq.user?.userId}`);
+
+    return res.json(updated);
+  } catch (error: any) {
+    logger.error("Business update failed", error);
+    console.error("Business update error details:", error);
+    // Returnează mesajul de eroare mai detaliat pentru debugging
+    const errorMessage = error?.message || "Eroare la actualizarea business-ului.";
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
 router.put("/:businessId/slot-duration", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const { slotDuration }: { slotDuration?: number } = req.body;
@@ -927,6 +1033,229 @@ router.delete("/:businessId/holidays/:holidayId", async (req, res) => {
   } catch (error) {
     logger.error("Holiday deletion failed", error);
     return res.status(500).json({ error: "Eroare la ștergerea perioadei de concediu." });
+  }
+});
+
+/**
+ * POST /business/:businessId/cancel-subscription
+ * Anulează abonamentul Stripe pentru un business
+ */
+router.post("/:businessId/cancel-subscription", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const authReq = req as AuthenticatedRequest;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // Verifică autorizarea
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { ownerId: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    if (business.ownerId !== authReq.user?.userId && authReq.user?.role !== "SUPERADMIN") {
+      return res.status(403).json({ error: "Nu ai permisiunea de a anula abonamentul pentru acest business." });
+    }
+
+    // Verifică dacă există subscription
+    const subscription = await prisma.subscription.findFirst({
+      where: { businessId },
+      select: { id: true, stripeSubscriptionId: true, status: true },
+    });
+
+    if (!subscription) {
+      return res.status(404).json({ error: "Nu există abonament activ pentru acest business." });
+    }
+
+    if (subscription.status === "CANCELED") {
+      return res.status(400).json({ error: "Abonamentul este deja anulat." });
+    }
+
+    // Anulează subscription în Stripe
+    const { cancelSubscription } = require("../modules/billing/billing.service");
+    const { getStripeClient } = require("../services/stripeService");
+    const stripe = getStripeClient();
+
+    if (subscription.stripeSubscriptionId) {
+      try {
+        // Anulează subscription (va continua până la sfârșitul perioadei plătite)
+        await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+          cancel_at_period_end: true,
+        });
+      } catch (stripeError: any) {
+        logger.error("Stripe subscription cancellation failed", stripeError);
+        // Continuă chiar dacă Stripe eșuează, actualizăm în DB
+      }
+    }
+
+    // Actualizează statusul în DB
+    await prisma.subscription.updateMany({
+      where: { businessId },
+      data: {
+        status: "CANCELED",
+        autoBillingEnabled: false,
+      },
+    });
+
+    logger.info(`Subscription canceled for business ${businessId} by user ${authReq.user?.userId}`);
+
+    return res.json({
+      success: true,
+      message: "Abonamentul a fost anulat cu succes. Business-ul va rămâne activ până la expirarea perioadei plătite.",
+    });
+  } catch (error) {
+    logger.error("Cancel subscription failed", error);
+    return res.status(500).json({ error: "Eroare la anularea abonamentului." });
+  }
+});
+
+/**
+ * DELETE /business/:businessId
+ * Șterge permanent un business și toate datele asociate
+ */
+router.delete("/:businessId", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const authReq = req as AuthenticatedRequest;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // Verifică autorizarea
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { ownerId: true, name: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    if (business.ownerId !== authReq.user?.userId && authReq.user?.role !== "SUPERADMIN") {
+      return res.status(403).json({ error: "Nu ai permisiunea de a șterge acest business." });
+    }
+
+    // Anulează subscription-ul Stripe dacă există
+    const subscriptions = await prisma.subscription.findMany({
+      where: { businessId },
+      select: { stripeSubscriptionId: true },
+    });
+
+    const { getStripeClient } = require("../services/stripeService");
+    const stripe = getStripeClient();
+
+    for (const sub of subscriptions) {
+      if (sub.stripeSubscriptionId) {
+        try {
+          // Șterge complet subscription-ul din Stripe
+          await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+        } catch (stripeError: any) {
+          logger.error("Stripe subscription deletion failed", stripeError);
+          // Continuă chiar dacă Stripe eșuează
+        }
+      }
+    }
+
+    // Șterge toate datele asociate (Prisma va gestiona cascade-ul pentru relațiile cu onDelete: Cascade)
+    // Dar trebuie să ștergem manual relațiile care nu au cascade
+
+    // Șterge employees (User cu businessId)
+    await prisma.user.updateMany({
+      where: { businessId },
+      data: { businessId: null },
+    });
+
+    // Șterge clientLinks
+    await prisma.clientBusinessLink.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge subscriptions
+    await prisma.subscription.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge services (ar trebui să aibă cascade pentru bookings, dar să fim siguri)
+    await prisma.service.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge bookings (ar trebui să aibă cascade pentru payments, dar să fim siguri)
+    await prisma.booking.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge payments
+    await prisma.payment.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge invoices
+    await prisma.invoice.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge consentDocuments și consentForms
+    await prisma.consentDocument.deleteMany({
+      where: { businessId },
+    });
+
+    await prisma.consentForm.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge smsUsageLogs și aiUsageLogs
+    await prisma.smsUsageLog.deleteMany({
+      where: { businessId },
+    });
+
+    await prisma.aiUsageLog.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge business onboarding data
+    await prisma.businessBankAccount.deleteMany({
+      where: { businessId },
+    });
+
+    await prisma.businessKycStatus.deleteMany({
+      where: { businessId },
+    });
+
+    await prisma.businessLegalInfo.deleteMany({
+      where: { businessId },
+    });
+
+    await prisma.businessRepresentative.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge holidays (ar trebui să aibă cascade, dar să fim siguri)
+    await prisma.holiday.deleteMany({
+      where: { businessId },
+    });
+
+    // Șterge business-ul în sine
+    await prisma.business.delete({
+      where: { id: businessId },
+    });
+
+    logger.info(`Business ${businessId} (${business.name}) deleted by user ${authReq.user?.userId}`);
+
+    return res.json({
+      success: true,
+      message: "Business-ul a fost șters permanent cu succes.",
+    });
+  } catch (error) {
+    logger.error("Business deletion failed", error);
+    return res.status(500).json({ error: "Eroare la ștergerea business-ului." });
   }
 });
 

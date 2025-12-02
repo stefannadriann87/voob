@@ -314,8 +314,34 @@ router.post("/login", rateLimitLogin, async (req, res) => {
       user: userResponse,
     });
   } catch (error) {
-    logger.error("Login failed", error);
-    return res.status(500).json({ error: "Eroare la autentificare." });
+    logger.error("Login failed", { error, email, stack: error instanceof Error ? error.stack : undefined });
+    
+    // Return more descriptive error messages
+    if (error instanceof Error) {
+      // Check for Prisma errors
+      if (error.message.includes("prisma") || error.message.includes("database") || error.message.includes("connection")) {
+        return res.status(500).json({ 
+          error: "Eroare de conexiune la baza de date. Te rugăm să încerci din nou." 
+        });
+      }
+      
+      // Check for JWT errors
+      if (error.message.includes("jwt") || error.message.includes("token")) {
+        return res.status(500).json({ 
+          error: "Eroare la generarea token-ului de autentificare." 
+        });
+      }
+      
+      // Return the actual error message in development, generic in production
+      const isDevelopment = process.env.NODE_ENV !== "production";
+      return res.status(500).json({ 
+        error: isDevelopment 
+          ? `Eroare la autentificare: ${error.message}` 
+          : "Eroare la autentificare. Te rugăm să încerci din nou." 
+      });
+    }
+    
+    return res.status(500).json({ error: "Eroare la autentificare. Te rugăm să încerci din nou." });
   }
 });
 

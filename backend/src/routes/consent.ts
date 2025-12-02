@@ -1,5 +1,5 @@
 import express = require("express");
-import type { Prisma } from "@prisma/client";
+import type { Prisma, BusinessType } from "@prisma/client";
 const pdfLib = require("pdf-lib") as typeof import("pdf-lib");
 const { PDFDocument, StandardFonts } = pdfLib;
 const prisma = require("../lib/prisma");
@@ -22,15 +22,7 @@ type BookingWithConsentForm = Awaited<
 
 const router = express.Router();
 
-type BusinessType =
-  | "GENERAL"
-  | "STOMATOLOGIE"
-  | "BEAUTY"
-  | "OFTALMOLOGIE"
-  | "PSIHOLOGIE"
-  | "TERAPIE";
-
-const CONSENT_REQUIRED_TYPES: BusinessType[] = ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"];
+const CONSENT_REQUIRED_TYPES: BusinessType[] = ["MEDICAL_DENTAL", "THERAPY_COACHING"];
 
 const consentTemplate = {
   title: "Formular de informare și consimțământ stomatologic",
@@ -263,22 +255,23 @@ router.post("/sign", verifyJWT, async (req, res) => {
     const pdfBase64 = Buffer.from(pdfBytes).toString("base64");
     const pdfUrl = `data:application/pdf;base64,${pdfBase64}`;
 
+    // Prepare data object
+    // Use a default value for signature if not provided (to avoid null constraint violations)
+    const consentFormData: any = {
+      pdfUrl,
+      signature: signature || "ELECTRONIC_CONSENT", // Default value when no signature is provided
+      templateType: booking.business.businessType,
+      formData,
+    };
+
     const consentForm = await prisma.consentForm.upsert({
       where: { bookingId },
-      update: {
-        pdfUrl,
-        signature,
-        templateType: booking.business.businessType,
-        formData,
-      },
+      update: consentFormData,
       create: {
         booking: { connect: { id: bookingId } },
         client: { connect: { id: booking.clientId } },
         business: { connect: { id: booking.businessId } },
-        pdfUrl,
-        signature,
-        templateType: booking.business.businessType,
-        formData,
+        ...consentFormData,
       },
       include: {
         booking: {

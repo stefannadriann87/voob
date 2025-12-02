@@ -223,15 +223,16 @@ export default function WorkingHoursSettings() {
               </div>
 
               {daySchedule.enabled && (
-                <div className="space-y-3">
-                  {daySchedule.slots.map((slot, slotIndex) => (
-                    <div key={slotIndex} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <div className="space-y-4">
+                  {/* Prima perioadă (perioada principală de lucru) */}
+                  {daySchedule.slots.length > 0 && (
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                       <div className="flex items-center gap-2 flex-1">
                         <label className="text-xs text-white/60 min-w-[50px]">De la</label>
                         <input
                           type="time"
-                          value={slot.start}
-                          onChange={(e) => handleTimeChange(day.key, slotIndex, "start", e.target.value)}
+                          value={daySchedule.slots[0].start}
+                          onChange={(e) => handleTimeChange(day.key, 0, "start", e.target.value)}
                           className="flex-1 rounded-lg border border-white/10 bg-[#0B0E17]/60 px-3 py-2 text-sm text-white outline-none transition focus:border-[#6366F1]"
                         />
                       </div>
@@ -240,31 +241,70 @@ export default function WorkingHoursSettings() {
                         <label className="text-xs text-white/60 min-w-[50px]">Până la</label>
                         <input
                           type="time"
-                          value={slot.end}
-                          onChange={(e) => handleTimeChange(day.key, slotIndex, "end", e.target.value)}
+                          value={daySchedule.slots[0].end}
+                          onChange={(e) => handleTimeChange(day.key, 0, "end", e.target.value)}
                           className="flex-1 rounded-lg border border-white/10 bg-[#0B0E17]/60 px-3 py-2 text-sm text-white outline-none transition focus:border-[#6366F1]"
                         />
                       </div>
-                      {daySchedule.slots.length > 1 && (
+                    </div>
+                  )}
+
+                  {/* Zonă evidențiată pentru adăugare pauză */}
+                  <div className="rounded-xl border-2 border-dashed border-[#6366F1]/40 bg-[#6366F1]/5 p-4">
+                    <div className="mb-3">
+                      <h4 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+                        <i className="fas fa-coffee text-[#6366F1]" />
+                        Adaugă perioadă de pauză
+                      </h4>
+                      <p className="text-xs text-white/60">
+                        Adaugă o pauză în programul de lucru (ex: pauză de masă, pauză de cafea). Programările vor fi blocate în această perioadă.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAddSlot(day.key)}
+                      className="w-full rounded-xl border-2 border-[#6366F1]/50 bg-[#6366F1]/10 px-4 py-3 text-sm font-semibold text-[#6366F1] transition hover:bg-[#6366F1]/20 hover:border-[#6366F1]"
+                    >
+                      <i className="fas fa-plus mr-2" />
+                      Adaugă perioadă (pauză)
+                    </button>
+                  </div>
+
+                  {/* Inputurile pentru pauzele adăugate (slots suplimentare) */}
+                  {daySchedule.slots.slice(1).map((slot, slotIndex) => {
+                    const actualIndex = slotIndex + 1; // +1 pentru că am tăiat primul slot
+                    return (
+                      <div key={actualIndex} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                        <div className="flex items-center gap-2 flex-1">
+                          <label className="text-xs text-white/60 min-w-[50px]">De la</label>
+                          <input
+                            type="time"
+                            value={slot.start}
+                            onChange={(e) => handleTimeChange(day.key, actualIndex, "start", e.target.value)}
+                            className="flex-1 rounded-lg border border-white/10 bg-[#0B0E17]/60 px-3 py-2 text-sm text-white outline-none transition focus:border-[#6366F1]"
+                          />
+                        </div>
+                        <span className="text-white/40 hidden sm:inline">-</span>
+                        <div className="flex items-center gap-2 flex-1">
+                          <label className="text-xs text-white/60 min-w-[50px]">Până la</label>
+                          <input
+                            type="time"
+                            value={slot.end}
+                            onChange={(e) => handleTimeChange(day.key, actualIndex, "end", e.target.value)}
+                            className="flex-1 rounded-lg border border-white/10 bg-[#0B0E17]/60 px-3 py-2 text-sm text-white outline-none transition focus:border-[#6366F1]"
+                          />
+                        </div>
                         <button
                           type="button"
-                          onClick={() => handleRemoveSlot(day.key, slotIndex)}
+                          onClick={() => handleRemoveSlot(day.key, actualIndex)}
                           className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300 transition hover:bg-red-500/20"
                           title="Șterge perioada"
                         >
                           <i className="fas fa-trash text-xs" />
                         </button>
-                      )}
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => handleAddSlot(day.key)}
-                    className="w-full sm:w-auto rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80 transition hover:bg-white/10"
-                  >
-                    <i className="fas fa-plus mr-2" />
-                    Adaugă perioadă (pauză)
-                  </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

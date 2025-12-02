@@ -13,6 +13,12 @@ const handlePaymentSucceeded = async (intent: any) => {
     return;
   }
 
+  // IMPORTANT FIX: Verifică dacă payment-ul este deja SUCCEEDED (prevenire double payment)
+  if (payment.status === "SUCCEEDED") {
+    logger.warn("Payment already succeeded", { paymentId: payment.id, intentId: intent.id });
+    return; // Skip - deja procesat
+  }
+
   await prisma.payment.update({
     where: { id: payment.id },
     data: {
@@ -84,6 +90,18 @@ module.exports = async (req: express.Request & { rawBody?: Buffer }, res: expres
     }
 
   try {
+    // IMPORTANT FIX: Verifică dacă event-ul a fost deja procesat (idempotency)
+    const eventId = event.id;
+    const processedEvent = await prisma.webhookEvent.findUnique({
+      where: { eventId },
+    });
+
+    if (processedEvent && processedEvent.processed) {
+      logger.info("Webhook event already processed", { eventId, type: event.type });
+      return res.json({ received: true });
+    }
+
+    // Procesează event-ul
     switch (event.type) {
       case "payment_intent.succeeded":
         await handlePaymentSucceeded(event.data.object);
@@ -94,6 +112,19 @@ module.exports = async (req: express.Request & { rawBody?: Buffer }, res: expres
       default:
         break;
     }
+
+    // IMPORTANT FIX: Salvează event-ul ca procesat (idempotency)
+    await prisma.webhookEvent.upsert({
+      where: { eventId },
+      create: {
+        eventId,
+        type: event.type,
+        processed: true,
+      },
+      update: {
+        processed: true,
+      },
+    });
 
     return res.json({ received: true });
   } catch (error) {

@@ -15,6 +15,7 @@ export interface Booking {
   reminderSentAt?: string | null;
   paid: boolean;
   paymentReused?: boolean;
+  paymentMethod?: "CARD" | "OFFLINE" | null;
   status: BookingStatus;
   duration?: number | null; // Durata în minute (opțional, override service duration)
   business: { id: string; name: string; businessType: BusinessTypeValue };
@@ -155,7 +156,7 @@ export default function useBookings() {
   );
 
   const cancelBooking = useCallback(
-    async (id: string, optimistic?: boolean) => {
+    async (id: string, refundPayment?: boolean, optimistic?: boolean) => {
       // Optimistic update: mark as cancelled immediately
       const originalBooking = bookings.find((b) => b.id === id);
       if (optimistic && originalBooking) {
@@ -167,13 +168,17 @@ export default function useBookings() {
       setLoading(true);
       setError(null);
       try {
-        await api.delete(`/booking/${id}`);
+        const response = await api.delete(`/booking/${id}`, {
+          data: refundPayment !== undefined ? { refundPayment } : undefined,
+        });
         // After cancellation, fetch bookings again to get updated status
         // For paid bookings, status will be CANCELLED (not deleted)
         // For unpaid bookings, booking will be removed
         const updatedBookings = await fetchBookings();
         // Update local state with fetched bookings
         setBookings(updatedBookings);
+        // Return response data so caller can access message
+        return response.data;
       } catch (err) {
         // Rollback optimistic update on error
         if (optimistic && originalBooking) {

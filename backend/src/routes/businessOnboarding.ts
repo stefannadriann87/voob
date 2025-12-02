@@ -408,10 +408,22 @@ router.get("/status/:businessId", verifyJWT, async (req: express.Request, res: e
 
   try {
     const [legalInfo, representative, bankAccount, kycStatus] = await Promise.all([
-      prisma.businessLegalInfo.findUnique({ where: { businessId } }),
-      prisma.businessRepresentative.findUnique({ where: { businessId } }),
-      prisma.businessBankAccount.findUnique({ where: { businessId } }),
-      prisma.businessKycStatus.findUnique({ where: { businessId } }),
+      prisma.businessLegalInfo.findUnique({ where: { businessId } }).catch((err: any) => {
+        console.error("Error fetching legalInfo:", err);
+        return null;
+      }),
+      prisma.businessRepresentative.findUnique({ where: { businessId } }).catch((err: any) => {
+        console.error("Error fetching representative:", err);
+        return null;
+      }),
+      prisma.businessBankAccount.findUnique({ where: { businessId } }).catch((err: any) => {
+        console.error("Error fetching bankAccount:", err);
+        return null;
+      }),
+      prisma.businessKycStatus.findUnique({ where: { businessId } }).catch((err: any) => {
+        console.error("Error fetching kycStatus:", err);
+        return null;
+      }),
     ]);
 
     let verificationStatus = null;
@@ -420,6 +432,7 @@ router.get("/status/:businessId", verifyJWT, async (req: express.Request, res: e
         verificationStatus = await getVerificationStatus(kycStatus.stripeConnectAccountId);
       } catch (error) {
         console.error("Error getting verification status:", error);
+        // Don't fail the whole request if verification status fails
       }
     }
 
@@ -431,9 +444,14 @@ router.get("/status/:businessId", verifyJWT, async (req: express.Request, res: e
       verificationStatus,
       isComplete: !!(legalInfo && representative && bankAccount),
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Onboarding status error:", error);
-    return res.status(500).json({ error: "Eroare la obținerea statusului onboarding." });
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const isDevelopment = process.env.NODE_ENV !== "production";
+    return res.status(500).json({ 
+      error: "Eroare la obținerea statusului onboarding.",
+      details: isDevelopment ? errorMessage : undefined
+    });
   }
 });
 

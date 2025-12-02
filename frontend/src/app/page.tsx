@@ -3,17 +3,26 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import CookiePreferencesButton from "../components/CookiePreferencesButton";
 
 export default function Home() {
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  // Format date to YYYY-MM-DD without timezone conversion
+  const formatDateToString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   const getDefaultDemoDate = () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split("T")[0];
+    return formatDateToString(tomorrow);
   };
-  const minDemoDate = new Date().toISOString().split("T")[0];
+  const minDemoDate = formatDateToString(new Date());
   const [demoDate, setDemoDate] = useState(getDefaultDemoDate);
   const [availableSlots, setAvailableSlots] = useState<Array<{ iso: string; label: string }>>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -34,13 +43,19 @@ export default function Home() {
     return new Date(initial.getFullYear(), initial.getMonth(), 1);
   });
   const demoCalendarRef = useRef<HTMLDivElement | null>(null);
-  const minDemoDateObj = useMemo(() => new Date(`${minDemoDate}T00:00:00`), [minDemoDate]);
-  const selectedDemoDateObj = useMemo(() => new Date(`${demoDate}T00:00:00`), [demoDate]);
+  // Parse date string (YYYY-MM-DD) to local date without timezone issues
+  const parseLocalDate = (dateString: string): Date => {
+    const [year, month, day] = dateString.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+  const minDemoDateObj = useMemo(() => parseLocalDate(minDemoDate), [minDemoDate]);
+  const selectedDemoDateObj = useMemo(() => parseLocalDate(demoDate), [demoDate]);
   const demoDateDisplay = useMemo(() => {
     return new Intl.DateTimeFormat("ro-RO", {
       weekday: "long",
       day: "numeric",
       month: "long",
+      timeZone: "Europe/Bucharest",
     }).format(selectedDemoDateObj);
   }, [selectedDemoDateObj]);
   const demoCalendarTitle = useMemo(
@@ -86,7 +101,7 @@ export default function Home() {
     demoCalendarMonth.getFullYear() === minDemoDateObj.getFullYear() &&
     demoCalendarMonth.getMonth() === minDemoDateObj.getMonth();
   const handleDemoDateSelect = (date: Date) => {
-    setDemoDate(date.toISOString().split("T")[0]);
+    setDemoDate(formatDateToString(date));
     setIsDemoCalendarOpen(false);
   };
   const handlePrevMonth = () => {
@@ -397,12 +412,14 @@ export default function Home() {
           <Link href="#contact-business" onClick={closeSidebar}>
             Contact
           </Link>
-          <Link href="#demo" onClick={closeSidebar}>
-            Demo
-          </Link>
-          <Link href="/auth/login" className="btn-nav" onClick={closeSidebar}>
-            Fă-ți cont
-          </Link>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "12px", alignItems: "flex-start" }}>
+            <Link href="/auth/login" className="btn-nav btn-nav-secondary" onClick={closeSidebar}>
+              Intră în cont
+            </Link>
+            <Link href="/auth/register" className="btn-nav" onClick={closeSidebar}>
+              Creează cont
+            </Link>
+          </div>
         </nav>
       </aside>
 
@@ -418,28 +435,32 @@ export default function Home() {
           <Link href="#cum-functioneaza-afacere">Pentru Afacere</Link>
           <Link href="#pachete-preturi">Abonamente</Link>
           <Link href="#contact-business">Contact</Link>
-          <Link href="#demo">Demo</Link>
-          <Link href="/auth/login" className="btn-nav">
-            Fă-ți cont
-          </Link>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <Link href="/auth/login" className="btn-nav btn-nav-secondary">
+              Intră în cont
+            </Link>
+            <Link href="/auth/register" className="btn-nav">
+              Creează cont
+            </Link>
+          </div>
         </div>
       </nav>
 
       <section className="hero">
         <div className="hero-content">
           <div className="hero-tag">Sistem de booking online</div>
-          <h1>
+          <h1 className="font-size-40 mb-4">
             Platforma <span className="gradient-text">completă</span> pentru
             <br />
             a-ți <span className="gradient-text">automatiza</span> afacerea
           </h1>
-          <p className="subtitle mb-0">
-            LARSTEF este prima platformă inteligentă din România care unește
-            rezervările, plățile și AI-ul într-un singur loc.
-          </p>
-          <p className="subtitle">
-            Fă-ți programări, plătește în rate și lasă AI-ul să te ajute să nu
-            pierzi niciun moment important.
+          {/* <p className="subtitle mb-0">
+            Prima platformă inteligentă din România care unește rezervările, plățile online, consimțămintele și AI-ul într-un singur loc.
+          </p> */}
+          <p className="subtitle mb-10">
+            Automatizează programările, primește plăți instant și lasă AI-ul să optimizeze afacerea ta.
+            <br />
+            <strong style={{ color: "rgba(99, 102, 241, 0.9)" }}>Gratuit pentru clienți. Simplu pentru business.</strong>
           </p>
           <div className="cta-buttons">
             <Link href="/auth/register" className="btn btn-primary">
@@ -495,7 +516,7 @@ export default function Home() {
               Klarna. Poți alege dacă vrei să plătești imediat, în 30 de zile sau în 3
               rate fără dobândă.
             </p>
-            <img src="/images/logo-klarna.svg" alt="Klarna" width={200} height={80}/>
+            <img src="/images/logo-klarna.svg" alt="Klarna" width={160} height={60}/>
           </div>
           <div className="klarna-image">
             <div className="klarna-logo-placeholder">
@@ -535,7 +556,9 @@ export default function Home() {
       <section id="despre">
         <h2 className="section-title">De ce noi?</h2>
         <p className="section-subtitle">
-          Diferențiatorii care fac LARSTEF unic pe piața din România
+          Funcționalități unice, tehnologie avansată și experiență simplă. 
+          <br />
+          Tot ce ai nevoie pentru a transforma modul în care gestionezi rezervările și crești afacerea.
         </p>
         <div className="grid">
           <div className="card">
@@ -554,18 +577,8 @@ export default function Home() {
             </div>
             <h3>Plăți automate și instant</h3>
             <p>
-              Acceptă plăți online, în rate cu Klarna, și primești banii direct
-              în cont.
-            </p>
-          </div>
-          <div className="card">
-            <div className="card-icon">
-              <i className="fas fa-credit-card" />
-            </div>
-            <h3>Stripe & Klarna</h3>
-            <p>
-              Plăți sigure și rapide, inclusiv opțiunea de plată în rate pentru
-              clienții tăi. Primești banii instant în cont.
+              Acceptă plăți online prin Stripe, în rate cu Klarna, și primești banii direct
+              în contul tău.
             </p>
           </div>
           <div className="card">
@@ -580,32 +593,52 @@ export default function Home() {
           </div>
           <div className="card">
             <div className="card-icon">
-              <i className="fas fa-check-circle" />
+              <i className="fas fa-bell" />
             </div>
-            <h3>Confirmare și remindere automate</h3>
+            <h3>Notificări automate</h3>
             <p>
-              Clienții primesc notificări automate pentru toate programările prin
-              email, SMS sau WhatsApp.
+              Trimite reminder-uri și confirmări prin SMS și email pentru toate programările,
+              fără niciun efort.
             </p>
           </div>
           <div className="card">
             <div className="card-icon">
-              <i className="fas fa-comment-dots" />
+              <i className="fas fa-qrcode" />
             </div>
-            <h3>Notificări automate</h3>
+            <h3>QR Code pentru business</h3>
             <p>
-              Trimite reminder-uri și confirmări prin SMS, email sau WhatsApp fără
-              niciun efort.
+              Clienții pot scana QR-ul tău pentru a se conecta instant la business-ul tău
+              și a face rezervări rapid.
+            </p>
+          </div>
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-file-pdf" />
+            </div>
+            <h3>Consimțăminte și documente PDF</h3>
+            <p>
+              Generează automat consimțăminte personalizate cu semnătură electronică,
+              perfect pentru business-uri medicale.
+            </p>
+          </div>
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-users-cog" />
+            </div>
+            <h3>Management angajați</h3>
+            <p>
+              Gestionează echipa ta, programul de lucru al fiecărui specialist și
+              programările per angajat.
             </p>
           </div>
           <div className="card">
             <div className="card-icon">
               <i className="fas fa-redo-alt" />
             </div>
-            <h3>Reprogramare fără apeluri</h3>
+            <h3>Reprogramare și anulare online</h3>
             <p>
-              Modifică programările online, oricând, fără să fie nevoie de telefoane
-              sau bătăi de cap.
+              Clienții pot modifica sau anula programările online, oricând, fără să fie nevoie
+              de telefoane sau bătăi de cap.
             </p>
           </div>
           <div className="card">
@@ -615,17 +648,7 @@ export default function Home() {
             <h3>Istoric rezervări</h3>
             <p>
               Acces instant la toate programările anterioare, organizate într-un
-              singur loc.
-            </p>
-          </div>
-          <div className="card">
-            <div className="card-icon">
-              <i className="fas fa-sync-alt" />
-            </div>
-            <h3>Reprogramări și anulări simple</h3>
-            <p>
-              Clienții pot gestiona singuri programările, reducând numărul de apeluri
-              telefonice.
+              singur loc, cu toate detaliile.
             </p>
           </div>
           <div className="card">
@@ -646,19 +669,20 @@ export default function Home() {
         style={{ background: "rgba(255, 255, 255, 0.02)" }}
       >
         <h2 className="section-title">
-          Cum funcționează pentru tine (User Flow complet)
+          Cum funcționează pentru tine
         </h2>
         <p className="section-subtitle">
-          Totul simplu. De la cont, la programare și plată în câteva clicuri.{" "}
-          <br /> Nu trebuie să plătești nimic.
+          Rezervări rapide, plăți flexibile și gestionare simplă a programărilor. 
+          <br />
+          Platforma este complet gratuită pentru clienți, plătești doar serviciile, nu platforma.
         </p>
         <div className="grid">
           <div className="card">
             <div className="card-icon">
               <i className="fas fa-user-plus" />
             </div>
-            <h3>Creează-ți contul în câteva secunde</h3>
-            <p>Înregistrează-te gratuit cu e-mailul, Google sau Apple.</p>
+            <h3>Creează-ți contul gratuit în câteva secunde</h3>
+            <p>Înregistrează-te rapid cu e-mailul tău. Nu necesită card de credit și nu plătești nimic pentru utilizarea platformei.</p>
             <p
               style={{
                 marginTop: 12,
@@ -666,17 +690,16 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              Alege domeniile care te interesează hair styling, stomatolog, psiholog și
-              LARSTEF AI îți personalizează experiența din prima zi.
+              Platforma LARSTEF este complet gratuită pentru clienți. Poți face rezervări, gestiona programările și beneficia de toate funcționalitățile fără costuri.
             </p>
           </div>
 
           <div className="card">
             <div className="card-icon">
-              <i className="fas fa-search" />
+              <i className="fas fa-qrcode" />
             </div>
-            <h3>Alege serviciul sau specialistul tău preferat</h3>
-            <p>Găsești rapid toți profesioniștii din zona ta.</p>
+            <h3>Scanează QR-ul business-ului</h3>
+            <p>Fiecare partener LARSTEF are un cod QR unic. Scanează-l pentru a te conecta instant la business-ul lor.</p>
             <p
               style={{
                 marginTop: 12,
@@ -684,8 +707,7 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              Vezi prețurile, durata și recenziile, apoi alegi exact ce vrei fie
-              Florin hair stylist, fie Dr. Andrei dentist.
+              După scanare, business-ul apare automat în lista ta și poți vedea toate serviciile disponibile, prețurile și specialiștii.
             </p>
             <p
               style={{
@@ -695,7 +717,34 @@ export default function Home() {
                 fontWeight: 500,
               }}
             >
-              Totul într-o interfață curată și simplă.
+              Poți fi conectat la mai multe business-uri simultan.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-search" />
+            </div>
+            <h3>Alege serviciul sau specialistul tău preferat</h3>
+            <p>Vezi toate serviciile disponibile, prețurile, durata și specialiștii pentru fiecare business conectat.</p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Poți alege un serviciu specific sau un specialist anume. Vezi disponibilitatea în timp real și programează-te exact când vrei.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Totul într-o interfață curată și intuitivă.
             </p>
           </div>
 
@@ -704,7 +753,7 @@ export default function Home() {
               <i className="fas fa-calendar-check" />
             </div>
             <h3>Fă programări manual sau cu ajutorul AI</h3>
-            <p>Poți alege ora perfectă direct din calendar sau îi spui AI-ului:</p>
+            <p>Poți alege ora perfectă direct din calendar sau îi spui AI-ului în limbaj natural:</p>
             <p
               style={{
                 marginTop: 12,
@@ -717,8 +766,24 @@ export default function Home() {
               „Programează-mă la tuns vineri după-amiază.”
             </p>
             <p style={{ marginTop: 12 }}>
-              LARSTEF verifică automat disponibilitatea și confirmă rezervarea pentru
-              tine.
+              LARSTEF verifică automat disponibilitatea, sugerează cele mai bune intervale și confirmă rezervarea pentru tine.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-file-signature" />
+            </div>
+            <h3>Completează consimțământul (dacă e necesar)</h3>
+            <p>Pentru business-uri medicale (stomatolog, psiholog, etc.), completezi digital formularul de consimțământ.</p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Semnezi electronic, documentul se salvează automat în PDF și este accesibil oricând. Totul securizat și conform GDPR.
             </p>
           </div>
 
@@ -726,16 +791,20 @@ export default function Home() {
             <div className="card-icon">
               <i className="fas fa-credit-card" />
             </div>
-            <h3>Plătește cum vrei integral sau în rate</h3>
-            <p>După confirmare, alegi cum vrei să plătești:</p>
+            <h3>Plătește cum vrei: online sau la locație</h3>
+            <p>După confirmarea rezervării, alegi metoda de plată:</p>
             <ul>
               <li>
                 <i className="fas fa-check" />
-                Instant, cu cardul prin Stripe,
+                Instant online, cu cardul prin Stripe (securizat),
               </li>
               <li>
                 <i className="fas fa-check" />
-                În 4 rate fără dobândă prin Klarna.
+                În rate fără dobândă prin Klarna,
+              </li>
+              <li>
+                <i className="fas fa-check" />
+                Sau plătești direct la locație.
               </li>
             </ul>
             <p
@@ -746,7 +815,63 @@ export default function Home() {
                 fontWeight: 500,
               }}
             >
-              Simplu, sigur și complet digital.
+              Flexibilitate maximă, siguranță totală.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-bell" />
+            </div>
+            <h3>Primește notificări automate</h3>
+            <p>LARSTEF îți trimite automat confirmări și reminder-uri prin SMS și email:</p>
+            <ul>
+              <li>
+                <i className="fas fa-check" />Confirmare imediată după rezervare
+              </li>
+              <li>
+                <i className="fas fa-check" />Reminder cu 24h înainte de programare
+              </li>
+              <li>
+                <i className="fas fa-check" />Notificări pentru reprogramări sau anulări
+              </li>
+            </ul>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Nu mai uiți niciodată o programare.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-redo-alt" />
+            </div>
+            <h3>Gestionează rezervările online</h3>
+            <p>Modifică sau anulează programările direct din cont, oricând, fără să fie nevoie de telefoane.</p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Vezi toate rezervările tale într-un singur loc, istoricul complet și poți reprograma cu un singur click. Business-ul este notificat automat.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Control total, fără bătăi de cap.
             </p>
           </div>
 
@@ -754,16 +879,17 @@ export default function Home() {
             <div className="card-icon">
               <i className="fas fa-brain" />
             </div>
-            <h3>Primește notificări și recomandări inteligente</h3>
-            <p>LARSTEF îți trimite automat memento-uri, confirmări și sugestii:</p>
+            <h3>Beneficiază de recomandări AI inteligente</h3>
+            <p>LARSTEF AI analizează programările tale și îți oferă sugestii personalizate:</p>
             <ul>
               <li>
-                <i className="fas fa-check" />„Ai programare la 17:00 – tuns la
-                Florin”
+                <i className="fas fa-check" />Ore recomandate bazate pe disponibilitate
               </li>
               <li>
-                <i className="fas fa-check" />„A trecut 1 lună de la ultima vizită la
-                dentist. Vrei să reprogramez?”
+                <i className="fas fa-check" />Reminder-uri pentru programări recurente
+              </li>
+              <li>
+                <i className="fas fa-check" />Sugestii pentru optimizarea programului tău
               </li>
             </ul>
             <p
@@ -782,10 +908,12 @@ export default function Home() {
 
       <section id="cum-functioneaza-afacere">
         <h2 className="section-title">
-          Cum funcționează pentru afacerea ta (Business Flow complet)
+          Cum funcționează pentru afacerea ta
         </h2>
         <p className="section-subtitle">
-          Transformă-ți afacerea într-o mașinărie eficientă de rezervări și plăți
+          De la setup la optimizare: automatizează rezervările, gestionează plățile și crește eficiența afacerii tale într-un singur loc. 
+          <br />
+          Fără complicații, fără costuri ascunse, doar rezultate.
         </p>
         <div className="grid">
           <div className="card">
@@ -795,8 +923,16 @@ export default function Home() {
             <h3>Creează contul tău de business</h3>
             <p>
               Înregistrează-ți afacerea pe LARSTEF în doar câteva minute. Adaugă
-              numele, domeniul și locația, iar pagina ta publică devine instant
-              vizibilă pentru clienți.
+              numele, tipul de business și datele de contact.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Alege tipul de business (stomatolog, beauty, psiholog, etc.) pentru a activa automat consimțămintele necesare.
             </p>
             <p
               style={{
@@ -806,7 +942,36 @@ export default function Home() {
                 fontWeight: 500,
               }}
             >
-              Un profil curat, modern, gata să atragă rezervări noi din prima zi.
+              Proces simplu, ghidat pas cu pas.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-id-card" />
+            </div>
+            <h3>Completează onboarding-ul și conectează plățile</h3>
+            <p>
+              Completează datele legale (CUI, date reprezentant, cont bancar) și conectează-ți contul Stripe pentru plăți online.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Procesul de verificare KYC este ghidat și securizat. După aprobare, primești plăți direct în contul tău Stripe.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              O singură dată, apoi totul funcționează automat.
             </p>
           </div>
 
@@ -823,8 +988,7 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              De la „Tuns bărbați – 60 min” până la „Implant dentar – 90 min”, totul
-              apare clar pentru clienți.
+              Adaugă angajații, serviciile cu prețuri și durate, și fiecare specialist poate avea propriul program de lucru.
             </p>
             <p
               style={{
@@ -834,7 +998,65 @@ export default function Home() {
                 fontWeight: 500,
               }}
             >
-              LARSTEF se ocupă de afișare, tu doar alegi orele și prețurile.
+              Totul apare automat pentru clienți, tu doar gestionezi conținutul.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-clock" />
+            </div>
+            <h3>Configurează programul de lucru</h3>
+            <p>
+              Setează orele de lucru pentru fiecare zi, pauzele și concediile. Fiecare angajat poate avea program personalizat.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Calendarul se actualizează automat, clienții văd doar intervalele disponibile și nu pot rezerva în pauze sau concedii.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Flexibilitate maximă, control total.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-qrcode" />
+            </div>
+            <h3>Generează QR code-ul tău</h3>
+            <p>
+              Fiecare business primește un QR code unic pe care clienții îl pot scana pentru a se conecta instant.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Descarcă posterul cu QR sau partajează linkul direct. Clienții se conectează instant și pot face rezervări imediat.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Simplu, rapid, eficient.
             </p>
           </div>
 
@@ -844,8 +1066,7 @@ export default function Home() {
             </div>
             <h3>Gestionează programările fără stres</h3>
             <p>
-              Calendarul tău vizual îți arată tot ce contează: rezervări,
-              reprogramări și pauze.
+              Calendarul tău vizual îți arată tot ce contează: rezervări, reprogramări, pauze și concedii.
             </p>
             <p
               style={{
@@ -854,8 +1075,7 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              Poți modifica manual sau lași AI-ul LARSTEF să-ți umple automat
-              golurile din program.
+              Vezi toate rezervările într-un singur loc, modifică sau anulează cu un click, și primești notificări pentru fiecare acțiune.
             </p>
             <p
               style={{
@@ -875,8 +1095,7 @@ export default function Home() {
             </div>
             <h3>Primește plăți direct în contul tău</h3>
             <p>
-              Conectează-ți contul Stripe o singură dată și începi să primești banii
-              instant.
+              După conectarea Stripe Connect, primești toate plățile direct în contul tău, instant.
             </p>
             <p
               style={{
@@ -885,8 +1104,7 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              Clienții pot plăti integral sau în rate prin Klarna tu primești suma
-              completă pe loc.
+              Clienții pot plăti integral cu cardul sau în rate prin Klarna - tu primești suma completă pe loc, fără întârzieri.
             </p>
             <p
               style={{
@@ -902,6 +1120,64 @@ export default function Home() {
 
           <div className="card">
             <div className="card-icon">
+              <i className="fas fa-file-pdf" />
+            </div>
+            <h3>Consimțăminte automate (pentru medical)</h3>
+            <p>
+              Pentru business-uri medicale, LARSTEF generează automat consimțămintele necesare cu semnătură electronică.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Clienții completează și semnează digital, documentele se salvează automat în PDF și sunt accesibile oricând.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Conform GDPR, securizat, automatizat.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-bell" />
+            </div>
+            <h3>Notificări automate pentru clienți</h3>
+            <p>
+              LARSTEF trimite automat confirmări și reminder-uri clienților prin SMS și email.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Confirmare imediată după rezervare, reminder cu 24h înainte, și notificări pentru reprogramări sau anulări.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Reduci absențele, crești satisfacția clienților.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
               <i className="fas fa-chart-line" />
             </div>
             <h3>Lasă AI-ul să-ți optimizeze afacerea</h3>
@@ -909,15 +1185,15 @@ export default function Home() {
             <ul>
               <li>
                 <i className="fas fa-check" />
-                Ore profitabile
+                Ore profitabile și intervale populare
               </li>
               <li>
                 <i className="fas fa-check" />
-                Clienți recurenți
+                Clienți recurenți și oportunități de retenție
               </li>
               <li>
                 <i className="fas fa-check" />
-                Servicii populare
+                Servicii populare și sugestii de optimizare
               </li>
             </ul>
             <p
@@ -934,11 +1210,11 @@ export default function Home() {
 
           <div className="card">
             <div className="card-icon">
-              <i className="fas fa-comments" />
+              <i className="fas fa-robot" />
             </div>
-            <h3>Comunică ușor cu clienții</h3>
+            <h3>Asistent AI integrat</h3>
             <p>
-              Ai un chat integrat cu AI care te ajută să răspunzi rapid și profesionist.
+              Chat AI care te ajută să gestionezi rezervări, răspunzi la întrebări și optimizezi programul.
             </p>
             <p
               style={{
@@ -947,8 +1223,7 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              Confirmări, oferte sau reprogramări — totul automatizat și conectat la
-              fiecare rezervare.
+              Poți crea, modifica sau anula rezervări prin chat, AI-ul verifică disponibilitatea și confirmă automat.
             </p>
             <p
               style={{
@@ -958,7 +1233,36 @@ export default function Home() {
                 fontWeight: 500,
               }}
             >
-              Tu te concentrezi pe servicii, LARSTEF se ocupă de relația cu clientul.
+              Tu te concentrezi pe servicii, AI-ul se ocupă de administrare.
+            </p>
+          </div>
+
+          <div className="card">
+            <div className="card-icon">
+              <i className="fas fa-credit-card" />
+            </div>
+            <h3>Alege planul potrivit</h3>
+            <p>
+              LARSTEF PRO (149 lei/lună) sau LARSTEF BUSINESS (299 lei/lună) cu trial gratuit de 30 zile (o lună completă).
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: 14,
+              }}
+            >
+              Fiecare plan include hosting AWS, funcționalități complete, și suport. Fără costuri ascunse, fără comisioane pe tranzacții.
+            </p>
+            <p
+              style={{
+                marginTop: 12,
+                color: "rgba(99, 102, 241, 0.8)",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Testează gratuit, apoi alege planul care se potrivește afacerii tale.
             </p>
           </div>
         </div>
@@ -967,7 +1271,7 @@ export default function Home() {
       <section id="pachete-preturi" className="pricing-section">
         <h2 className="section-title">Alege planul potrivit pentru afacerea ta</h2>
         <p className="section-subtitle">Două planuri simple. Hosting pe AWS. Fără costuri ascunse.</p>
-        <div className="grid pricing-grid-compact px-10">
+        <div className="grid pricing-grid-compact mobile:px-10 px-0">
           <div className="pricing-card card pricing-card-compact">
             <h3 style={{ textAlign: "left" }}>LARSTEF PRO</h3>
             <div className="price" style={{ textAlign: "left" }}>
@@ -1131,7 +1435,7 @@ export default function Home() {
                     ) : slotsError ? (
                       <p style={{ color: "#f87171" }}>{slotsError}</p>
                     ) : availableSlots.length === 0 ? (
-                      <p style={{ color: "rgba(255,255,255,0.7)" }}>
+                      <p style={{ color: "#6366F1", fontWeight: 500 }}>
                         Nu există sloturi libere pentru data selectată. Alege altă zi.
                       </p>
                     ) : (
@@ -1221,8 +1525,8 @@ export default function Home() {
 
               <div className="form-row-submit">
                 <div className="form-group form-group-message">
-                  <label>Ce se întâmplă după?</label>
-                  <p className="section-subtitle" style={{ marginTop: 8 }}>
+                  <p className="section-subtitle" style={{ marginTop: 0, marginBottom: 0, textAlign: "left" }}>Ce se întâmplă după?</p>
+                  <p>
                     Primești email + SMS cu linkul de Meet, iar noi te contactăm pentru detalii. Poți reprograma oricând
                     răspunzând la email.
                   </p>
@@ -1295,12 +1599,12 @@ export default function Home() {
         <h2 className="section-title">Testează Platforma</h2>
         <p className="section-subtitle">
           Descoperă cum LARSTEF poate transforma modul în care gestionezi
-          programările.
+          programările și automatizează afacerea ta.
           <br />
-          Testează gratuit toate funcționalitățile pentru 14 zile.
+          <strong style={{ color: "rgba(99, 102, 241, 0.9)" }}>Testează gratuit toate funcționalitățile timp de 30 zile (o lună completă).</strong>
         </p>
         <Link href="/auth/register" className="btn btn-primary">
-          Solicită Demo Gratuit <i className="fas fa-arrow-right" />
+          Începe Trial Gratuit <i className="fas fa-arrow-right" />
         </Link>
       </section>
 
@@ -1494,19 +1798,6 @@ export default function Home() {
                     Contact
                   </Link>
                 </li>
-                <li style={{ marginBottom: 12 }}>
-                  <Link
-                    href="#demo"
-                    style={{
-                      color: "rgba(255, 255, 255, 0.6)",
-                      textDecoration: "none",
-                      fontSize: 14,
-                      transition: "all 0.3s",
-                    }}
-                  >
-                    Demo
-                  </Link>
-                </li>
               </ul>
             </div>
 
@@ -1662,16 +1953,19 @@ export default function Home() {
             >
               &copy; 2025 LARSTEF. Toate drepturile rezervate.
             </p>
-            <p
-              style={{
-                color: "rgba(255, 255, 255, 0.4)",
-                fontSize: 14,
-                margin: 0,
-              }}
-            >
-              Made with <i className="fas fa-heart" style={{ color: "#EC4899" }} /> in
-              Iași, Romania
-            </p>
+            <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
+              <CookiePreferencesButton />
+              <p
+                style={{
+                  color: "rgba(255, 255, 255, 0.4)",
+                  fontSize: 14,
+                  margin: 0,
+                }}
+              >
+                Made with <i className="fas fa-heart" style={{ color: "#EC4899" }} /> in
+                Iași, Romania
+              </p>
+            </div>
           </div>
         </div>
       </footer>

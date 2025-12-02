@@ -1,10 +1,10 @@
 export const BUSINESS_TYPE_OPTIONS = [
   { value: "GENERAL", label: "General" },
-  { value: "STOMATOLOGIE", label: "Cabinet stomatologic" },
-  { value: "BEAUTY", label: "Beauty & hair" },
-  { value: "OFTALMOLOGIE", label: "Oftalmologie" },
-  { value: "PSIHOLOGIE", label: "Psihologie" },
-  { value: "TERAPIE", label: "Terapie / recuperare" },
+  { value: "BEAUTY_WELLNESS", label: "Beauty & Wellness" },
+  { value: "MEDICAL_DENTAL", label: "Medical & Dental" },
+  { value: "THERAPY_COACHING", label: "Therapy & Coaching" },
+  { value: "SPORT_OUTDOOR", label: "Sport & Outdoor" },
+  { value: "HOME_FREELANCE", label: "Home & Freelance Services" },
 ] as const;
 
 export type BusinessTypeValue = (typeof BUSINESS_TYPE_OPTIONS)[number]["value"];

@@ -45,6 +45,9 @@ export default function BusinessBookingsPage() {
   const tooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [bookingToCancel, setBookingToCancel] = useState<Booking | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [refundPayment, setRefundPayment] = useState<boolean>(false);
+  const [cancelSuccessMessage, setCancelSuccessMessage] = useState<string | null>(null);
+  const [cancelErrorMessage, setCancelErrorMessage] = useState<string | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const [createBookingModalOpen, setCreateBookingModalOpen] = useState(false);
   const [selectedSlotDate, setSelectedSlotDate] = useState<string | null>(null);
@@ -69,16 +72,28 @@ export default function BusinessBookingsPage() {
   const bypassCancellationLimits = user?.role === "BUSINESS" || user?.role === "EMPLOYEE";
   const tooltipCancellationStatus = useMemo(() => {
     if (!tooltipBooking) return null;
+    // Check if booking is already cancelled
+    if (tooltipBooking.status === "CANCELLED") {
+      return { canCancel: false, message: "Rezervarea a fost deja anulată." };
+    }
     if (bypassCancellationLimits) return { canCancel: true };
     return getBookingCancellationStatus(tooltipBooking.date, tooltipBooking.reminderSentAt);
   }, [tooltipBooking, bypassCancellationLimits]);
   const selectedBookingCancellationStatus = useMemo(() => {
     if (!selectedBooking) return null;
+    // Check if booking is already cancelled
+    if (selectedBooking.status === "CANCELLED") {
+      return { canCancel: false, message: "Rezervarea a fost deja anulată." };
+    }
     if (bypassCancellationLimits) return { canCancel: true };
     return getBookingCancellationStatus(selectedBooking.date, selectedBooking.reminderSentAt);
   }, [selectedBooking, bypassCancellationLimits]);
   const bookingToCancelCancellationStatus = useMemo(() => {
     if (!bookingToCancel) return null;
+    // Check if booking is already cancelled
+    if (bookingToCancel.status === "CANCELLED") {
+      return { canCancel: false, message: "Rezervarea a fost deja anulată." };
+    }
     if (bypassCancellationLimits) return { canCancel: true };
     return getBookingCancellationStatus(bookingToCancel.date, bookingToCancel.reminderSentAt);
   }, [bookingToCancel, bypassCancellationLimits]);
@@ -111,7 +126,7 @@ export default function BusinessBookingsPage() {
   }, [business]);
 
   // Use working hours hook
-  const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook } = useWorkingHours({
+  const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook, isBreakTime } = useWorkingHours({
     businessId: businessId || null,
     slotDurationMinutes,
   });
@@ -324,7 +339,8 @@ export default function BusinessBookingsPage() {
           holidayEnd.setHours(23, 59, 59, 999);
           return slotStartMs < holidayEnd.getTime() && slotEndMs > holidayStart.getTime();
         });
-        const isBlocked = !!blockingHoliday;
+        const isBreak = isBreakTime(day, hour);
+        const isBlocked = !!blockingHoliday || isBreak;
 
         // Find all bookings that overlap with this slot
         // When "Toți" tab is selected, multiple bookings from different employees can overlap
@@ -385,10 +401,11 @@ export default function BusinessBookingsPage() {
           isFirstSlot: isFirstSlotOfBooking || false,
           clientColor: clientColor || null,
           blockingHoliday: blockingHoliday || null,
+          isBreak, // Flag to indicate if this is a break/pause period
         };
       });
     });
-  }, [weekDays, businessBookings, getAvailableHoursForDay, holidays, slotDurationMinutes]);
+  }, [weekDays, businessBookings, getAvailableHoursForDay, holidays, slotDurationMinutes, isBreakTime]);
 
   // Expose slotsMatrix for validation in create booking modal
   const slotsMatrixForValidation = slotsMatrix;
@@ -423,11 +440,11 @@ export default function BusinessBookingsPage() {
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
                 {/* View Type Toggle - Mobile optimized */}
-                <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-[#0B0E17]/40 p-1 overflow-x-auto">
+                <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 overflow-x-auto">
                   <button
                     type="button"
                     onClick={() => setViewType("week")}
-                    className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                    className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                       viewType === "week"
                         ? "bg-[#6366F1] text-white"
                         : "text-white/60 hover:text-white hover:bg-white/5"
@@ -439,7 +456,7 @@ export default function BusinessBookingsPage() {
                   <button
                     type="button"
                     onClick={() => setViewType("day")}
-                    className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                    className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                       viewType === "day"
                         ? "bg-[#6366F1] text-white"
                         : "text-white/60 hover:text-white hover:bg-white/5"
@@ -620,9 +637,10 @@ export default function BusinessBookingsPage() {
                   const day = weekDays[0];
                   const availableHours = getAvailableHoursForDay(day);
                   const daySlots = slotsMatrix?.[0] || [];
+                  // Filter out break slots in day view
                   return availableHours.map((hour: string, index: number) => {
                     const slot = daySlots[index];
-                    if (!slot) return null;
+                    if (!slot || slot.isBreak) return null;
                     const slotDate = new Date(slot.iso);
                     const isPast = slotDate.getTime() < Date.now();
                     return (
@@ -687,7 +705,7 @@ export default function BusinessBookingsPage() {
                                 </div>
                               )}
                             </div>
-                          ) : slot.status === "available" ? (
+                          ) : slot.status === "available" && !slot.isBreak ? (
                             <button
                               type="button"
                               onClick={() => {
@@ -700,7 +718,7 @@ export default function BusinessBookingsPage() {
                             </button>
                           ) : (
                             <span className="text-white/30">
-                              {slot.status === "past" ? "Trecut" : slot.status === "blocked" ? "Blocat" : "—"}
+                              {slot.status === "past" ? "Trecut" : slot.status === "blocked" ? (slot.isBreak ? "Pauză" : "Blocat") : "—"}
                             </span>
                           )}
                         </div>
@@ -1010,7 +1028,7 @@ export default function BusinessBookingsPage() {
                           >
                           <button
                             type="button"
-                            disabled={slot.status === "past" || slot.status === "blocked"}
+                            disabled={slot.status === "past" || slot.status === "blocked" || slot.isBreak}
                             onClick={(e) => {
                               e.stopPropagation();
                               if (slot.booking) {
@@ -1027,7 +1045,7 @@ export default function BusinessBookingsPage() {
                             }}
                             className={`flex h-[44px] w-full flex-col items-center justify-center rounded-2xl px-2 text-xs font-semibold ${stateClasses}`}
                             style={{
-                              cursor: slot.booking ? "pointer" : slot.status === "past" ? "not-allowed" : "pointer",
+                              cursor: slot.booking ? "pointer" : slot.status === "past" || slot.isBreak ? "not-allowed" : "pointer",
                               pointerEvents: "auto",
                             }}
                             onMouseEnter={(e) => {
@@ -1075,7 +1093,7 @@ export default function BusinessBookingsPage() {
                               )
                             ) : slot.status === "blocked" ? (
                               <span className="text-[10px] opacity-60 truncate">
-                                {slot.blockingHoliday?.reason || "Blocat"}
+                                {slot.isBreak ? "Pauză" : slot.blockingHoliday?.reason || "Blocat"}
                               </span>
                             ) : (
                               <span>{slot.label}</span>
@@ -1307,11 +1325,38 @@ export default function BusinessBookingsPage() {
                       : "—"}
                   </strong>
                 </p>
+                {bookingToCancel.paid && bookingToCancel.paymentMethod === "CARD" && (
+                  <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={refundPayment}
+                        onChange={(e) => setRefundPayment(e.target.checked)}
+                        className="mt-1 h-4 w-4 rounded border-white/20 bg-[#0B0E17] text-[#6366F1] focus:ring-[#6366F1]"
+                      />
+                      <div className="flex-1">
+                        <span className="text-sm font-medium text-white">
+                          Faceți refund automat clientului
+                        </span>
+                        <p className="mt-1 text-xs text-white/60">
+                          {refundPayment
+                            ? "Clientul va primi refund-ul în contul său în 5-10 zile lucrătoare."
+                            : "Dacă nu bifați, clientul poate reutiliza plata pentru o nouă rezervare."}
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                )}
               </div>
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  onClick={() => setBookingToCancel(null)}
+                  onClick={() => {
+                    setBookingToCancel(null);
+                    setRefundPayment(false);
+                    setCancelSuccessMessage(null);
+                    setCancelErrorMessage(null);
+                  }}
                   disabled={cancellingId === bookingToCancel.id}
                   className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1323,12 +1368,30 @@ export default function BusinessBookingsPage() {
                     if (!bookingToCancel) return;
                     if (!bookingToCancelCancellationStatus?.canCancel) return;
                     setCancellingId(bookingToCancel.id);
+                    setCancelSuccessMessage(null);
+                    setCancelErrorMessage(null);
                     try {
-                      await cancelBooking(bookingToCancel.id);
-                      setBookingToCancel(null);
+                      const response = await cancelBooking(bookingToCancel.id, bookingToCancel.paid && bookingToCancel.paymentMethod === "CARD" ? refundPayment : undefined);
+                      // Use message from backend response if available, otherwise use default
+                      const successMessage = (response as any)?.message || 
+                        (refundPayment && bookingToCancel.paid && bookingToCancel.paymentMethod === "CARD"
+                          ? "Rezervarea a fost anulată și refund-ul a fost procesat."
+                          : bookingToCancel.paid
+                          ? "Rezervarea a fost anulată. Clientul poate reutiliza plata pentru o nouă rezervare."
+                          : "Rezervarea a fost anulată cu succes.");
+                      setCancelSuccessMessage(successMessage);
                       void fetchBookings();
-                    } catch (error) {
+                      // Close modal after 2 seconds
+                      setTimeout(() => {
+                        setBookingToCancel(null);
+                        setRefundPayment(false);
+                        setCancelSuccessMessage(null);
+                      }, 2000);
+                    } catch (error: any) {
                       console.error("Cancel booking failed:", error);
+                      // Show error message to user
+                      const errorMessage = error?.response?.data?.error || error?.message || "Eroare la anularea rezervării.";
+                      setCancelErrorMessage(errorMessage);
                     } finally {
                       setCancellingId(null);
                     }
@@ -1341,6 +1404,25 @@ export default function BusinessBookingsPage() {
               </div>
               {bookingToCancelCancellationStatus && !bookingToCancelCancellationStatus.canCancel && bookingToCancelCancellationStatus.message && (
                 <p className="mt-3 text-sm text-red-300">{bookingToCancelCancellationStatus.message}</p>
+              )}
+              {cancelSuccessMessage && (
+                <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                  <p className="text-sm font-medium text-emerald-300">{cancelSuccessMessage}</p>
+                </div>
+              )}
+              {cancelErrorMessage && (
+                <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                  <p className="text-sm font-medium text-red-300">{cancelErrorMessage}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCancelErrorMessage(null);
+                    }}
+                    className="mt-2 text-xs text-red-400 hover:text-red-300"
+                  >
+                    Închide
+                  </button>
+                </div>
               )}
             </div>
           </div>

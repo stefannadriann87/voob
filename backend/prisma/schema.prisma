@@ -82,6 +82,10 @@ model Business {
   ownerId          String
   workingHours     Json?
   qrCodeUrl        String?
+  address          String?
+  phone            String?
+  latitude         Float?
+  longitude        Float?
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   currentPlanId    String?
@@ -464,11 +468,11 @@ enum Role {
 
 enum BusinessType {
   GENERAL
-  STOMATOLOGIE
-  BEAUTY
-  OFTALMOLOGIE
-  PSIHOLOGIE
-  TERAPIE
+  BEAUTY_WELLNESS
+  MEDICAL_DENTAL
+  THERAPY_COACHING
+  SPORT_OUTDOOR
+  HOME_FREELANCE
 }
 
 enum BusinessStatus {
@@ -520,4 +524,17 @@ enum SmsUsageType {
   DEMO
   MARKETING
   OTHER
+}
+
+model WebhookEvent {
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  type      String
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([eventId])
+  @@index([type])
+  @@index([processed])
 }

@@ -44,34 +44,9 @@ export const CONSENT_TEMPLATES: Record<BusinessTypeValue, ConsentTemplate> = {
       },
     ],
   },
-  STOMATOLOGIE: {
-    key: "STOMATOLOGIE",
-    title: "Consimțământ tratament stomatologic",
-    description: "Acest formular confirmă că pacientul înțelege procedurile stomatologice și riscurile asociate.",
-    fields: [
-      {
-        id: "stoma_risks",
-        label: "Sunt de acord cu tratamentele propuse și am înțeles riscurile prezentate.",
-        type: "checkbox",
-        required: true,
-      },
-      {
-        id: "stoma_anesthesia",
-        label: "Nu am alergii cunoscute la anestezice locale.",
-        type: "checkbox",
-      },
-      {
-        id: "stoma_conditions",
-        label: "Condiții medicale / tratamente în derulare",
-        type: "textarea",
-        placeholder: "Ex: diabet, tratament anticoagulant, sarcină etc.",
-        helperText: "Completează dacă urmezi tratamente sau ai afecțiuni relevante.",
-      },
-    ],
-  },
-  BEAUTY: {
-    key: "BEAUTY",
-    title: "Consimțământ servicii beauty",
+  BEAUTY_WELLNESS: {
+    key: "BEAUTY_WELLNESS",
+    title: "Consimțământ servicii beauty & wellness",
     description: "Confirmă că ești de acord cu procedurile cosmetice și ai comunicat sensibilitățile cunoscute.",
     fields: [
       {
@@ -93,82 +68,101 @@ export const CONSENT_TEMPLATES: Record<BusinessTypeValue, ConsentTemplate> = {
       },
     ],
   },
-  OFTALMOLOGIE: {
-    key: "OFTALMOLOGIE",
-    title: "Consimțământ consultație oftalmologică",
-    description: "Confirmă că ești informat despre testele efectuate și îți asumi comunicarea istoricului medical.",
+  MEDICAL_DENTAL: {
+    key: "MEDICAL_DENTAL",
+    title: "Consimțământ tratament medical & dental",
+    description: "Acest formular confirmă că pacientul înțelege procedurile medicale/dentale și riscurile asociate.",
     fields: [
       {
-        id: "ophtha_consent",
-        label: "Sunt de acord cu efectuarea testelor oftalmologice recomandate.",
+        id: "medical_risks",
+        label: "Sunt de acord cu tratamentele propuse și am înțeles riscurile prezentate.",
         type: "checkbox",
         required: true,
       },
       {
-        id: "ophtha_conditions",
-        label: "Afecțiuni oculare / intervenții anterioare",
-        type: "textarea",
-        placeholder: "Ex: glaucom, operație laser, cataractă",
+        id: "medical_anesthesia",
+        label: "Nu am alergii cunoscute la anestezice locale.",
+        type: "checkbox",
       },
       {
-        id: "ophtha_medication",
-        label: "Tratament medicamentos curent",
+        id: "medical_conditions",
+        label: "Condiții medicale / tratamente în derulare",
         type: "textarea",
-        placeholder: "Ex: picături, tratament pentru tensiune oculară",
+        placeholder: "Ex: diabet, tratament anticoagulant, sarcină etc.",
+        helperText: "Completează dacă urmezi tratamente sau ai afecțiuni relevante.",
       },
     ],
   },
-  PSIHOLOGIE: {
-    key: "PSIHOLOGIE",
-    title: "Consimțământ servicii psihologice",
-    description: "Confidențialitatea și acordul informat sunt esențiale pentru sesiunile de psihoterapie.",
+  THERAPY_COACHING: {
+    key: "THERAPY_COACHING",
+    title: "Consimțământ servicii terapie & coaching",
+    description: "Confidențialitatea și acordul informat sunt esențiale pentru sesiunile de terapie și coaching.",
     fields: [
       {
-        id: "psy_confidentiality",
+        id: "therapy_confidentiality",
         label: "Înțeleg și sunt de acord cu regulile de confidențialitate explicate de specialist.",
         type: "checkbox",
         required: true,
       },
       {
-        id: "psy_emergency",
+        id: "therapy_emergency",
         label: "Am indicat contactul unei persoane apropiate pentru situații de urgență.",
         type: "checkbox",
       },
       {
-        id: "psy_goals",
-        label: "Obiective / așteptări de la terapie",
+        id: "therapy_goals",
+        label: "Obiective / așteptări de la terapie/coaching",
         type: "textarea",
-        placeholder: "Ex: gestionarea anxietății, suport emoțional etc.",
+        placeholder: "Ex: gestionarea anxietății, suport emoțional, dezvoltare personală etc.",
       },
     ],
   },
-  TERAPIE: {
-    key: "TERAPIE",
-    title: "Consimțământ terapie / recuperare",
-    description: "Confirmă că ești apt pentru exercițiile recomandate și că ai comunicat posibilele limitări.",
+  SPORT_OUTDOOR: {
+    key: "SPORT_OUTDOOR",
+    title: "Acord pentru activități sportive & outdoor",
+    description: "Confirmă că ești apt pentru activitățile recomandate și că ai comunicat posibilele limitări.",
     fields: [
       {
-        id: "therapy_physical",
+        id: "sport_physical",
         label: "Sunt apt fizic pentru efort moderat și am comunicat eventualele restricții medicale.",
         type: "checkbox",
         required: true,
       },
       {
-        id: "therapy_implants",
-        label: "Nu am implanturi / dispozitive medicale care să împiedice terapia.",
+        id: "sport_implants",
+        label: "Nu am implanturi / dispozitive medicale care să împiedice activitatea.",
         type: "checkbox",
       },
       {
-        id: "therapy_history",
+        id: "sport_history",
         label: "Istoric de accidentări / intervenții chirurgicale",
         type: "textarea",
         placeholder: "Ex: fracturi, operații, dureri cronice",
       },
     ],
   },
+  HOME_FREELANCE: {
+    key: "HOME_FREELANCE",
+    title: "Acord general pentru servicii la domiciliu",
+    description: "Confirmă că ești de acord cu serviciile oferite și procesarea datelor personale.",
+    fields: [
+      {
+        id: "home_consent",
+        label: "Confirm că sunt de acord să continui cu serviciul solicitat.",
+        type: "checkbox",
+        required: true,
+      },
+      {
+        id: "home_notes",
+        label: "Observații / informații suplimentare",
+        type: "textarea",
+        placeholder: "Ex: acces la locație, instrucțiuni speciale",
+      },
+    ],
+  },
 };
 
-export const CONSENT_REQUIRED_TYPES: BusinessTypeValue[] = ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"];
+export const CONSENT_REQUIRED_TYPES: BusinessTypeValue[] = ["MEDICAL_DENTAL", "THERAPY_COACHING"];
 
 export const getConsentTemplate = (type?: BusinessTypeValue | null): ConsentTemplate => {
   if (!type) return CONSENT_TEMPLATES.GENERAL;

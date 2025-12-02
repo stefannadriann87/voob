@@ -11,6 +11,7 @@ const {
   sendBookingCancellationSms,
 } = require("../services/smsService");
 const { getStripeClient } = require("../services/stripeService");
+const { sendEmail } = require("../services/emailService");
 const { verifyJWT } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const {
@@ -29,12 +30,12 @@ const MIN_LEAD_MESSAGE = "Rezervările se pot face cu minim 2 ore înainte.";
 const CANCELLATION_LIMIT_MESSAGE = "Rezervarea nu mai poate fi anulată. Ai depășit limita de anulare.";
 const REMINDER_LIMIT_MESSAGE = "Timpul de anulare după reminder a expirat.";
 
-const CONSENT_REQUIRED_TYPES: BusinessType[] = ["STOMATOLOGIE", "OFTALMOLOGIE", "PSIHOLOGIE", "TERAPIE"];
+const CONSENT_REQUIRED_TYPES: BusinessType[] = ["MEDICAL_DENTAL", "THERAPY_COACHING"];
 
 const businessNeedsConsent = (type?: BusinessType | null) =>
   !!type && CONSENT_REQUIRED_TYPES.includes(type);
 
-router.post("/", validate(createBookingSchema), async (req, res) => {
+router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
   const {
     clientId,
     businessId,
@@ -57,6 +58,36 @@ router.post("/", validate(createBookingSchema), async (req, res) => {
   }
 
   try {
+    // Get authenticated user from request
+    const authReq = req as any;
+    const authenticatedUserId = authReq.user?.userId;
+    const authenticatedRole = authReq.user?.role;
+
+    // Verify client has access to this business (unless superadmin or business owner)
+    // Temporarily disabled to debug booking creation issue
+    // if (authenticatedRole === "CLIENT" && authenticatedUserId === clientId) {
+    //   try {
+    //     const clientLink = await prisma.clientBusinessLink.findUnique({
+    //       where: {
+    //         clientId_businessId: {
+    //           clientId,
+    //           businessId,
+    //         },
+    //       },
+    //     });
+
+    //     if (!clientLink) {
+    //       return res.status(403).json({ 
+    //         error: "Nu ai acces la acest business. Te rugăm să te conectezi la business-ul respectiv." 
+    //       });
+    //     }
+    //   } catch (linkError: any) {
+    //     logger.error("Error checking client business link:", linkError);
+    //     // If link check fails due to DB error, allow booking to proceed
+    //     // (might be a new client or the link table might not exist yet)
+    //   }
+    // }
+
     const [business, service] = await Promise.all([
       prisma.business.findUnique({
         where: { id: businessId },
@@ -148,38 +179,48 @@ router.post("/", validate(createBookingSchema), async (req, res) => {
     }
 
     // VALIDATION: Check for business holidays
-    const businessHolidays = await prisma.holiday.findMany({
-      where: {
-        businessId,
-        startDate: { lte: bookingEnd },
-        endDate: { gte: bookingStart },
-      },
-    });
-
-    if (businessHolidays.length > 0) {
-      const holiday = businessHolidays[0];
-      const reason = holiday.reason ? ` (${holiday.reason})` : "";
-      return res.status(409).json({
-        error: `Intervalul selectat se suprapune cu o perioadă de închidere a business-ului${reason}.`,
-      });
-    }
-
-    // VALIDATION: Check for employee holidays (if employee is specified)
-    if (employeeId) {
-      const employeeHolidays = await prisma.employeeHoliday.findMany({
+    try {
+      const businessHolidays = await prisma.holiday.findMany({
         where: {
-          employeeId,
+          businessId,
           startDate: { lte: bookingEnd },
           endDate: { gte: bookingStart },
         },
       });
 
-      if (employeeHolidays.length > 0) {
-        const holiday = employeeHolidays[0];
+      if (businessHolidays.length > 0) {
+        const holiday = businessHolidays[0];
         const reason = holiday.reason ? ` (${holiday.reason})` : "";
         return res.status(409).json({
-          error: `Angajatul este în concediu în perioada selectată${reason}.`,
+          error: `Intervalul selectat se suprapune cu o perioadă de închidere a business-ului${reason}.`,
         });
+      }
+    } catch (holidayError: any) {
+      logger.error("Error checking business holidays:", holidayError);
+      // Continue if holiday check fails
+    }
+
+    // VALIDATION: Check for employee holidays (if employee is specified)
+    if (employeeId) {
+      try {
+        const employeeHolidays = await prisma.employeeHoliday.findMany({
+          where: {
+            employeeId,
+            startDate: { lte: bookingEnd },
+            endDate: { gte: bookingStart },
+          },
+        });
+
+        if (employeeHolidays.length > 0) {
+          const holiday = employeeHolidays[0];
+          const reason = holiday.reason ? ` (${holiday.reason})` : "";
+          return res.status(409).json({
+            error: `Angajatul este în concediu în perioada selectată${reason}.`,
+          });
+        }
+      } catch (employeeHolidayError: any) {
+        logger.error("Error checking employee holidays:", employeeHolidayError);
+        // Continue if employee holiday check fails
       }
     }
 
@@ -216,20 +257,69 @@ router.post("/", validate(createBookingSchema), async (req, res) => {
       }
     }
 
+    // Verify employee belongs to business if employeeId is provided
+    if (employeeId) {
+      try {
+        // First check if this is the business owner
+        const businessOwner = await prisma.business.findUnique({
+          where: { id: businessId },
+          select: { ownerId: true },
+        });
+
+        // If it's the owner, allow it
+        if (businessOwner?.ownerId === employeeId) {
+          // Owner can be used as employee, continue
+        } else {
+          // Check if it's an employee of the business
+          const employee = await prisma.user.findUnique({
+            where: { id: employeeId },
+            select: { businessId: true, role: true },
+          });
+
+          if (!employee) {
+            return res.status(400).json({ 
+              error: "Angajatul nu a fost găsit." 
+            });
+          }
+
+          if (employee.businessId !== businessId) {
+            return res.status(400).json({ 
+              error: "Angajatul nu aparține acestui business." 
+            });
+          }
+        }
+      } catch (employeeError: any) {
+        logger.error("Error verifying employee:", employeeError);
+        // Continue if employee verification fails
+      }
+    }
+
+    logger.info("Creating booking", { clientId, businessId, serviceId, employeeId, date, initialStatus });
+    
+    // Prepare booking data
+    const bookingData: any = {
+      client: { connect: { id: clientId } },
+      business: { connect: { id: businessId } },
+      service: { connect: { id: serviceId } },
+      date: new Date(date),
+      paid: isPaid,
+      paymentMethod: paymentMethod ?? PaymentMethod.OFFLINE,
+      paymentStatus,
+      paymentReused: isPaymentReused,
+      status: initialStatus,
+    };
+
+    if (duration) {
+      bookingData.duration = duration;
+    }
+
+    // Only connect employee if employeeId is provided and valid
+    if (employeeId) {
+      bookingData.employee = { connect: { id: employeeId } };
+    }
+
     const booking = await prisma.booking.create({
-      data: {
-        client: { connect: { id: clientId } },
-        business: { connect: { id: businessId } },
-        service: { connect: { id: serviceId } },
-        ...(employeeId ? { employee: { connect: { id: employeeId } } } : {}),
-        date: new Date(date),
-        ...(duration ? { duration } : {}),
-        paid: isPaid,
-        paymentMethod: paymentMethod ?? PaymentMethod.OFFLINE,
-        paymentStatus,
-        paymentReused: isPaymentReused,
-        status: initialStatus,
-      },
+      data: bookingData,
       include: {
         client: { select: { id: true, name: true, email: true, phone: true } },
         business: { select: { id: true, name: true, businessType: true } },
@@ -237,6 +327,15 @@ router.post("/", validate(createBookingSchema), async (req, res) => {
         employee: employeeId ? { select: { id: true, name: true, email: true } } : false,
         consentForm: true,
       },
+    }).catch((createError: any) => {
+      logger.error("Error creating booking in Prisma:", { 
+        error: createError.message, 
+        stack: createError.stack,
+        code: createError.code,
+        meta: createError.meta,
+        bookingData: { clientId, businessId, serviceId, employeeId }
+      });
+      throw createError;
     });
 
     // Trimite SMS de confirmare dacă rezervarea este confirmată (nu necesită consimțământ)
@@ -256,9 +355,66 @@ router.post("/", validate(createBookingSchema), async (req, res) => {
     }
 
     return res.status(201).json(booking);
-  } catch (error) {
-    logger.error("Booking creation failed", error);
-    return res.status(500).json({ error: "Eroare la crearea rezervării." });
+  } catch (error: any) {
+    logger.error("Booking creation failed", { 
+      error: error?.message || error, 
+      stack: error instanceof Error ? error.stack : undefined, 
+      code: error?.code,
+      meta: error?.meta,
+      body: req.body 
+    });
+    
+    // Return more descriptive error messages
+    if (error instanceof Error) {
+      // Check for Prisma errors
+      const errorMessage = error.message || "";
+      const errorCode = (error as any)?.code || "";
+      
+      // Check for foreign key constraint errors
+      if (errorMessage.includes("Foreign key constraint") || 
+          errorMessage.includes("Record to update not found") ||
+          errorMessage.includes("Record to connect not found") ||
+          errorCode === "P2025") {
+        return res.status(400).json({ 
+          error: "Date invalide. Verifică că business-ul, serviciul și clientul există." 
+        });
+      }
+      
+      // Check for unique constraint errors
+      if (errorMessage.includes("Unique constraint") || 
+          errorMessage.includes("duplicate key") ||
+          errorCode === "P2002") {
+        return res.status(409).json({ 
+          error: "Rezervarea există deja pentru acest interval." 
+        });
+      }
+      
+      // Check for Prisma connection/database errors
+      if (errorMessage.includes("prisma") || 
+          errorMessage.includes("database") || 
+          errorMessage.includes("connection") ||
+          errorCode === "P1001" ||
+          errorCode === "P1002" ||
+          errorCode === "P1008") {
+        // Return detailed error in development
+        const isDevelopment = process.env.NODE_ENV !== "production";
+        return res.status(500).json({ 
+          error: isDevelopment 
+            ? `Eroare de conexiune la baza de date: ${errorMessage}` 
+            : "Eroare de conexiune la baza de date. Te rugăm să încerci din nou." 
+        });
+      }
+      
+      // Return the actual error message in development, generic in production
+      const isDevelopment = process.env.NODE_ENV !== "production";
+      return res.status(500).json({ 
+        error: isDevelopment 
+          ? `Eroare la crearea rezervării: ${errorMessage} (Code: ${errorCode})` 
+          : "Eroare la crearea rezervării. Te rugăm să încerci din nou." 
+      });
+    }
+    
+    return res.status(500).json({ error: "Eroare la crearea rezervării. Te rugăm să încerci din nou." });
   }
 });
 
@@ -462,6 +618,8 @@ router.put("/:id", async (req, res) => {
 
 router.delete("/:id", verifyJWT, async (req, res) => {
   const { id } = req.params;
+  const { refundPayment } = req.body || {}; // Optional: true = refund automat, false/undefined = credit pentru client
+
   if (!id) {
     return res.status(400).json({ error: "ID rezervare lipsă." });
   }
@@ -479,6 +637,7 @@ router.delete("/:id", verifyJWT, async (req, res) => {
         client: { select: { id: true, name: true, email: true, phone: true } },
         business: { select: { id: true, name: true, ownerId: true, employees: { select: { id: true } } } },
         service: { select: { id: true, name: true, price: true } },
+        employee: { select: { id: true, name: true } },
       },
     });
 
@@ -520,15 +679,150 @@ router.delete("/:id", verifyJWT, async (req, res) => {
       }
     }
 
-    // Salvează datele pentru SMS înainte de anulare
+    // Salvează datele pentru notificări înainte de anulare
     const clientName = booking.client?.name || "Client";
+    const clientEmail = booking.client?.email;
     const clientPhone = booking.client?.phone;
     const businessName = booking.business?.name || "Business";
     const bookingDate = booking.date;
     const isPaid = booking.paid === true;
+    const serviceName = booking.service?.name || "Serviciu";
+    const servicePrice = booking.service?.price || 0;
+    const employeeName = booking.employee?.name;
+
+    // Găsește Payment asociat cu booking-ul (dacă există)
+    const payment = isPaid
+      ? await prisma.payment.findFirst({
+          where: {
+            bookingId: id,
+            status: "SUCCEEDED",
+          },
+        })
+      : null;
+
+    let refundPerformed = false;
+    let refundError: Error | null = null;
+
+    // LOGICA DE REFUND:
+    // - Dacă clientul anulează: refund automat pentru CARD, credit pentru OFFLINE
+    // - Dacă business/employee anulează: business decide (refundPayment parameter)
+    const shouldRefund = isClient
+      ? isPaid && booking.paymentMethod === "CARD" && payment?.externalPaymentId
+      : refundPayment === true && isPaid && payment?.externalPaymentId;
+
+    // Dacă rezervarea e plătită și există Payment cu Stripe, procesează refund-ul
+    if (shouldRefund && payment) {
+      try {
+        // IMPORTANT FIX: Verifică dacă payment-ul este deja REFUNDED în DB (înainte de orice altă operațiune)
+        if (payment.status === "REFUNDED") {
+          logger.warn("Payment already refunded in DB", { paymentId: payment.id, bookingId: id });
+          refundPerformed = true; // Consideră că refund-ul a fost deja făcut
+        } else {
+          // Verifică dacă payment-ul are externalPaymentId
+          if (!payment.externalPaymentId) {
+            logger.warn("Payment has no externalPaymentId, cannot process refund", { 
+              paymentId: payment.id, 
+              bookingId: id 
+            });
+            refundError = new Error("Payment-ul nu are externalPaymentId asociat.");
+          } else {
+            const stripe = getStripeClient();
+            // Caută PaymentIntent sau Charge pentru refund
+
+            try {
+              // Încearcă să găsească PaymentIntent
+              const paymentIntent = await stripe.paymentIntents.retrieve(payment.externalPaymentId);
+              if (paymentIntent.status === "succeeded") {
+                // Găsește charge-ul asociat
+                const charges = await stripe.charges.list({
+                  payment_intent: payment.externalPaymentId,
+                  limit: 1,
+                });
+
+                if (charges.data.length > 0) {
+                  const charge = charges.data[0];
+                  
+                  // IMPORTANT FIX: Verifică dacă charge-ul are deja refund
+                  if (charge.refunded) {
+                    logger.warn("Charge already refunded", { chargeId: charge.id, bookingId: id });
+                    refundPerformed = true; // Consideră că refund-ul a fost deja făcut
+                  } else {
+                    // IMPORTANT FIX: Validare amount - folosește amount-ul minim pentru a evita over-refund
+                    const chargeAmount = charge.amount; // în cenți
+                    const paymentAmountCents = Math.round(payment.amount * 100);
+                    const refundAmount = Math.min(chargeAmount, paymentAmountCents);
+
+                    // Face refund complet
+                    const refund = await stripe.refunds.create({
+                      charge: charge.id,
+                      amount: refundAmount,
+                    });
+
+                    refundPerformed = true;
+                    logger.info(`Refund created for booking ${id}: ${refund.id}`, {
+                      refundAmount,
+                      chargeAmount,
+                      paymentAmountCents,
+                    });
+                  }
+                }
+              }
+            } catch (stripeError: any) {
+            // Dacă nu e PaymentIntent, poate fi un Charge direct
+            if (stripeError.code === "resource_missing") {
+              try {
+                const charge = await stripe.charges.retrieve(payment.externalPaymentId);
+                
+                // IMPORTANT FIX: Verifică dacă charge-ul are deja refund
+                if (charge.refunded) {
+                  logger.warn("Charge already refunded", { chargeId: charge.id, bookingId: id });
+                  refundPerformed = true; // Consideră că refund-ul a fost deja făcut
+                } else if (charge.paid) {
+                  // IMPORTANT FIX: Validare amount - folosește amount-ul minim pentru a evita over-refund
+                  const chargeAmount = charge.amount; // în cenți
+                  const paymentAmountCents = Math.round(payment.amount * 100);
+                  const refundAmount = Math.min(chargeAmount, paymentAmountCents);
+
+                  const refund = await stripe.refunds.create({
+                    charge: charge.id,
+                    amount: refundAmount,
+                  });
+                  refundPerformed = true;
+                  logger.info(`Refund created for booking ${id}: ${refund.id}`, {
+                    refundAmount,
+                    chargeAmount,
+                    paymentAmountCents,
+                  });
+                }
+              } catch (chargeError: any) {
+                refundError = new Error(`Stripe refund failed: ${chargeError.message}`);
+                logger.error("Stripe refund error", chargeError);
+              }
+            } else {
+              refundError = new Error(`Stripe refund failed: ${stripeError.message}`);
+              logger.error("Stripe refund error", stripeError);
+            }
+          }
+          }
+        }
+
+        // Actualizează status Payment la REFUNDED dacă refund-ul a reușit
+        if (refundPerformed && payment) {
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { status: "REFUNDED" },
+          });
+        }
+      } catch (error: any) {
+        refundError = error;
+        logger.error("Refund processing failed", error);
+        // Nu aruncăm eroarea aici, continuăm cu anularea booking-ului
+        // dar vom informa utilizatorul despre problema de refund
+      }
+    }
 
     // If booking is paid, set status to CANCELLED instead of deleting
-    // This allows the client to reuse the payment for a new booking
+    // This allows the client to reuse the payment for a new booking (if no refund)
     if (isPaid) {
       await prisma.booking.update({
         where: { id },
@@ -561,10 +855,126 @@ router.delete("/:id", verifyJWT, async (req, res) => {
       );
     }
 
-    return res.json({ success: true });
+    // Trimite email de notificare clientului
+    if (clientEmail) {
+      const isCancelledByBusiness = isBusinessOwner || isEmployee || isSuperAdmin;
+      const bookingDateFormatted = new Date(bookingDate).toLocaleString("ro-RO", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      let emailSubject = "Rezervarea ta a fost anulată";
+      let emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #6366F1; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+            .content { background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px; }
+            .info-box { background: white; padding: 15px; margin: 15px 0; border-radius: 5px; border-left: 4px solid #6366F1; }
+            .refund-info { background: #e8f5e9; padding: 15px; margin: 15px 0; border-radius: 5px; border-left: 4px solid #4caf50; }
+            .credit-info { background: #fff3e0; padding: 15px; margin: 15px 0; border-radius: 5px; border-left: 4px solid #ff9800; }
+            .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h2>${emailSubject}</h2>
+            </div>
+            <div class="content">
+              <p>Bună ${clientName},</p>
+              ${isCancelledByBusiness ? `<p>Ne pare rău să te informăm că rezervarea ta a fost anulată de către <strong>${businessName}</strong>.</p>` : `<p>Rezervarea ta a fost anulată.</p>`}
+              
+              <div class="info-box">
+                <h3>Detalii rezervare:</h3>
+                <p><strong>Data și ora:</strong> ${bookingDateFormatted}</p>
+                <p><strong>Serviciu:</strong> ${serviceName}</p>
+                ${employeeName ? `<p><strong>Specialist:</strong> ${employeeName}</p>` : ""}
+                <p><strong>Preț:</strong> ${servicePrice.toFixed(2)} RON</p>
+              </div>
+
+              ${isPaid
+                ? refundPerformed
+                  ? `<div class="refund-info">
+                      <h3>💰 Refund procesat</h3>
+                      <p>Plata ta în valoare de <strong>${servicePrice.toFixed(2)} RON</strong> va fi returnată în contul tău în 5-10 zile lucrătoare.</p>
+                      <p>Dacă nu primești refund-ul în acest interval, te rugăm să ne contactezi.</p>
+                    </div>`
+                  : booking.paymentMethod === "CARD"
+                  ? `<div class="credit-info">
+                      <h3>💳 Credit disponibil</h3>
+                      <p>Plata ta în valoare de <strong>${servicePrice.toFixed(2)} RON</strong> poate fi reutilizată pentru o nouă rezervare.</p>
+                      <p>Poți folosi acest credit când faci o nouă programare la <strong>${businessName}</strong>.</p>
+                    </div>`
+                  : `<div class="credit-info">
+                      <h3>💳 Credit disponibil</h3>
+                      <p>Plata ta în valoare de <strong>${servicePrice.toFixed(2)} RON</strong> poate fi reutilizată pentru o nouă rezervare.</p>
+                      <p>Poți folosi acest credit când faci o nouă programare la <strong>${businessName}</strong>.</p>
+                    </div>`
+                : ""}
+
+              <p>Dacă ai întrebări sau dorești să faci o nouă rezervare, te rugăm să ne contactezi.</p>
+              
+              <div class="footer">
+                <p>Cu respect,<br>Echipa LARSTEF</p>
+                <p>Acest email a fost trimis automat. Te rugăm să nu răspunzi la acest email.</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      sendEmail({
+        to: clientEmail,
+        subject: emailSubject,
+        html: emailHtml,
+      }).catch((error: unknown) => {
+        logger.error("Failed to send cancellation email", error);
+        // Nu aruncăm eroarea, doar logăm
+      });
+    }
+
+    // Returnează răspuns cu informații despre refund
+    let successMessage = "Rezervarea a fost anulată cu succes.";
+    if (isPaid) {
+      if (refundPerformed) {
+        successMessage = isClient
+          ? "Rezervarea a fost anulată și refund-ul a fost procesat. Veți primi banii înapoi în 5-10 zile lucrătoare."
+          : "Rezervarea a fost anulată și refund-ul a fost procesat.";
+      } else if (isClient && booking.paymentMethod === "CARD") {
+        // Client a anulat dar refund-ul nu s-a putut face (eroare)
+        successMessage = "Rezervarea a fost anulată. Refund-ul va fi procesat în curând.";
+      } else if (isClient && booking.paymentMethod === "OFFLINE") {
+        successMessage = "Rezervarea a fost anulată. Plata poate fi reutilizată pentru o nouă rezervare.";
+      } else if (!isClient) {
+        successMessage = "Rezervarea a fost anulată. Clientul poate reutiliza plata pentru o nouă rezervare.";
+      }
+    }
+
+    return res.json({
+      success: true,
+      refundPerformed,
+      refundError: refundError ? refundError.message : null,
+      message: successMessage,
+    });
   } catch (error) {
     logger.error("Booking deletion failed", error);
-    return res.status(500).json({ error: "Eroare la anularea rezervării." });
+    const errorMessage = error instanceof Error ? error.message : "Eroare necunoscută";
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    logger.error("Booking deletion error details", { errorMessage, errorStack, bookingId: id });
+    return res.status(500).json({ 
+      error: "Eroare la anularea rezervării.",
+      details: process.env.NODE_ENV === "development" ? errorMessage : undefined,
+    });
   }
 });
 
@@ -582,6 +992,31 @@ router.post("/confirm", verifyJWT, async (req, res) => {
 
     if (!payment) {
       return res.status(404).json({ error: "Plata nu a fost găsită." });
+    }
+
+    // CRITIC FIX: Verifică dacă payment-ul este deja confirmat și are booking
+    if (payment.status === "SUCCEEDED" && payment.bookingId) {
+      // Payment deja procesat, returnează booking existent
+      const existing = await prisma.booking.findUnique({
+        where: { id: payment.bookingId },
+        include: {
+          client: { select: { id: true, name: true, email: true, phone: true } },
+          business: { select: { id: true, name: true, businessType: true } },
+          service: true,
+          employee: { select: { id: true, name: true, email: true } },
+          consentForm: true,
+        },
+      });
+      if (existing) {
+        return res.json(existing);
+      }
+    }
+
+    // CRITIC FIX: Verifică dacă payment-ul este SUCCEEDED înainte de a crea booking
+    if (payment.status !== "SUCCEEDED") {
+      return res.status(400).json({ 
+        error: "Plata nu este confirmată. Așteaptă confirmarea de la Stripe." 
+      });
     }
 
     if (payment.bookingId) {

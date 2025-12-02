@@ -97,15 +97,25 @@ async function listPlatformPayments() {
 }
 
 async function getPlatformSettings() {
-  const settings = await prisma.platformSetting.findMany({
-    orderBy: { key: "asc" },
-  });
-  return settings.map((setting: typeof settings[number]) => ({
-    key: setting.key,
-    value: setting.value,
-    description: setting.description,
-    updatedAt: setting.updatedAt.toISOString(),
-  }));
+  try {
+    const settings = await prisma.platformSettings.findMany({
+      orderBy: { key: "asc" },
+    });
+    return settings.map((setting: typeof settings[number]) => ({
+      key: setting.key,
+      value: setting.value,
+      description: setting.description,
+      updatedAt: setting.updatedAt.toISOString(),
+    }));
+  } catch (error: any) {
+    console.error("Error fetching platform settings:", error);
+    // If table doesn't exist or is empty, return empty array
+    if (error.message?.includes("does not exist") || error.message?.includes("Unknown table")) {
+      console.warn("PlatformSettings table does not exist, returning empty array");
+      return [];
+    }
+    throw error;
+  }
 }
 
 async function updatePlatformSettings(

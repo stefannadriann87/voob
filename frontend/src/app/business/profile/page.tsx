@@ -3,8 +3,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useAuth from "../../../hooks/useAuth";
-import useBusiness from "../../../hooks/useBusiness";
+import useBusiness, { type Business } from "../../../hooks/useBusiness";
 import useApi from "../../../hooks/useApi";
+import MapPicker from "../../../components/MapPicker";
 
 export default function BusinessProfilePage() {
   const router = useRouter();
@@ -16,6 +17,13 @@ export default function BusinessProfilePage() {
   const [role, setRole] = useState("");
   const [avatar, setAvatar] = useState<string | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState("");
+  const [businessEmail, setBusinessEmail] = useState("");
+  const [businessPhone, setBusinessPhone] = useState("");
+  const [businessAddress, setBusinessAddress] = useState("");
+  const [businessLatitude, setBusinessLatitude] = useState<number | null>(null);
+  const [businessLongitude, setBusinessLongitude] = useState<number | null>(null);
+  const [showMapPicker, setShowMapPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +34,11 @@ export default function BusinessProfilePage() {
   const [regeneratingQr, setRegeneratingQr] = useState(false);
   const [downloadingPoster, setDownloadingPoster] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showCancelSubscriptionModal, setShowCancelSubscriptionModal] = useState(false);
+  const [showDeleteBusinessModal, setShowDeleteBusinessModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [cancelingSubscription, setCancelingSubscription] = useState(false);
+  const [deletingBusiness, setDeletingBusiness] = useState(false);
 
   useEffect(() => {
     if (!hydrated) {
@@ -55,6 +68,36 @@ export default function BusinessProfilePage() {
     void fetchBusinesses();
   }, [hydrated, user, fetchBusinesses]);
 
+  const ownedBusiness = useMemo(() => {
+    if (!user || user.role !== "BUSINESS") {
+      return null;
+    }
+    return (
+      businesses.find((item) => item.ownerId === user.id || item.id === user.business?.id) ?? null
+    );
+  }, [businesses, user]);
+
+  const business = ownedBusiness ?? user?.business ?? null;
+
+  useEffect(() => {
+    if (business) {
+      setBusinessName(business.name || "");
+      setBusinessEmail(business.email || "");
+      setBusinessPhone((business as Business).phone || "");
+      setBusinessAddress((business as Business).address || "");
+      setBusinessLatitude((business as Business).latitude || null);
+      setBusinessLongitude((business as Business).longitude || null);
+    } else {
+      // Reset dacă nu există business
+      setBusinessName("");
+      setBusinessEmail("");
+      setBusinessPhone("");
+      setBusinessAddress("");
+      setBusinessLatitude(null);
+      setBusinessLongitude(null);
+    }
+  }, [business]);
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
@@ -62,16 +105,47 @@ export default function BusinessProfilePage() {
     setLoading(true);
 
     try {
+      // Validare business name
+      if (!businessName.trim()) {
+        setError("Numele business-ului este obligatoriu.");
+        setLoading(false);
+        return;
+      }
+
+      // Validare email business dacă este completat
+      if (businessEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(businessEmail.trim())) {
+        setError("Email-ul business-ului nu este valid.");
+        setLoading(false);
+        return;
+      }
+
+      // Actualizează user (reprezentant)
       await updateProfile({
         name: name.trim(),
         phone: phone.trim() || undefined,
         specialization: role.trim() || undefined,
       });
+
+      // Actualizează business dacă există
+      if (ownedBusiness) {
+        await api.put(`/business/${ownedBusiness.id}`, {
+          name: businessName.trim(),
+          email: businessEmail.trim() || null,
+          phone: businessPhone.trim() || null,
+          address: businessAddress.trim() || null,
+          latitude: businessLatitude,
+          longitude: businessLongitude,
+        });
+        // Reîncarcă business-urile pentru a actualiza datele
+        await fetchBusinesses();
+      }
+
       setSuccess("Profil actualizat cu succes!");
       setIsEditing(false);
       setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Eroare la actualizarea profilului.");
+    } catch (err: any) {
+      const message = err?.response?.data?.error || err?.message || "Eroare la actualizarea profilului.";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -79,14 +153,27 @@ export default function BusinessProfilePage() {
 
   const handleCancel = () => {
     setIsEditing(false);
+    const currentBusiness = ownedBusiness ?? user?.business ?? null;
     setName(user?.name || "");
     setEmail(user?.email || "");
     setPhone(user?.phone || "");
     setRole(user?.specialization || "");
     setAvatar(user?.avatar || null);
     setAvatarPreview(user?.avatar || null);
+    setBusinessName(currentBusiness?.name || "");
+    setBusinessEmail(currentBusiness?.email || "");
+    setBusinessPhone((currentBusiness as Business)?.phone || "");
+    setBusinessAddress((currentBusiness as Business)?.address || "");
+    setBusinessLatitude((currentBusiness as any)?.latitude || null);
+    setBusinessLongitude((currentBusiness as any)?.longitude || null);
     setError(null);
     setSuccess(null);
+  };
+
+  const handleLocationSelect = (address: string, lat: number, lng: number) => {
+    setBusinessAddress(address);
+    setBusinessLatitude(lat);
+    setBusinessLongitude(lng);
   };
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -127,17 +214,6 @@ export default function BusinessProfilePage() {
       setUploadingAvatar(false);
     }
   };
-
-  const ownedBusiness = useMemo(() => {
-    if (!user || user.role !== "BUSINESS") {
-      return null;
-    }
-    return (
-      businesses.find((item) => item.ownerId === user.id || item.id === user.business?.id) ?? null
-    );
-  }, [businesses, user]);
-
-  const business = ownedBusiness ?? user?.business ?? null;
 
   const joinUrl = useMemo(() => {
     if (!ownedBusiness) {
@@ -362,6 +438,44 @@ export default function BusinessProfilePage() {
     }
   }, [joinUrl]);
 
+  const handleCancelSubscription = async () => {
+    if (!ownedBusiness) return;
+
+    setCancelingSubscription(true);
+    setError(null);
+    try {
+      const response = await api.post(`/business/${ownedBusiness.id}/cancel-subscription`);
+      setSuccess("Abonamentul a fost anulat cu succes. Business-ul va rămâne activ până la expirarea perioadei plătite.");
+      setShowCancelSubscriptionModal(false);
+      setTimeout(() => {
+        router.push("/auth/login");
+      }, 3000);
+    } catch (err: any) {
+      const message = err?.response?.data?.error || err?.message || "Nu am putut anula abonamentul.";
+      setError(message);
+    } finally {
+      setCancelingSubscription(false);
+    }
+  };
+
+  const handleDeleteBusiness = async () => {
+    if (!ownedBusiness || deleteConfirmText !== "ȘTERG") return;
+
+    setDeletingBusiness(true);
+    setError(null);
+    try {
+      await api.delete(`/business/${ownedBusiness.id}`);
+      setSuccess("Business-ul a fost șters permanent cu succes.");
+      setTimeout(() => {
+        router.push("/auth/login");
+      }, 2000);
+    } catch (err: any) {
+      const message = err?.response?.data?.error || err?.message || "Nu am putut șterge business-ul.";
+      setError(message);
+      setDeletingBusiness(false);
+    }
+  };
+
   if (!hydrated || !user) {
     return null;
   }
@@ -379,8 +493,8 @@ export default function BusinessProfilePage() {
         <section>
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-white">Date reprezentant</h2>
-              <p className="text-sm text-white/60">Aceste informații sunt folosite pentru comunicarea cu LARSTEF.</p>
+              <h2 className="text-xl font-semibold text-white">Date reprezentant și business</h2>
+              <p className="text-sm text-white/60">Actualizează informațiile tale personale și ale business-ului.</p>
             </div>
             {!isEditing && (
               <button
@@ -437,6 +551,46 @@ export default function BusinessProfilePage() {
                 <label className="text-sm font-medium text-white/70">Rol în companie</label>
                 <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
                   {user.specialization || "—"}
+                </div>
+              </div>
+
+              {/* Separator vizual */}
+              <div className="my-8 border-t border-white/10"></div>
+
+              {/* Date business */}
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <i className="fas fa-building text-[#6366F1]" />
+                  Date business
+                </h3>
+                <div className="space-y-6">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-white/70">Nume business</label>
+                    <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
+                      {business?.name || "—"}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-white/70">Email business</label>
+                    <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
+                      {business?.email || "—"}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-white/70">Telefon business</label>
+                    <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
+                      {(business as Business)?.phone || "—"}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-white/70">Adresă business</label>
+                    <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
+                      {(business as Business)?.address || "—"}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -531,6 +685,82 @@ export default function BusinessProfilePage() {
                   className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
                   placeholder="Ex: Owner, Manager, Coordonator"
                 />
+              </div>
+
+              {/* Separator vizual */}
+              <div className="my-8 border-t border-white/10"></div>
+
+              {/* Date business */}
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <i className="fas fa-building text-[#6366F1]" />
+                  Date business
+                </h3>
+                <div className="space-y-6">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-white/70">
+                      Nume business <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={businessName}
+                      onChange={(e) => setBusinessName(e.target.value)}
+                      required
+                      className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      placeholder="Nume business"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-white/70">Email business</label>
+                    <input
+                      type="email"
+                      value={businessEmail}
+                      onChange={(e) => setBusinessEmail(e.target.value)}
+                      className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      placeholder="contact@business.ro"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-white/70">Telefon business</label>
+                    <input
+                      type="tel"
+                      value={businessPhone}
+                      onChange={(e) => setBusinessPhone(e.target.value)}
+                      className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      placeholder="+40 7XX XXX XXX"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-white/70">Adresă business</label>
+                    <div className="flex gap-2">
+                      <textarea
+                        value={businessAddress}
+                        onChange={(e) => setBusinessAddress(e.target.value)}
+                        rows={3}
+                        className="flex-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1] resize-none"
+                        placeholder="Strada, număr, oraș, județ"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowMapPicker(true)}
+                        className="rounded-xl border border-[#6366F1]/50 bg-[#6366F1]/10 px-4 py-3 text-[#6366F1] transition hover:bg-[#6366F1]/20 whitespace-nowrap"
+                        title="Selectează locația pe hartă"
+                      >
+                        <i className="fas fa-map-marker-alt mr-2" />
+                        Selectează pe hartă
+                      </button>
+                    </div>
+                    {businessLatitude && businessLongitude && (
+                      <p className="text-xs text-emerald-400">
+                        <i className="fas fa-check-circle mr-1" />
+                        Locație setată: {businessLatitude.toFixed(6)}, {businessLongitude.toFixed(6)}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {error && (
@@ -660,45 +890,166 @@ export default function BusinessProfilePage() {
           </section>
         )}
 
-        <section className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-white">Date companie</h2>
-              <p className="text-sm text-white/60">În curând vei putea edita aceste informații direct din platformă.</p>
-            </div>
+        {/* Zonă periculoasă - Anulare și ștergere */}
+        <section className="space-y-6 rounded-3xl border-2 border-red-500/30 bg-red-500/5 p-6">
+          <div>
+            <h2 className="text-xl font-semibold text-red-400">Zonă periculoasă</h2>
+            <p className="text-sm text-white/60 mt-1">
+              Acțiuni permanente care nu pot fi anulate. Folosește cu precauție.
+            </p>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-white/70">Nume business</label>
-              <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
-                {business?.name || "—"}
+          <div className="space-y-4">
+            {/* Buton anulare abonament */}
+            <div className="rounded-2xl border border-orange-500/30 bg-orange-500/5 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-orange-300">Anulează abonament</h3>
+                  <p className="text-sm text-white/60 mt-1">
+                    Business-ul va rămâne activ până la expirarea perioadei plătite, apoi va fi suspendat.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCancelSubscriptionModal(true)}
+                  className="rounded-xl border border-orange-500/50 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-300 transition hover:bg-orange-500/20 whitespace-nowrap"
+                >
+                  Anulează abonament
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-white/70">Email business</label>
-              <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
-                {business?.email || "—"}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-white/70">Domeniu</label>
-              <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
-                {business?.domain || "—"}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-white/70">ID business</label>
-              <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
-                {business?.id || "—"}
+            {/* Buton ștergere business */}
+            <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-red-400">Șterge business (cont)</h3>
+                  <p className="text-sm text-white/60 mt-1">
+                    Ștergere permanentă a business-ului și a tuturor datelor asociate. Acțiune ireversibilă.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteBusinessModal(true)}
+                  className="rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-400 transition hover:bg-red-500/20 whitespace-nowrap"
+                >
+                  Șterge business
+                </button>
               </div>
             </div>
           </div>
         </section>
       </div>
+
+      {/* Modală anulare abonament */}
+      {showCancelSubscriptionModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+          onClick={() => !cancelingSubscription && setShowCancelSubscriptionModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl border border-orange-500/30 bg-[#0B0E17] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-semibold text-orange-300 mb-2">Anulează abonament</h3>
+            <p className="text-sm text-white/70 mb-6">
+              Ești sigur că vrei să anulezi abonamentul? Business-ul va rămâne activ până la expirarea perioadei plătite, apoi va fi suspendat.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCancelSubscriptionModal(false)}
+                disabled={cancelingSubscription}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Anulează
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelSubscription}
+                disabled={cancelingSubscription}
+                className="flex-1 rounded-xl border border-orange-500/50 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-300 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {cancelingSubscription ? "Se anulează..." : "Confirmă anularea"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modală ștergere business */}
+      {showDeleteBusinessModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+          onClick={() => !deletingBusiness && setShowDeleteBusinessModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl border border-red-500/30 bg-[#0B0E17] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-semibold text-red-400 mb-2">Ștergere permanentă business</h3>
+            <div className="text-sm text-white/70 mb-4 space-y-2">
+              <p className="font-semibold text-red-300">Atenție! Această acțiune este ireversibilă și va șterge:</p>
+              <ul className="list-disc pl-5 space-y-1 text-white/60">
+                <li>Tot business-ul și toate datele asociate</li>
+                <li>Toate rezervările (bookings)</li>
+                <li>Toți angajații și serviciile</li>
+                <li>Abonamentul Stripe (dacă există)</li>
+                <li>Toate documentele și consimțămintele</li>
+                <li>Link-urile clienților către acest business</li>
+              </ul>
+              <p className="mt-3 text-red-300 font-semibold">
+                Business-ul va fi șters permanent și nu vei putea recupera datele.
+              </p>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-white/70 mb-2">
+                Scrie <span className="font-mono text-red-400">ȘTERG</span> pentru a confirma:
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value.toUpperCase())}
+                placeholder="ȘTERG"
+                disabled={deletingBusiness}
+                className="w-full rounded-xl border border-red-500/30 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteBusinessModal(false);
+                  setDeleteConfirmText("");
+                }}
+                disabled={deletingBusiness}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Anulează
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteBusiness}
+                disabled={deletingBusiness || deleteConfirmText !== "ȘTERG"}
+                className="flex-1 rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-400 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deletingBusiness ? "Se șterge..." : "Șterge permanent"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Map Picker Modal */}
+      {showMapPicker && (
+        <MapPicker
+          address={businessAddress}
+          latitude={businessLatitude || undefined}
+          longitude={businessLongitude || undefined}
+          onLocationSelect={handleLocationSelect}
+          onClose={() => setShowMapPicker(false)}
+        />
+      )}
     </div>
   );
 }

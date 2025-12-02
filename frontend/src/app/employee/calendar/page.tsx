@@ -331,11 +331,11 @@ export default function EmployeeCalendarPage() {
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
               {/* View Type Toggle - Mobile optimized */}
-              <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-[#0B0E17]/40 p-1 overflow-x-auto">
+              <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 overflow-x-auto">
                 <button
                   type="button"
                   onClick={() => setViewType("week")}
-                  className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                  className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                     viewType === "week"
                       ? "bg-[#6366F1] text-white"
                       : "text-white/60 hover:text-white hover:bg-white/5"
@@ -347,7 +347,7 @@ export default function EmployeeCalendarPage() {
                 <button
                   type="button"
                   onClick={() => setViewType("day")}
-                  className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded transition whitespace-nowrap ${
+                  className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                     viewType === "day"
                       ? "bg-[#6366F1] text-white"
                       : "text-white/60 hover:text-white hover:bg-white/5"

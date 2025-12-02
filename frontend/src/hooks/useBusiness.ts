@@ -26,6 +26,9 @@ export interface Business {
   domain: string;
   email?: string | null;
   phone?: string | null;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   qrCodeUrl?: string | null;
   businessType: BusinessTypeValue;
   slotDuration?: number | null; // Durata sloturilor în minute (15, 30, 45, 60). Dacă null, se calculează automat

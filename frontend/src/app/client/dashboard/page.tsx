@@ -46,6 +46,8 @@ export default function ClientDashboardPage() {
   const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [bookingToCancel, setBookingToCancel] = useState<string | null>(null);
+  const [cancelSuccessMessage, setCancelSuccessMessage] = useState<string | null>(null);
+  const [cancelErrorMessage, setCancelErrorMessage] = useState<string | null>(null);
   const [bookingDetailsId, setBookingDetailsId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"upcoming" | "past">("upcoming");
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
@@ -254,14 +256,14 @@ export default function ClientDashboardPage() {
   // Filter bookings by selected business (for clients) or by business ID (for business users)
   // Exclude cancelled bookings from the list
   const filteredBookings = useMemo(() => {
-    // First, exclude cancelled bookings
-    const activeBookings = bookings.filter((booking) => booking.status !== "CANCELLED");
+    // Include all bookings (including cancelled) for "Toate rezervările" section
+    // Cancelled bookings will be shown with proper status
     
     if (user?.role === "BUSINESS") {
       // For business users, filter by their business ID
       const businessId = businessRecord?.id || userBusiness?.id;
       if (businessId) {
-        const filtered = activeBookings.filter((booking) => booking.businessId === businessId);
+        const filtered = bookings.filter((booking) => booking.businessId === businessId);
         // Debug: log bookings for business users
         if (filtered.length > 0) {
           console.log("Business bookings filtered:", filtered.length, "Business ID:", businessId);
@@ -269,10 +271,10 @@ export default function ClientDashboardPage() {
         }
         return filtered;
       }
-      return activeBookings;
+      return bookings;
     }
     if (user?.role === "CLIENT" && user.id) {
-      const clientBookings = activeBookings.filter((booking) => booking.clientId === user.id);
+      const clientBookings = bookings.filter((booking) => booking.clientId === user.id);
 
       if (selectedBusinessIdsForBookings.size > 0) {
         return clientBookings.filter((booking) =>
@@ -291,7 +293,7 @@ export default function ClientDashboardPage() {
 
       return clientBookings;
     }
-    return activeBookings;
+    return bookings;
   }, [
     bookings,
     selectedBusinessId,
@@ -340,9 +342,9 @@ export default function ClientDashboardPage() {
         .slice(0, 3);
     }
     
-    // For clients, show upcoming bookings
+    // For clients, show upcoming bookings (exclude cancelled)
     return filteredBookings
-      .filter((booking) => new Date(booking.date).getTime() >= now)
+      .filter((booking) => booking.status !== "CANCELLED" && new Date(booking.date).getTime() >= now)
       .slice(0, 3);
   }, [filteredBookings, now, isBusinessUser]);
 
@@ -417,21 +419,45 @@ export default function ClientDashboardPage() {
   const handleCloseCancelModal = useCallback(() => {
     if (cancellingId) return;
     setBookingToCancel(null);
+    setCancelSuccessMessage(null);
+    setCancelErrorMessage(null);
   }, [cancellingId]);
 
   const handleConfirmCancel = useCallback(async () => {
     if (!bookingToCancel) return;
     if (bookingToCancelStatus && !bookingToCancelStatus.canCancel) return;
     setCancellingId(bookingToCancel);
+    setCancelSuccessMessage(null);
+    setCancelErrorMessage(null);
     try {
-      await cancelBooking(bookingToCancel);
-      setBookingToCancel(null);
-    } catch (error) {
+      // Pentru client, refund-ul se face automat în backend (nu trimitem parametru refundPayment)
+      const response = await cancelBooking(bookingToCancel);
+      // Wait for bookings to refresh before closing modal
+      await fetchBookings();
+      // Show success message
+      const bookingData = bookingToCancelData;
+      let successMessage: string;
+      if (bookingData?.paid && bookingData.paymentMethod === "CARD") {
+        successMessage = "Rezervarea a fost anulată. Refund-ul va fi procesat automat și vei primi banii înapoi în 5-10 zile lucrătoare.";
+      } else if (bookingData?.paid && bookingData.paymentMethod === "OFFLINE") {
+        successMessage = "Rezervarea a fost anulată. Plata poate fi reutilizată pentru o nouă rezervare.";
+      } else {
+        successMessage = (response as any)?.message || "Rezervarea a fost anulată cu succes.";
+      }
+      setCancelSuccessMessage(successMessage);
+      // Close modal after 2 seconds
+      setTimeout(() => {
+        setBookingToCancel(null);
+        setCancelSuccessMessage(null);
+      }, 2000);
+    } catch (error: any) {
       console.error("Cancel booking failed:", error);
+      const errorMessage = error?.response?.data?.error || error?.message || "Eroare la anularea rezervării.";
+      setCancelErrorMessage(errorMessage);
     } finally {
       setCancellingId(null);
     }
-  }, [bookingToCancel, bookingToCancelStatus, cancelBooking]);
+  }, [bookingToCancel, bookingToCancelStatus, bookingToCancelData, cancelBooking, fetchBookings]);
 
   const handleCreateBookingClick = useCallback(() => {
     if (!user) return;
@@ -719,7 +745,7 @@ export default function ClientDashboardPage() {
                   className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0B0E17]/60 p-5 shadow-lg shadow-black/20"
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div>
+                    <div className="flex-1">
                       <p className="text-base font-semibold text-white">{business.name}</p>
                       {business.domain && (
                         <p className="mt-1 text-xs text-white/60">{business.domain}</p>
@@ -729,10 +755,23 @@ export default function ClientDashboardPage() {
                       )}
                       {(() => {
                         const phone = (business as { phone?: string | null }).phone;
-                        if (!phone) {
-                          return null;
-                        }
-                        return <p className="text-xs text-white/50">{phone}</p>;
+                        const address = (business as { address?: string | null }).address;
+                        return (
+                          <div className="mt-3 space-y-1.5">
+                            {address && (
+                              <div className="flex items-start gap-2">
+                                <i className="fas fa-map-marker-alt text-white/40 mt-0.5 text-xs" />
+                                <p className="text-xs text-white/70">{address}</p>
+                              </div>
+                            )}
+                            {phone && (
+                              <div className="flex items-center gap-2">
+                                <i className="fas fa-phone text-white/40 text-xs" />
+                                <p className="text-xs text-white/70">{phone}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
                       })()}
                     </div>
                     <button
@@ -779,7 +818,13 @@ export default function ClientDashboardPage() {
                     businessName={booking.business.name}
                     date={booking.date}
                     paid={booking.paid}
-                    status={new Date(booking.date).getTime() > now ? "upcoming" : "completed"}
+                    status={
+                      booking.status === "CANCELLED"
+                        ? "cancelled"
+                        : new Date(booking.date).getTime() > now
+                        ? "upcoming"
+                        : "completed"
+                    }
                     onReschedule={handleReschedule}
                     onRequestCancel={handleRequestCancel}
                     onDetails={handleDetails}
@@ -1179,15 +1224,51 @@ export default function ClientDashboardPage() {
           </div>
         )}
 
-      {bookingToCancel && (
+      {bookingToCancel && bookingToCancelData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40">
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-white">Confirmă anularea</h3>
               <p className="mt-2 text-sm text-white/60">
-                Ești sigur că vrei să anulezi această rezervare? Intervalul va deveni disponibil în calendar și
-                clientul va fi notificat.
+                Ești sigur că vrei să anulezi această rezervare? Intervalul va deveni disponibil în calendar.
               </p>
+              {bookingToCancelData.paid && bookingToCancelData.paymentMethod === "CARD" && (
+                <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <i className="fas fa-info-circle text-emerald-400 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-emerald-200">
+                        Refund automat
+                      </p>
+                      <p className="mt-1 text-xs text-emerald-200/80">
+                        Plata ta în valoare de{" "}
+                        <strong>
+                          {bookingToCancelData.service?.price?.toLocaleString("ro-RO", {
+                            style: "currency",
+                            currency: "RON",
+                          })}
+                        </strong>{" "}
+                        va fi returnată automat în contul tău în 5-10 zile lucrătoare.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {bookingToCancelData.paid && bookingToCancelData.paymentMethod === "OFFLINE" && (
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <i className="fas fa-info-circle text-amber-400 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-amber-200">
+                        Credit disponibil
+                      </p>
+                      <p className="mt-1 text-xs text-amber-200/80">
+                        Plata ta poate fi reutilizată pentru o nouă rezervare la același business.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
@@ -1212,6 +1293,25 @@ export default function ClientDashboardPage() {
             </div>
             {bookingToCancelStatus && !bookingToCancelStatus.canCancel && bookingToCancelStatus.message && (
               <p className="mt-2 text-sm text-red-300">{bookingToCancelStatus.message}</p>
+            )}
+            {cancelSuccessMessage && (
+              <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                <p className="text-sm font-medium text-emerald-300">{cancelSuccessMessage}</p>
+              </div>
+            )}
+            {cancelErrorMessage && (
+              <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                <p className="text-sm font-medium text-red-300">{cancelErrorMessage}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCancelErrorMessage(null);
+                  }}
+                  className="mt-2 text-xs text-red-400 hover:text-red-300"
+                >
+                  Închide
+                </button>
+              </div>
             )}
           </div>
         </div>

@@ -50,6 +50,48 @@ interface JwtPayload {
 
 const AUTH_EVENT = "larstef-auth-change";
 
+/**
+ * Extracts a user-friendly error message from an Axios error
+ */
+function getErrorMessage(err: unknown, defaultMessage: string): string {
+  const axiosError = err as AxiosError<{ error?: string }>;
+  
+  // Prioritize backend error message (already user-friendly)
+  if (axiosError.response?.data?.error) {
+    return axiosError.response.data.error;
+  }
+  
+  // Provide friendly status-based messages
+  if (axiosError.response) {
+    const status = axiosError.response.status;
+    if (status === 500) {
+      return "Eroare de server. Te rugăm să încerci din nou mai târziu.";
+    } else if (status === 401) {
+      return "Date de autentificare invalide. Verifică email-ul și parola.";
+    } else if (status === 403) {
+      return "Acces interzis. Nu ai permisiunea de a accesa această resursă.";
+    } else if (status === 404) {
+      return "Serviciul nu a fost găsit. Te rugăm să contactezi suportul.";
+    } else if (status >= 500) {
+      return "Eroare de server. Te rugăm să încerci din nou mai târziu.";
+    } else if (status >= 400) {
+      return "Cerere invalidă. Te rugăm să verifici datele introduse.";
+    }
+  }
+  
+  // Handle network/timeout errors
+  if (axiosError.code === "ECONNABORTED" || axiosError.message?.includes("timeout")) {
+    return "Timpul de așteptare a expirat. Te rugăm să încerci din nou.";
+  }
+  
+  if (axiosError.message?.includes("Network Error") || !axiosError.response) {
+    return "Nu s-a putut conecta la server. Verifică conexiunea la internet.";
+  }
+  
+  // Fallback to default message
+  return defaultMessage;
+}
+
 function getStoredUser(): AuthUser | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem("larstef_user");
@@ -98,11 +140,7 @@ export default function useAuth() {
         persistAuth(data.token, data.user);
         return data.user;
       } catch (err) {
-        const axiosError = err as AxiosError<{ error?: string }>;
-        const message =
-          axiosError.response?.data?.error ??
-          axiosError.message ??
-          (err instanceof Error ? err.message : "Eroare la autentificare.");
+        const message = getErrorMessage(err, "Eroare la autentificare. Te rugăm să încerci din nou.");
         setError(message);
         throw err;
       } finally {
@@ -129,11 +167,7 @@ export default function useAuth() {
         });
         return data.user;
       } catch (err) {
-        const axiosError = err as AxiosError<{ error?: string }>;
-        const message =
-          axiosError.response?.data?.error ??
-          axiosError.message ??
-          (err instanceof Error ? err.message : "Eroare la înregistrare.");
+        const message = getErrorMessage(err, "Eroare la înregistrare. Te rugăm să încerci din nou.");
         setError(message);
         throw err;
       } finally {
@@ -151,11 +185,7 @@ export default function useAuth() {
         await api.post("/auth/forgot-password", { email });
         return true;
       } catch (err) {
-        const axiosError = err as AxiosError<{ error?: string }>;
-        const message =
-          axiosError.response?.data?.error ??
-          axiosError.message ??
-          (err instanceof Error ? err.message : "Eroare la trimiterea emailului.");
+        const message = getErrorMessage(err, "Eroare la trimiterea emailului. Te rugăm să încerci din nou.");
         setError(message);
         throw err;
       } finally {
@@ -173,11 +203,7 @@ export default function useAuth() {
         await api.post("/auth/reset-password", { token, password });
         return true;
       } catch (err) {
-        const axiosError = err as AxiosError<{ error?: string }>;
-        const message =
-          axiosError.response?.data?.error ??
-          axiosError.message ??
-          (err instanceof Error ? err.message : "Eroare la resetarea parolei.");
+        const message = getErrorMessage(err, "Eroare la resetarea parolei. Te rugăm să încerci din nou.");
         setError(message);
         throw err;
       } finally {
@@ -225,11 +251,7 @@ export default function useAuth() {
         window.dispatchEvent(new Event(AUTH_EVENT));
         return updatedUser.user;
       } catch (err) {
-        const axiosError = err as AxiosError<{ error?: string }>;
-        const message =
-          axiosError.response?.data?.error ??
-          axiosError.message ??
-          (err instanceof Error ? err.message : "Eroare la actualizarea profilului.");
+        const message = getErrorMessage(err, "Eroare la actualizarea profilului. Te rugăm să încerci din nou.");
         setError(message);
         throw err;
       } finally {
@@ -248,7 +270,11 @@ export default function useAuth() {
         setUser(stored);
         setHydrated(true);
       } else {
-        await fetchCurrentUser();
+        try {
+          await fetchCurrentUser();
+        } catch (error) {
+          // If fetch fails, user is not authenticated - this is normal
+        }
         setHydrated(true);
       }
     };

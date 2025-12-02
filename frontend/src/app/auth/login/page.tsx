@@ -3,14 +3,13 @@
 import { FormEvent, useState, useCallback } from "react";
 import Head from "next/head";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import Navbar from "../../../components/Navbar";
+import { useSearchParams } from "next/navigation";
+import AuthHeader from "../../../components/AuthHeader";
 import CustomSelect from "../../../components/CustomSelect";
 import useAuth, { Role } from "../../../hooks/useAuth";
 import Captcha from "../../../components/Captcha";
 
 export default function LoginPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { login, error, loading } = useAuth();
   const [email, setEmail] = useState("");
@@ -35,28 +34,41 @@ export default function LoginPage() {
         : { email, password, role, captchaToken: captchaToken || undefined };
       
       const loggedUser = await login(loginPayload);
-      const redirectTo = searchParams.get("redirect");
-      if (redirectTo) {
-        router.push(redirectTo);
+      
+      if (!loggedUser) {
+        console.error("Login returned null/undefined user");
         return;
       }
+      
+      // Immediately redirect - localStorage is already set by persistAuth in useAuth
+      const redirectTo = searchParams.get("redirect");
+      if (redirectTo) {
+        window.location.href = redirectTo;
+        return;
+      }
+      
+      let redirectPath = "/client/dashboard";
       switch (loggedUser.role) {
         case "BUSINESS":
-          router.push("/business/dashboard");
+          redirectPath = "/business/dashboard";
           break;
         case "EMPLOYEE":
-          router.push("/employee/dashboard");
+          redirectPath = "/employee/dashboard";
           break;
         case "SUPERADMIN":
-          router.push("/admin/dashboard");
+          redirectPath = "/admin/dashboard";
           break;
         case "CLIENT":
-          router.push("/client/dashboard");
+          redirectPath = "/client/dashboard";
           break;
         default:
-          router.push("/client/dashboard");
+          redirectPath = "/client/dashboard";
       }
-    } catch {
+      
+      // Use window.location.href for a full page reload
+      window.location.href = redirectPath;
+    } catch (err) {
+      console.error("Login error:", err);
       // error handled by hook
     }
   };
@@ -67,8 +79,8 @@ export default function LoginPage() {
         <title>Autentificare - LARSTEF</title>
       </Head>
       <div className="min-h-screen bg-[#0B0E17] text-white">
-        <Navbar />
-        <div className="mx-auto flex max-w-4xl flex-col items-center px-4 py-20">
+        <AuthHeader />
+        <div className="mx-auto flex max-w-4xl flex-col items-center px-4 py-20 pt-32">
           <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-10 shadow-2xl shadow-black/30">
             <div className="mb-8 text-center">
               <h1 className="text-3xl font-semibold">Bine ai revenit!</h1>

@@ -15,6 +15,7 @@ const WORKING_HOURS = {
 };
 
 const ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || process.env.EMAIL_FROM;
+const TEST_EMAIL = "stefann.adriann@gmail.com"; // Email pentru testare
 
 const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -217,6 +218,7 @@ router.post("/demo-booking", async (req: Request, res: Response) => {
       message: `Salut ${firstName}! Programarea ta pentru demo LARSTEF este confirmată pe ${formattedDate} la ${formattedTime}. Link Meet: ${meetLink}`,
     }).catch((error: unknown) => console.error("Demo SMS error:", error));
 
+    // Trimite email către utilizator
     sendEmail({
       to: email,
       subject: "Demo LARSTEF confirmat",
@@ -226,6 +228,17 @@ router.post("/demo-booking", async (req: Request, res: Response) => {
         content: icsContent,
       },
     }).catch((error: unknown) => console.error("Demo client email error:", error));
+
+    // Trimite copie la adresa de test pentru verificare
+    sendEmail({
+      to: TEST_EMAIL,
+      subject: "Demo LARSTEF confirmat (copie test)",
+      text: `Salut ${firstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nEmail original: ${email}\nTelefon: ${phone}\n\nȚi-am atașat și un calendar invite.\n\nEchipa LARSTEF`,
+      icalEvent: {
+        method: "REQUEST",
+        content: icsContent,
+      },
+    }).catch((error: unknown) => console.error("Demo test email error:", error));
 
     if (ADMIN_EMAIL) {
       sendEmail({

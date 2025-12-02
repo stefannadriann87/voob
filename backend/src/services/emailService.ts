@@ -17,16 +17,58 @@ const transporter =
         buffer: true,
       });
 
-async function sendEmail(options: nodemailer.SendMailOptions) {
+interface EmailOptions extends nodemailer.SendMailOptions {
+  icalEvent?: {
+    method: string;
+    content: string;
+  };
+}
+
+async function sendEmail(options: EmailOptions) {
+  const { icalEvent, attachments: existingAttachments, ...nodemailerOptions } = options;
+
+  // Convert icalEvent to attachment if provided
+  const attachments = existingAttachments ? [...existingAttachments] : [];
+  if (icalEvent) {
+    attachments.push({
+      filename: "event.ics",
+      content: icalEvent.content,
+      contentType: "text/calendar; method=" + icalEvent.method,
+      contentDisposition: "attachment",
+    });
+  }
+
   const info = await transporter.sendMail({
     from: options.from || process.env.EMAIL_FROM || "no-reply@larstef.app",
-    ...options,
+    ...nodemailerOptions,
+    attachments: attachments.length > 0 ? attachments : undefined,
   });
 
   if (!process.env.SMTP_HOST) {
-    console.info("[Email preview]", info.envelope || info.messageId || "unknown");
+    console.info("=".repeat(80));
+    console.info("📧 EMAIL PREVIEW (SMTP nu este configurat - emailul NU a fost trimis!)");
+    console.info("=".repeat(80));
+    console.info("To:", options.to);
+    console.info("From:", options.from || process.env.EMAIL_FROM || "no-reply@larstef.app");
+    console.info("Subject:", options.subject);
+    console.info("Text:", options.text);
+    if (options.html) {
+      console.info("HTML:", options.html);
+    }
+    if (icalEvent) {
+      console.info("📅 Calendar attachment: event.ics");
+    }
+    if (attachments.length > 0) {
+      console.info(`📎 Attachments: ${attachments.length} file(s)`);
+    }
+    console.info("=".repeat(80));
+    console.info("⚠️  Pentru a trimite emailuri reale, configurează SMTP_HOST, SMTP_USER, SMTP_PASS în .env");
+    console.info("=".repeat(80));
   } else {
     console.info("[Email dispatched]", info.messageId ?? "unknown-id");
+    if (icalEvent) {
+      console.info("[Calendar attachment]", "ICS file attached");
+    }
   }
 
   return info;

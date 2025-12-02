@@ -68,6 +68,20 @@ router.post("/create-intent", verifyJWT, validate(createPaymentIntentSchema), as
       return res.status(401).json({ error: "Autentificare necesară." });
     }
 
+    // CRITIC FIX: Verifică dacă clientul este conectat la business
+    const clientBusinessLink = await prisma.clientBusinessLink.findFirst({
+      where: {
+        clientId: clientId,
+        businessId: businessId,
+      },
+    });
+
+    if (!clientBusinessLink) {
+      return res.status(403).json({ 
+        error: "Nu ești conectat la acest business. Scanează codul QR pentru a te conecta." 
+      });
+    }
+
     const metadata = {
       pendingBooking: {
         clientId,
@@ -79,6 +93,9 @@ router.post("/create-intent", verifyJWT, validate(createPaymentIntentSchema), as
       },
       method: clientMethod,
     };
+
+    // CRITIC FIX: Generează idempotency key pentru a preveni duplicate payments
+    const idempotencyKey = `booking_${businessId}_${serviceId}_${date}_${clientId}`.replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 255);
 
     const paymentIntentParams: any = {
       amount: amountMinor,
@@ -96,7 +113,12 @@ router.post("/create-intent", verifyJWT, validate(createPaymentIntentSchema), as
         paymentMethod: clientMethod,
       },
     };
-    const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
+    
+    // CRITIC FIX: Folosește idempotency key pentru a preveni duplicate payments
+    const paymentIntent = await stripe.paymentIntents.create(
+      paymentIntentParams,
+      { idempotencyKey }
+    );
 
     // No installments for card payments
     const installments = null;

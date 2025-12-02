@@ -8,30 +8,87 @@ async function seedBusinesses() {
   const passwordPlain = "Password123!";
   const hashedPassword = await bcrypt.hash(passwordPlain, 10);
 
-  // 1. Cabinet Stomatologic
-  const dentistOwner = await prisma.user.upsert({
-    where: { email: "dentist@larstef.app" },
+  // 1. Beauty & Wellness
+  const beautyOwner = await prisma.user.upsert({
+    where: { email: "beauty@larstef.app" },
     update: {},
     create: {
-      email: "dentist@larstef.app",
+      email: "beauty@larstef.app",
+      name: "Salon Beauty & Wellness",
+      password: hashedPassword,
+      role: Role.BUSINESS,
+    },
+  });
+
+  const beautyBusiness = await prisma.business.upsert({
+    where: { domain: "salon-beauty-wellness" },
+    update: { businessType: BusinessType.BEAUTY_WELLNESS },
+    create: {
+      name: "Salon Beauty & Wellness",
+      email: "contact@beautywellness.ro",
+      domain: "salon-beauty-wellness",
+      businessType: BusinessType.BEAUTY_WELLNESS,
+      owner: { connect: { id: beautyOwner.id } },
+      services: {
+        create: [
+          { name: "Manichiura", duration: 60, price: 150 },
+          { name: "Pedicura", duration: 75, price: 180 },
+          { name: "Tratament facial", duration: 90, price: 300 },
+          { name: "Masaj relaxare", duration: 60, price: 250 },
+          { name: "Epilare", duration: 45, price: 200 },
+          { name: "Make-up profesional", duration: 90, price: 350 },
+        ],
+      },
+    },
+    include: { services: true, employees: true },
+  });
+
+  const beautyEmployee = await prisma.user.upsert({
+    where: { email: "cristina@beautywellness.ro" },
+    update: { businessId: beautyBusiness.id },
+    create: {
+      email: "cristina@beautywellness.ro",
+      name: "Cristina",
+      password: hashedPassword,
+      role: Role.EMPLOYEE,
+      businessId: beautyBusiness.id,
+    },
+  });
+
+  await prisma.business.update({
+    where: { id: beautyBusiness.id },
+    data: {
+      employees: {
+        connect: [{ id: beautyOwner.id }, { id: beautyEmployee.id }],
+      },
+    },
+  });
+
+  // 2. Medical & Dental
+  const medicalOwner = await prisma.user.upsert({
+    where: { email: "medical@larstef.app" },
+    update: {},
+    create: {
+      email: "medical@larstef.app",
       name: "Dr. Popescu",
       password: hashedPassword,
       role: Role.BUSINESS,
     },
   });
 
-  const dentistBusiness = await prisma.business.upsert({
-    where: { domain: "cabinet-stomatologic-dentist" },
-    update: { businessType: BusinessType.STOMATOLOGIE },
+  const medicalBusiness = await prisma.business.upsert({
+    where: { domain: "cabinet-medical-dental" },
+    update: { businessType: BusinessType.MEDICAL_DENTAL },
     create: {
-      name: "Cabinet Stomatologic Dr. Popescu",
-      email: "contact@dentist.ro",
-      domain: "cabinet-stomatologic-dentist",
-      businessType: BusinessType.STOMATOLOGIE,
-      owner: { connect: { id: dentistOwner.id } },
+      name: "Cabinet Medical & Dental Dr. Popescu",
+      email: "contact@medicaldental.ro",
+      domain: "cabinet-medical-dental",
+      businessType: BusinessType.MEDICAL_DENTAL,
+      owner: { connect: { id: medicalOwner.id } },
       services: {
         create: [
-          { name: "Consultatie", duration: 30, price: 150 },
+          { name: "Consultatie medicala", duration: 30, price: 200 },
+          { name: "Consultatie stomatologica", duration: 30, price: 150 },
           { name: "Detartraj", duration: 45, price: 200 },
           { name: "Albire dinti", duration: 60, price: 500 },
           { name: "Extractie masea de minte", duration: 30, price: 300 },
@@ -42,135 +99,65 @@ async function seedBusinesses() {
     include: { services: true, employees: true },
   });
 
-  // Create employees with businessId
-  const dentistEmployee1 = await prisma.user.upsert({
-    where: { email: "costel@dentist.ro" },
-    update: {
-      businessId: dentistBusiness.id,
-    },
+  const medicalEmployee1 = await prisma.user.upsert({
+    where: { email: "costel@medicaldental.ro" },
+    update: { businessId: medicalBusiness.id },
     create: {
-      email: "costel@dentist.ro",
+      email: "costel@medicaldental.ro",
       name: "Dr. Costel",
       password: hashedPassword,
       role: Role.EMPLOYEE,
-      businessId: dentistBusiness.id,
+      businessId: medicalBusiness.id,
     },
   });
 
-  const dentistEmployee2 = await prisma.user.upsert({
-    where: { email: "ana@dentist.ro" },
-    update: {
-      businessId: dentistBusiness.id,
-    },
+  const medicalEmployee2 = await prisma.user.upsert({
+    where: { email: "ana@medicaldental.ro" },
+    update: { businessId: medicalBusiness.id },
     create: {
-      email: "ana@dentist.ro",
+      email: "ana@medicaldental.ro",
       name: "Dr. Ana",
       password: hashedPassword,
       role: Role.EMPLOYEE,
-      businessId: dentistBusiness.id,
+      businessId: medicalBusiness.id,
     },
   });
 
-  // Connect employees to business
   await prisma.business.update({
-    where: { id: dentistBusiness.id },
+    where: { id: medicalBusiness.id },
     data: {
       employees: {
-        connect: [
-          { id: dentistOwner.id },
-          { id: dentistEmployee1.id },
-          { id: dentistEmployee2.id },
-        ],
+        connect: [{ id: medicalOwner.id }, { id: medicalEmployee1.id }, { id: medicalEmployee2.id }],
       },
     },
   });
 
-  // 2. Avocat
-  const lawyerOwner = await prisma.user.upsert({
-    where: { email: "avocat@larstef.app" },
+  // 3. Therapy & Coaching
+  const therapyOwner = await prisma.user.upsert({
+    where: { email: "therapy@larstef.app" },
     update: {},
     create: {
-      email: "avocat@larstef.app",
-      name: "Avocat Ionescu",
-      password: hashedPassword,
-      role: Role.BUSINESS,
-    },
-  });
-
-  const lawyerBusiness = await prisma.business.upsert({
-    where: { domain: "cabinet-avocat-ionescu" },
-    update: { businessType: BusinessType.GENERAL },
-    create: {
-      name: "Cabinet Avocat Ionescu",
-      email: "contact@avocat.ro",
-      domain: "cabinet-avocat-ionescu",
-      businessType: BusinessType.GENERAL,
-      owner: { connect: { id: lawyerOwner.id } },
-      services: {
-        create: [
-          { name: "Consultatie juridica", duration: 60, price: 300 },
-          { name: "Redactare contract", duration: 90, price: 800 },
-          { name: "Reprezentare in instanta", duration: 120, price: 1500 },
-          { name: "Consultatie online", duration: 30, price: 200 },
-        ],
-      },
-    },
-    include: { services: true, employees: true },
-  });
-
-  // Create employees with businessId
-  const lawyerEmployee1 = await prisma.user.upsert({
-    where: { email: "maria@avocat.ro" },
-    update: {
-      businessId: lawyerBusiness.id,
-    },
-    create: {
-      email: "maria@avocat.ro",
-      name: "Avocat Maria",
-      password: hashedPassword,
-      role: Role.EMPLOYEE,
-      businessId: lawyerBusiness.id,
-    },
-  });
-
-  // Connect employees to business
-  await prisma.business.update({
-    where: { id: lawyerBusiness.id },
-    data: {
-      employees: {
-        connect: [
-          { id: lawyerOwner.id },
-          { id: lawyerEmployee1.id },
-        ],
-      },
-    },
-  });
-
-  // 3. Psiholog
-  const psychologistOwner = await prisma.user.upsert({
-    where: { email: "psiholog@larstef.app" },
-    update: {},
-    create: {
-      email: "psiholog@larstef.app",
+      email: "therapy@larstef.app",
       name: "Psiholog Maria",
       password: hashedPassword,
       role: Role.BUSINESS,
     },
   });
 
-  const psychologistBusiness = await prisma.business.upsert({
-    where: { domain: "cabinet-psiholog-maria" },
-    update: { businessType: BusinessType.PSIHOLOGIE },
+  const therapyBusiness = await prisma.business.upsert({
+    where: { domain: "cabinet-therapy-coaching" },
+    update: { businessType: BusinessType.THERAPY_COACHING },
     create: {
-      name: "Cabinet Psiholog Maria",
-      email: "contact@psiholog.ro",
-      domain: "cabinet-psiholog-maria",
-      businessType: BusinessType.PSIHOLOGIE,
-      owner: { connect: { id: psychologistOwner.id } },
+      name: "Cabinet Therapy & Coaching",
+      email: "contact@therapycoaching.ro",
+      domain: "cabinet-therapy-coaching",
+      businessType: BusinessType.THERAPY_COACHING,
+      owner: { connect: { id: therapyOwner.id } },
       services: {
         create: [
           { name: "Sesiune de terapie individuala", duration: 50, price: 250 },
           { name: "Sesiune de terapie de cuplu", duration: 90, price: 400 },
+          { name: "Sesiune de coaching", duration: 60, price: 300 },
           { name: "Evaluare psihologica", duration: 60, price: 300 },
           { name: "Consiliere pentru copii", duration: 45, price: 200 },
         ],
@@ -179,221 +166,212 @@ async function seedBusinesses() {
     include: { services: true, employees: true },
   });
 
-  // Create employees with businessId
-  const psychologistEmployee1 = await prisma.user.upsert({
-    where: { email: "ioana@psiholog.ro" },
-    update: {
-      businessId: psychologistBusiness.id,
-    },
+  const therapyEmployee = await prisma.user.upsert({
+    where: { email: "ioana@therapycoaching.ro" },
+    update: { businessId: therapyBusiness.id },
     create: {
-      email: "ioana@psiholog.ro",
+      email: "ioana@therapycoaching.ro",
       name: "Psiholog Ioana",
       password: hashedPassword,
       role: Role.EMPLOYEE,
-      businessId: psychologistBusiness.id,
+      businessId: therapyBusiness.id,
     },
   });
 
-  // Connect employees to business
   await prisma.business.update({
-    where: { id: psychologistBusiness.id },
+    where: { id: therapyBusiness.id },
     data: {
       employees: {
-        connect: [
-          { id: psychologistOwner.id },
-          { id: psychologistEmployee1.id },
-        ],
+        connect: [{ id: therapyOwner.id }, { id: therapyEmployee.id }],
       },
     },
   });
 
-  // 4. Cosmetica
-  const cosmetologyOwner = await prisma.user.upsert({
-    where: { email: "cosmetica@larstef.app" },
+  // 4. Sport & Outdoor
+  const sportOwner = await prisma.user.upsert({
+    where: { email: "sport@larstef.app" },
     update: {},
     create: {
-      email: "cosmetica@larstef.app",
-      name: "Salon Beauty",
+      email: "sport@larstef.app",
+      name: "Sport & Outdoor Center",
       password: hashedPassword,
       role: Role.BUSINESS,
     },
   });
 
-  const cosmetologyBusiness = await prisma.business.upsert({
-    where: { domain: "salon-beauty-cosmetica" },
-    update: { businessType: BusinessType.BEAUTY },
+  const sportBusiness = await prisma.business.upsert({
+    where: { domain: "sport-outdoor-center" },
+    update: { businessType: BusinessType.SPORT_OUTDOOR },
     create: {
-      name: "Salon Beauty Cosmetica",
-      email: "contact@cosmetica.ro",
-      domain: "salon-beauty-cosmetica",
-      businessType: BusinessType.BEAUTY,
-      owner: { connect: { id: cosmetologyOwner.id } },
+      name: "Sport & Outdoor Center",
+      email: "contact@sportoutdoor.ro",
+      domain: "sport-outdoor-center",
+      businessType: BusinessType.SPORT_OUTDOOR,
+      owner: { connect: { id: sportOwner.id } },
       services: {
         create: [
-          { name: "Manichiura", duration: 60, price: 150 },
-          { name: "Pedicura", duration: 75, price: 180 },
-          { name: "Tratament facial", duration: 90, price: 300 },
-          { name: "Masaj facial", duration: 60, price: 250 },
-          { name: "Epilare", duration: 45, price: 200 },
-          { name: "Make-up", duration: 90, price: 350 },
+          { name: "Sesiune de antrenament personal", duration: 60, price: 200 },
+          { name: "Clasa de fitness de grup", duration: 45, price: 80 },
+          { name: "Consultatii nutritie sportiva", duration: 60, price: 250 },
+          { name: "Echipare sportiva - inchiriere", duration: 120, price: 150 },
+          { name: "Tur ghidat montan", duration: 240, price: 400 },
         ],
       },
     },
     include: { services: true, employees: true },
   });
 
-  // Create employees with businessId
-  const cosmetologyEmployee1 = await prisma.user.upsert({
-    where: { email: "cristina@cosmetica.ro" },
-    update: {
-      businessId: cosmetologyBusiness.id,
-    },
+  const sportEmployee = await prisma.user.upsert({
+    where: { email: "andrei@sportoutdoor.ro" },
+    update: { businessId: sportBusiness.id },
     create: {
-      email: "cristina@cosmetica.ro",
-      name: "Cristina",
+      email: "andrei@sportoutdoor.ro",
+      name: "Andrei Trainer",
       password: hashedPassword,
       role: Role.EMPLOYEE,
-      businessId: cosmetologyBusiness.id,
+      businessId: sportBusiness.id,
     },
   });
 
-  const cosmetologyEmployee2 = await prisma.user.upsert({
-    where: { email: "elena@cosmetica.ro" },
-    update: {
-      businessId: cosmetologyBusiness.id,
-    },
-    create: {
-      email: "elena@cosmetica.ro",
-      name: "Elena",
-      password: hashedPassword,
-      role: Role.EMPLOYEE,
-      businessId: cosmetologyBusiness.id,
-    },
-  });
-
-  // Connect employees to business
   await prisma.business.update({
-    where: { id: cosmetologyBusiness.id },
+    where: { id: sportBusiness.id },
     data: {
       employees: {
-        connect: [
-          { id: cosmetologyOwner.id },
-          { id: cosmetologyEmployee1.id },
-          { id: cosmetologyEmployee2.id },
-        ],
+        connect: [{ id: sportOwner.id }, { id: sportEmployee.id }],
       },
     },
   });
 
-  // 5. Salon Hair Cut
-  const hairOwner = await prisma.user.upsert({
-    where: { email: "haircut@larstef.app" },
+  // 5. Home & Freelance Services
+  const homeOwner = await prisma.user.upsert({
+    where: { email: "home@larstef.app" },
     update: {},
     create: {
-      email: "haircut@larstef.app",
-      name: "Hair Cut Studio",
+      email: "home@larstef.app",
+      name: "Home Services Pro",
       password: hashedPassword,
       role: Role.BUSINESS,
     },
   });
 
-  const hairBusiness = (await prisma.business.upsert({
-    where: { domain: "salon-haircut-studio" },
-    update: { businessType: BusinessType.BEAUTY },
+  const homeBusiness = await prisma.business.upsert({
+    where: { domain: "home-freelance-services" },
+    update: { businessType: BusinessType.HOME_FREELANCE },
     create: {
-      name: "Hair Cut Studio",
-      email: "contact@haircut.ro",
-      domain: "salon-haircut-studio",
-      businessType: BusinessType.BEAUTY,
-      owner: { connect: { id: hairOwner.id } },
+      name: "Home & Freelance Services",
+      email: "contact@homeservices.ro",
+      domain: "home-freelance-services",
+      businessType: BusinessType.HOME_FREELANCE,
+      owner: { connect: { id: homeOwner.id } },
       services: {
         create: [
-          { name: "Tuns clasic", duration: 45, price: 130 },
-          { name: "Tuns + aranjat", duration: 60, price: 160 },
-          { name: "Barbierit", duration: 30, price: 90 },
-          { name: "Spalat si styling", duration: 25, price: 70 },
-          { name: "Tratament par", duration: 40, price: 120 },
+          { name: "Curatenie generala", duration: 180, price: 300 },
+          { name: "Curatenie profunda", duration: 240, price: 500 },
+          { name: "Instalare mobila", duration: 120, price: 250 },
+          { name: "Reparatii diverse", duration: 90, price: 200 },
+          { name: "Montare TV / electrocasnice", duration: 60, price: 150 },
         ],
       },
     },
     include: { services: true, employees: true },
-  })) as typeof dentistBusiness;
+  });
 
-  const hairEmployee = await prisma.user.upsert({
-    where: { email: "andrei@haircut.ro" },
-    update: {
-      businessId: hairBusiness.id,
-    },
+  const homeEmployee = await prisma.user.upsert({
+    where: { email: "marius@homeservices.ro" },
+    update: { businessId: homeBusiness.id },
     create: {
-      email: "andrei@haircut.ro",
-      name: "Andrei Barber",
+      email: "marius@homeservices.ro",
+      name: "Marius Handyman",
       password: hashedPassword,
       role: Role.EMPLOYEE,
-      phone: "+40 745 333 222",
-      businessId: hairBusiness.id,
+      businessId: homeBusiness.id,
     },
   });
 
   await prisma.business.update({
-    where: { id: hairBusiness.id },
+    where: { id: homeBusiness.id },
     data: {
       employees: {
-        connect: [
-          { id: hairOwner.id },
-          { id: hairEmployee.id },
-        ],
+        connect: [{ id: homeOwner.id }, { id: homeEmployee.id }],
       },
     },
+  });
+
+  // Refresh businesses to get updated employee counts
+  const beautyBusinessFinal = await prisma.business.findUnique({
+    where: { id: beautyBusiness.id },
+    include: { services: true, employees: true },
+  });
+  const medicalBusinessFinal = await prisma.business.findUnique({
+    where: { id: medicalBusiness.id },
+    include: { services: true, employees: true },
+  });
+  const therapyBusinessFinal = await prisma.business.findUnique({
+    where: { id: therapyBusiness.id },
+    include: { services: true, employees: true },
+  });
+  const sportBusinessFinal = await prisma.business.findUnique({
+    where: { id: sportBusiness.id },
+    include: { services: true, employees: true },
+  });
+  const homeBusinessFinal = await prisma.business.findUnique({
+    where: { id: homeBusiness.id },
+    include: { services: true, employees: true },
   });
 
   const summary = [
     {
-      Business: dentistBusiness.name,
-      Domain: dentistBusiness.domain,
-      Services: dentistBusiness.services.length,
-      Employees: dentistBusiness.employees.length,
-      Owner: dentistOwner.email,
+      Business: beautyBusinessFinal!.name,
+      Type: "Beauty & Wellness",
+      Domain: beautyBusinessFinal!.domain,
+      Services: beautyBusinessFinal!.services.length,
+      Employees: beautyBusinessFinal!.employees.length,
+      Owner: beautyOwner.email,
     },
     {
-      Business: lawyerBusiness.name,
-      Domain: lawyerBusiness.domain,
-      Services: lawyerBusiness.services.length,
-      Employees: lawyerBusiness.employees.length,
-      Owner: lawyerOwner.email,
+      Business: medicalBusinessFinal!.name,
+      Type: "Medical & Dental",
+      Domain: medicalBusinessFinal!.domain,
+      Services: medicalBusinessFinal!.services.length,
+      Employees: medicalBusinessFinal!.employees.length,
+      Owner: medicalOwner.email,
     },
     {
-      Business: psychologistBusiness.name,
-      Domain: psychologistBusiness.domain,
-      Services: psychologistBusiness.services.length,
-      Employees: psychologistBusiness.employees.length,
-      Owner: psychologistOwner.email,
+      Business: therapyBusinessFinal!.name,
+      Type: "Therapy & Coaching",
+      Domain: therapyBusinessFinal!.domain,
+      Services: therapyBusinessFinal!.services.length,
+      Employees: therapyBusinessFinal!.employees.length,
+      Owner: therapyOwner.email,
     },
     {
-      Business: cosmetologyBusiness.name,
-      Domain: cosmetologyBusiness.domain,
-      Services: cosmetologyBusiness.services.length,
-      Employees: cosmetologyBusiness.employees.length,
-      Owner: cosmetologyOwner.email,
+      Business: sportBusinessFinal!.name,
+      Type: "Sport & Outdoor",
+      Domain: sportBusinessFinal!.domain,
+      Services: sportBusinessFinal!.services.length,
+      Employees: sportBusinessFinal!.employees.length,
+      Owner: sportOwner.email,
     },
     {
-      Business: hairBusiness.name,
-      Domain: hairBusiness.domain,
-      Services: hairBusiness.services.length,
-      Employees: hairBusiness.employees.length,
-      Owner: hairOwner.email,
+      Business: homeBusinessFinal!.name,
+      Type: "Home & Freelance",
+      Domain: homeBusinessFinal!.domain,
+      Services: homeBusinessFinal!.services.length,
+      Employees: homeBusinessFinal!.employees.length,
+      Owner: homeOwner.email,
     },
   ];
 
-  console.log("✅ Business-uri create cu succes:");
+  console.log("✅ Business-uri create cu succes pentru toate categoriile:");
   console.table(summary);
 
   console.log("\n📧 Credentiale pentru login:");
   console.table([
-    { Business: "Cabinet Stomatologic", Email: dentistOwner.email, Password: passwordPlain },
-    { Business: "Cabinet Avocat", Email: lawyerOwner.email, Password: passwordPlain },
-    { Business: "Cabinet Psiholog", Email: psychologistOwner.email, Password: passwordPlain },
-    { Business: "Salon Beauty", Email: cosmetologyOwner.email, Password: passwordPlain },
-    { Business: "Hair Cut Studio", Email: hairOwner.email, Password: passwordPlain },
+    { Business: "Beauty & Wellness", Email: beautyOwner.email, Password: passwordPlain },
+    { Business: "Medical & Dental", Email: medicalOwner.email, Password: passwordPlain },
+    { Business: "Therapy & Coaching", Email: therapyOwner.email, Password: passwordPlain },
+    { Business: "Sport & Outdoor", Email: sportOwner.email, Password: passwordPlain },
+    { Business: "Home & Freelance", Email: homeOwner.email, Password: passwordPlain },
   ]);
 }
 
@@ -405,4 +383,3 @@ seedBusinesses()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

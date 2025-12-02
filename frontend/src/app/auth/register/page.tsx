@@ -4,7 +4,7 @@ import { FormEvent, useState, useCallback } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Navbar from "../../../components/Navbar";
+import AuthHeader from "../../../components/AuthHeader";
 import CustomSelect from "../../../components/CustomSelect";
 import useAuth, { Role } from "../../../hooks/useAuth";
 import { BUSINESS_TYPE_OPTIONS, type BusinessTypeValue } from "../../../constants/businessTypes";
@@ -83,8 +83,8 @@ export default function RegisterPage() {
         <title>Înregistrare - LARSTEF</title>
       </Head>
       <div className="min-h-screen bg-[#0B0E17] text-white">
-        <Navbar />
-        <div className="mx-auto flex max-w-4xl flex-col items-center px-4 py-20">
+        <AuthHeader />
+        <div className="mx-auto flex max-w-4xl flex-col items-center px-4 py-20 pt-32">
           <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-white/5 p-10 shadow-2xl shadow-black/30">
             <div className="mb-8 text-center">
               <h1 className="text-3xl font-semibold">Creează-ți contul</h1>
