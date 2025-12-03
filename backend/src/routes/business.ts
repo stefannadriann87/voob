@@ -689,8 +689,11 @@ router.delete("/:businessId/employees/:employeeId", async (req, res) => {
 // Get working hours for a business
 router.get("/:businessId/working-hours", async (req, res) => {
   const { businessId } = req.params;
+  const { employeeId } = req.query as { employeeId?: string };
 
-  logger.info(`GET /business/${businessId}/working-hours - Request received`);
+  logger.info(
+    `GET /business/${businessId}/working-hours - Request received${employeeId ? ` (employeeId=${employeeId})` : ""}`
+  );
 
   if (!businessId) {
     logger.warn("GET /business/:businessId/working-hours - Missing businessId");
@@ -698,6 +701,44 @@ router.get("/:businessId/working-hours", async (req, res) => {
   }
 
   try {
+    // If an employeeId is provided, try to return that employee's schedule first
+    if (employeeId) {
+      const employee = await prisma.user.findFirst({
+        where: {
+          id: employeeId,
+          OR: [
+            { businessId },
+            {
+              ownedBusinesses: {
+                some: {
+                  id: businessId,
+                },
+              },
+            },
+          ],
+        },
+        select: { workingHours: true },
+      });
+
+      if (!employee) {
+        logger.warn(
+          `GET /business/${businessId}/working-hours - Employee ${employeeId} not linked to this business`
+        );
+        return res.status(404).json({ error: "Angajatul nu aparține acestui business." });
+      }
+
+      if (employee.workingHours) {
+        logger.info(
+          `GET /business/${businessId}/working-hours - Returning employee ${employeeId} schedule`
+        );
+        return res.json({ workingHours: employee.workingHours, source: "employee" });
+      }
+
+      logger.info(
+        `GET /business/${businessId}/working-hours - Employee ${employeeId} has no custom schedule, falling back to business hours`
+      );
+    }
+
     const business = await prisma.business.findUnique({
       where: { id: businessId },
       select: { workingHours: true },
@@ -708,8 +749,10 @@ router.get("/:businessId/working-hours", async (req, res) => {
       return res.status(404).json({ error: "Business-ul nu a fost găsit." });
     }
 
-    logger.info(`GET /business/${businessId}/working-hours - Success`);
-    return res.json({ workingHours: business.workingHours });
+    logger.info(
+      `GET /business/${businessId}/working-hours - Returning business schedule${employeeId ? " (fallback)" : ""}`
+    );
+    return res.json({ workingHours: business.workingHours, source: "business" });
   } catch (error) {
     logger.error("Failed to fetch working hours", error);
     return res.status(500).json({ error: "Eroare la obținerea programului de lucru." });

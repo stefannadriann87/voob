@@ -1,5 +1,6 @@
 const prisma = require("../../lib/prisma");
 const { getNumericSetting } = require("../../services/settingsService");
+const { logger } = require("../../lib/logger");
 import type { DashboardSummary } from "../types";
 
 function buildPaymentDistribution(
@@ -31,11 +32,11 @@ async function getDashboardSummary(): Promise<DashboardSummary> {
       aiCostSetting,
     ] = await Promise.all([
       prisma.business.count().catch((err: any) => {
-        console.error("Error counting businesses:", err);
+        logger.error("Error counting businesses", err);
         return 0;
       }),
       prisma.booking.count().catch((err: any) => {
-        console.error("Error counting bookings:", err);
+        logger.error("Error counting bookings", err);
         return 0;
       }),
       prisma.payment.groupBy({
@@ -43,22 +44,22 @@ async function getDashboardSummary(): Promise<DashboardSummary> {
         where: { status: "SUCCEEDED" },
         _sum: { amount: true, applicationFee: true },
       }).catch((err: any) => {
-        console.error("Error grouping payments:", err);
+        logger.error("Error grouping payments", err);
         return [];
       }),
       prisma.smsUsageLog.count().catch((err: any) => {
-        console.error("Error counting SMS usage:", err);
+        logger.error("Error counting SMS usage", err);
         return 0;
       }),
       prisma.aiUsageLog.aggregate({
         _count: { _all: true },
         _sum: { costEstimate: true, tokensUsed: true },
       }).catch((err: any) => {
-        console.error("Error aggregating AI usage:", err);
+        logger.error("Error aggregating AI usage", err);
         return { _count: { _all: 0 }, _sum: { costEstimate: null, tokensUsed: null } };
       }),
       getNumericSetting("openai_cost_per_1k_tokens", 0.015).catch((err: any) => {
-        console.error("Error getting AI cost setting:", err);
+        logger.error("Error getting AI cost setting", err);
         return 0.015;
       }),
     ]);
@@ -99,7 +100,7 @@ async function getDashboardSummary(): Promise<DashboardSummary> {
       generatedAt: now.toISOString(),
     };
   } catch (error: any) {
-    console.error("Error in getDashboardSummary:", error);
+    logger.error("Error in getDashboardSummary", error);
     // Return default structure on error
     const now = new Date();
     return {
@@ -143,7 +144,7 @@ async function getAnalyticsOverview() {
         _count: { _all: true },
         orderBy: { date: "asc" },
       }).catch((err: any) => {
-        console.error("Error grouping bookings by date:", err);
+        logger.error("Error grouping bookings by date", err);
         return [];
       }),
       prisma.booking.groupBy({
@@ -152,21 +153,21 @@ async function getAnalyticsOverview() {
         orderBy: { _count: { _all: "desc" } },
         take: 5,
       }).catch((err: any) => {
-        console.error("Error grouping bookings by service:", err);
+        logger.error("Error grouping bookings by service", err);
         return [];
       }),
       prisma.payment.groupBy({
         by: ["method"],
         _sum: { amount: true },
       }).catch((err: any) => {
-        console.error("Error grouping payments by method:", err);
+        logger.error("Error grouping payments by method", err);
         return [];
       }),
       prisma.booking.groupBy({
         by: ["status"],
         _count: { _all: true },
       }).catch((err: any) => {
-        console.error("Error grouping bookings by status:", err);
+        logger.error("Error grouping bookings by status", err);
         return [];
       }),
     ]);
@@ -202,7 +203,7 @@ async function getAnalyticsOverview() {
       cancellationRate: totalBookings === 0 ? 0 : Number(((cancelled / totalBookings) * 100).toFixed(2)),
     };
   } catch (error: any) {
-    console.error("Error in getAnalyticsOverview:", error);
+    logger.error("Error in getAnalyticsOverview", error);
     // Return empty structure on error
     return {
       bookingsDaily: [],
@@ -220,7 +221,7 @@ async function getAiUsageOverview() {
         _count: { _all: true },
         _sum: { costEstimate: true, tokensUsed: true },
       }).catch((err: any) => {
-        console.error("Error aggregating AI usage:", err);
+        logger.error("Error aggregating AI usage", err);
         return { _count: { _all: 0 }, _sum: { costEstimate: null, tokensUsed: null } };
       }),
       prisma.aiUsageLog.groupBy({
@@ -251,7 +252,7 @@ async function getAiUsageOverview() {
           where: { id: { in: businessIds } },
           select: { id: true, name: true },
         }).catch((err: any) => {
-          console.error("Error fetching business names:", err);
+          logger.error("Error fetching business names", err);
           return [];
         })
       : [];
@@ -276,7 +277,7 @@ async function getAiUsageOverview() {
       })),
     };
   } catch (error: any) {
-    console.error("Error in getAiUsageOverview:", error);
+    logger.error("Error in getAiUsageOverview", error);
     // Return empty structure on error
     return {
       totalRequests: 0,

@@ -26,31 +26,53 @@ interface UseWorkingHoursOptions {
   businessId?: string | null;
   employeeId?: string | null;
   slotDurationMinutes?: number; // Default: 60
+  mode?: "auto" | "business" | "employee";
+  refreshToken?: number; // Token to force refresh when changed
 }
 
 export default function useWorkingHours({
   businessId,
   employeeId,
   slotDurationMinutes = 60,
+  mode = "auto",
+  refreshToken = 0,
 }: UseWorkingHoursOptions) {
   const api = useApi();
   const [workingHours, setWorkingHours] = useState<WorkingHours | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [source, setSource] = useState<"business" | "employee" | null>(null);
 
-  // Determine which ID to use and the endpoint
-  const targetId = businessId || employeeId;
-  const endpoint = businessId
-    ? `/business/${businessId}/working-hours`
-    : employeeId
-      ? `/employee/${employeeId}/working-hours`
-      : null;
+  const endpoint = useMemo(() => {
+    if (mode === "employee") {
+      return employeeId ? `/employee/${employeeId}/working-hours` : null;
+    }
+
+    if (mode === "business") {
+      if (!businessId) return null;
+      const query = employeeId ? `?employeeId=${employeeId}` : "";
+      return `/business/${businessId}/working-hours${query}`;
+    }
+
+    // Auto mode: prefer business endpoint (with optional employeeId) when businessId is available
+    if (businessId) {
+      const query = employeeId ? `?employeeId=${employeeId}` : "";
+      return `/business/${businessId}/working-hours${query}`;
+    }
+
+    if (employeeId) {
+      return `/employee/${employeeId}/working-hours`;
+    }
+
+    return null;
+  }, [businessId, employeeId, mode]);
 
   // Fetch working hours
   useEffect(() => {
-    if (!endpoint || !targetId) {
+    if (!endpoint) {
       setWorkingHours(null);
       setError(null);
+      setSource(null);
       return;
     }
 
@@ -60,26 +82,21 @@ export default function useWorkingHours({
 
     const fetchWorkingHours = async () => {
       try {
-        console.log(`[useWorkingHours] Fetching working hours from: ${endpoint}`);
-        const { data } = await api.get<{ workingHours: WorkingHours }>(endpoint);
-        if (isActive) {
-          console.log(`[useWorkingHours] Success:`, data);
-          setWorkingHours(data.workingHours);
-          setError(null);
-        }
+        const { data } = await api.get<{ workingHours: WorkingHours | null; source?: "business" | "employee" }>(
+          endpoint
+        );
+        if (!isActive) return;
+        setWorkingHours(data.workingHours ?? null);
+        const inferredSource =
+          data.source ??
+          (endpoint.includes("/employee/") || endpoint.includes("employeeId=") ? "employee" : "business");
+        setSource(inferredSource);
+        setError(null);
       } catch (err: any) {
-        if (isActive) {
-          console.error(`[useWorkingHours] Failed to fetch working hours from ${endpoint}:`, {
-            message: err?.message,
-            status: err?.response?.status,
-            statusText: err?.response?.statusText,
-            data: err?.response?.data,
-            url: err?.config?.url,
-            baseURL: err?.config?.baseURL,
-          });
-          setWorkingHours(null);
-          setError(err?.response?.data?.error || err?.message || "Eroare la încărcarea orelor de lucru");
-        }
+        if (!isActive) return;
+        setWorkingHours(null);
+        setSource(null);
+        setError(err?.response?.data?.error || err?.message || "Eroare la încărcarea orelor de lucru");
       } finally {
         if (isActive) {
           setLoading(false);
@@ -92,7 +109,7 @@ export default function useWorkingHours({
     return () => {
       isActive = false;
     };
-  }, [endpoint, targetId, api]);
+  }, [endpoint, api, refreshToken]);
 
   // Function to get available hours for a specific day
   const getAvailableHoursForDay = useCallback(
@@ -249,6 +266,7 @@ export default function useWorkingHours({
     error,
     getAvailableHoursForDay,
     isBreakTime,
+    source,
   };
 }
 

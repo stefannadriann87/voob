@@ -266,8 +266,6 @@ export default function ClientDashboardPage() {
         const filtered = bookings.filter((booking) => booking.businessId === businessId);
         // Debug: log bookings for business users
         if (filtered.length > 0) {
-          console.log("Business bookings filtered:", filtered.length, "Business ID:", businessId);
-          console.log("First booking client data:", filtered[0]?.client);
         }
         return filtered;
       }
@@ -733,7 +731,7 @@ export default function ClientDashboardPage() {
                 <button
                   type="button"
                   onClick={() => router.push("/client/scan-qr")}
-                  className="mt-3 inline-flex items-center justify-center rounded-2xl bg-[#6366F1] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#7C3AED]"
+                  className="mt-3 inline-flex items-center justify-center rounded-2xl bg-[#6366F1] ml-3 px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#7C3AED]"
                 >
                   Scanează cod QR
                 </button>

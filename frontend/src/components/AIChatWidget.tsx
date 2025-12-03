@@ -57,14 +57,10 @@ export default function AIChatWidget({ initialOpen = false, onBookingCreated }: 
         content: m.text,
       }));
 
-      console.log("📤 Sending AI request:", { message: userMessage, historyLength: conversationHistory.length });
-
       const { data } = await api.post<{ response: string; tools?: string[]; toolCalls?: any[] }>("/api/ai/agent", {
         message: userMessage,
         conversationHistory,
       });
-
-      console.log("✅ AI response received:", data);
 
       setMessages((prev) => [...prev, { from: "ai", text: data.response }]);
 
@@ -84,20 +80,9 @@ export default function AIChatWidget({ initialOpen = false, onBookingCreated }: 
           }
           // Dispatch custom event for other components (e.g., bookings page)
           window.dispatchEvent(new Event("larstef:booking-created"));
-          console.log("🔄 Booking created event dispatched");
         }, 1000);
       }
     } catch (error: any) {
-      console.error("❌ AI Agent error:", error);
-      console.error("Error details:", {
-        status: error?.response?.status,
-        statusText: error?.response?.statusText,
-        data: error?.response?.data,
-        message: error?.message,
-        code: error?.code,
-        config: error?.config,
-      });
-      
       let errorMessage = "Eroare la comunicarea cu AI-ul. Te rugăm să încerci din nou.";
       
       if (error?.code === "ECONNABORTED" || error?.message === "Network Error") {

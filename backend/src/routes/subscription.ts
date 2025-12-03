@@ -8,6 +8,7 @@ const { verifyJWT } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
 const { checkTrialStatus, isTrialExpired } = require("../services/trialService");
 const { getStripeClient } = require("../services/stripeService");
+const { logger } = require("../lib/logger");
 
 const router = express.Router();
 
@@ -40,7 +41,7 @@ router.get("/check-trial/:businessId", verifyJWT, async (req: express.Request, r
     const trialStatus = await checkTrialStatus(businessId);
     return res.json(trialStatus);
   } catch (error) {
-    console.error("Check trial status error:", error);
+    logger.error("Check trial status error", error);
     return res.status(500).json({ error: "Eroare la verificarea statusului trial." });
   }
 });
@@ -138,7 +139,7 @@ router.post("/create-checkout", verifyJWT, async (req: express.Request, res: exp
       url: session.url,
     });
   } catch (error) {
-    console.error("Create checkout error:", error);
+    logger.error("Create checkout error", error);
     return res.status(500).json({ error: "Eroare la crearea sesiunii de checkout." });
   }
 });
@@ -159,13 +160,13 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req: e
   try {
     const webhookSecret = process.env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) {
-      console.error("STRIPE_SUBSCRIPTION_WEBHOOK_SECRET nu este setat");
+      logger.error("STRIPE_SUBSCRIPTION_WEBHOOK_SECRET nu este setat");
       return res.status(500).send("Webhook secret not configured");
     }
 
     event = stripe.webhooks.constructEvent((req as any).rawBody || req.body, sig, webhookSecret);
   } catch (err: any) {
-    console.error("Webhook signature verification failed:", err.message);
+    logger.error("Webhook signature verification failed", err);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -251,8 +252,8 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req: e
 
       case "invoice.payment_succeeded": {
         const invoice = event.data.object as any;
-        // Subscription-ul este deja activ, doar logăm
-        console.log("Invoice payment succeeded:", invoice.id);
+        // Subscription-ul este deja activ
+        logger.info("Invoice payment succeeded", { invoiceId: invoice.id });
         break;
       }
 
@@ -276,7 +277,7 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req: e
 
     return res.json({ received: true });
   } catch (error) {
-    console.error("Webhook handler error:", error);
+    logger.error("Webhook handler error", error);
     return res.status(500).json({ error: "Webhook handler failed" });
   }
 });
@@ -292,7 +293,7 @@ router.get("/plans", async (req: express.Request, res: express.Response) => {
     });
     return res.json(plans);
   } catch (error) {
-    console.error("Get plans error:", error);
+    logger.error("Get plans error", error);
     return res.status(500).json({ error: "Eroare la obținerea planurilor." });
   }
 });

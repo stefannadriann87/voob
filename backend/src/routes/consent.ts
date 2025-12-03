@@ -4,6 +4,7 @@ const pdfLib = require("pdf-lib") as typeof import("pdf-lib");
 const { PDFDocument, StandardFonts } = pdfLib;
 const prisma = require("../lib/prisma");
 const { verifyJWT } = require("../middleware/auth");
+const { logger } = require("../lib/logger");
 
 interface AuthenticatedRequest extends express.Request {
   user?: {
@@ -242,7 +243,7 @@ router.post("/sign", verifyJWT, async (req, res) => {
         });
         cursorY -= 80;
       } catch (error) {
-        console.warn("Nu am putut insera semnătura în PDF:", error);
+        logger.warn("Nu am putut insera semnătura în PDF", error);
         cursorY -= 40;
       }
     } else {
@@ -305,7 +306,7 @@ router.post("/sign", verifyJWT, async (req, res) => {
 
     return res.status(201).json({ consentForm });
   } catch (error) {
-    console.error("Consent sign error:", error);
+    logger.error("Consent sign error", error);
     const response: { error: string; details?: string } = {
       error: "Nu am putut genera consimțământul.",
     };
@@ -403,7 +404,7 @@ router.post("/upload", verifyJWT, async (req, res) => {
 
     return res.status(201).json({ consentForm });
   } catch (error) {
-    console.error("Consent upload error:", error);
+    logger.error("Consent upload error", error);
     return res.status(500).json({ error: "Nu am putut încărca documentul." });
   }
 });
@@ -503,7 +504,7 @@ router.get("/client/:clientId", verifyJWT, async (req, res) => {
 
     return res.json({ documents: mergedDocuments });
   } catch (error) {
-    console.error("Consent client documents error:", error);
+    logger.error("Consent client documents error", error);
     const response: { error: string; details?: string } = {
       error: "Nu am putut prelua documentele clientului.",
     };
@@ -553,7 +554,7 @@ router.get("/:bookingId", verifyJWT, async (req, res) => {
 
     return res.json(consent);
   } catch (error) {
-    console.error("Consent get error:", error);
+    logger.error("Consent get error", error);
     return res.status(500).json({ error: "Eroare la preluarea consimțământului." });
   }
 });
@@ -632,8 +633,59 @@ router.get("/", verifyJWT, async (req, res) => {
 
     return res.json({ bookings });
   } catch (error) {
-    console.error("Consent list error:", error);
+    logger.error("Consent list error", error);
     return res.status(500).json({ error: "Nu am putut prelua consimțămintele." });
+  }
+});
+
+/**
+ * DELETE /consent/document/:documentId
+ * Șterge un document de consimțământ
+ */
+router.delete("/document/:documentId", verifyJWT, async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const { documentId } = req.params;
+
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  if (!documentId) {
+    return res.status(400).json({ error: "documentId este obligatoriu." });
+  }
+
+  try {
+    // Găsește documentul
+    const document = await prisma.consentDocument.findUnique({
+      where: { id: documentId },
+      include: {
+        business: {
+          select: { ownerId: true },
+        },
+      },
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: "Documentul nu a fost găsit." });
+    }
+
+    // Verifică autorizarea: doar owner-ul business-ului sau superadmin pot șterge
+    const isOwner = document.business.ownerId === authReq.user.userId;
+    const isSuperAdmin = authReq.user.role === "SUPERADMIN";
+
+    if (!isOwner && !isSuperAdmin) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a șterge acest document." });
+    }
+
+    // Șterge documentul
+    await prisma.consentDocument.delete({
+      where: { id: documentId },
+    });
+
+    return res.json({ message: "Documentul a fost șters cu succes." });
+  } catch (error) {
+    logger.error("Consent document delete error", error);
+    return res.status(500).json({ error: "Nu am putut șterge documentul." });
   }
 });
 

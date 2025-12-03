@@ -59,6 +59,9 @@ export default function BusinessConsentsPage() {
   const [clientDocuments, setClientDocuments] = useState<ClientDocument[]>([]);
   const [clientDocumentsLoading, setClientDocumentsLoading] = useState(false);
   const [clientDocumentsError, setClientDocumentsError] = useState<string | null>(null);
+  const [fileSearchQuery, setFileSearchQuery] = useState("");
+  const [fileDateFilter, setFileDateFilter] = useState("");
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{ documentId: string; clientId: string; fileName: string } | null>(null);
 
   const businessId = user?.business?.id ?? null;
 
@@ -83,7 +86,6 @@ export default function BusinessConsentsPage() {
           setBookings(data.bookings ?? []);
         }
       } catch (err) {
-        console.error("Fetch consents failed:", err);
         if (isMounted) {
           setError("Nu am putut încărca consimțămintele. Încearcă din nou.");
         }
@@ -124,7 +126,6 @@ export default function BusinessConsentsPage() {
         });
         setClientDocuments(data.documents ?? []);
       } catch (err) {
-        console.error("Fetch client documents failed:", err);
         const axiosError = err as AxiosError<{ error?: string }>;
         const message =
           axiosError.response?.data?.error ??
@@ -142,6 +143,53 @@ export default function BusinessConsentsPage() {
     () => filteredBookings.filter((booking) => Boolean(booking.consentForm)).length,
     [filteredBookings]
   );
+
+  // Group documents by date (day only, not time) with search and filter
+  const groupedDocuments = useMemo(() => {
+    let filtered = clientDocuments.filter((doc) => doc.pdfUrl);
+
+    // Filter by file name
+    if (fileSearchQuery.trim()) {
+      const query = fileSearchQuery.toLowerCase().trim();
+      filtered = filtered.filter((doc) => {
+        const fileName = (doc.fileName ?? (doc.source === "BUSINESS_UPLOAD" ? "upload-fara-nume.pdf" : "document-generat.pdf")).toLowerCase();
+        const serviceName = (doc.booking.service?.name ?? "").toLowerCase();
+        return fileName.includes(query) || serviceName.includes(query);
+      });
+    }
+
+    // Filter by date (month and day)
+    if (fileDateFilter) {
+      const [month, day] = fileDateFilter.split("-").map(Number);
+      filtered = filtered.filter((doc) => {
+        const date = new Date(doc.createdAt);
+        return date.getMonth() + 1 === month && date.getDate() === day;
+      });
+    }
+
+    const grouped = new Map<string, ClientDocument[]>();
+
+    filtered.forEach((doc) => {
+      const date = new Date(doc.createdAt);
+      const dateKey = date.toISOString().split("T")[0]; // YYYY-MM-DD format
+      
+      if (!grouped.has(dateKey)) {
+        grouped.set(dateKey, []);
+      }
+      grouped.get(dateKey)!.push(doc);
+    });
+
+    // Sort by date descending (newest first)
+    return Array.from(grouped.entries())
+      .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
+      .map(([dateKey, docs]) => ({
+        dateKey,
+        date: new Date(dateKey),
+        documents: docs.sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        ),
+      }));
+  }, [clientDocuments, fileSearchQuery, fileDateFilter]);
 
   const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -195,23 +243,42 @@ export default function BusinessConsentsPage() {
         setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
       }
     } catch (err) {
-      console.error("Download consent failed:", err);
       alert(err instanceof Error ? err.message : "Nu am putut descărca documentul.");
+    }
+  };
+
+  const handleDeleteDocumentClick = (documentId: string, clientId: string, fileName: string) => {
+    setDeleteConfirmModal({ documentId, clientId, fileName });
+  };
+
+  const handleDeleteDocumentConfirm = async () => {
+    if (!deleteConfirmModal) return;
+
+    const { documentId, clientId } = deleteConfirmModal;
+
+    try {
+      await api.delete(`/consent/document/${documentId}`);
+      // Reîmprospătează lista de documente
+      void fetchClientDocuments(clientId);
+      setDeleteConfirmModal(null);
+    } catch (err) {
+      const axiosError = err as AxiosError<{ error?: string }>;
+      const message =
+        axiosError.response?.data?.error ??
+        axiosError.message ??
+        (err instanceof Error ? err.message : "Nu am putut șterge documentul. Încearcă din nou.");
+      alert(message);
     }
   };
 
   const handleOpenDocument = (url?: string | null) => {
     try {
       const { blobUrl, revoke } = resolvePdfUrl(url);
-      const newWindow = window.open(blobUrl, "_blank", "noopener");
-      if (!newWindow) {
-        alert("Browser-ul a blocat fereastra. Permite pop-up-urile pentru a vedea PDF-ul.");
-      }
+      window.open(blobUrl, "_blank", "noopener");
       if (revoke) {
         setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
       }
     } catch (err) {
-      console.error("Open consent failed:", err);
       alert(err instanceof Error ? err.message : "Nu am putut deschide documentul.");
     }
   };
@@ -233,6 +300,8 @@ export default function BusinessConsentsPage() {
     setFilesModalClient(null);
     setClientDocuments([]);
     setClientDocumentsError(null);
+    setFileSearchQuery("");
+    setFileDateFilter("");
   };
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -274,7 +343,6 @@ export default function BusinessConsentsPage() {
         void fetchClientDocuments(bookingForUpload.client.id);
       }
     } catch (err) {
-      console.error("Upload consent document failed:", err);
       const axiosError = err as AxiosError<{ error?: string }>;
       const message =
         axiosError.response?.data?.error ??
@@ -292,9 +360,7 @@ export default function BusinessConsentsPage() {
     try {
       const { blobUrl, revoke } = resolvePdfUrl(url);
       const newWindow = window.open(blobUrl, "_blank", "noopener");
-      if (!newWindow) {
-        alert("Pop-up blocat. Permite deschiderea ferestrelor pentru print.");
-      } else {
+      if (newWindow) {
         newWindow.addEventListener("load", () => {
           newWindow.focus();
           newWindow.print();
@@ -304,7 +370,6 @@ export default function BusinessConsentsPage() {
         setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
       }
     } catch (err) {
-      console.error("Print consent failed:", err);
       alert(err instanceof Error ? err.message : "Nu am putut pregăti fișierul pentru print.");
     }
   };
@@ -455,9 +520,19 @@ export default function BusinessConsentsPage() {
                       <div className="flex flex-1 flex-col gap-2">
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="text-lg font-semibold text-white">{booking.client.name}</span>
-                          <span className="text-xs text-white/50">{booking.client.email}</span>
+                          <a
+                            href={`mailto:${booking.client.email}`}
+                            className="text-xs text-white/50 transition hover:text-[#6366F1] hover:underline"
+                          >
+                            {booking.client.email}
+                          </a>
                           {booking.client.phone && (
-                            <span className="text-xs text-white/50">{booking.client.phone}</span>
+                            <a
+                              href={`tel:${booking.client.phone.replace(/\s/g, "")}`}
+                              className="text-xs text-white/50 transition hover:text-[#6366F1] hover:underline"
+                            >
+                              {booking.client.phone}
+                            </a>
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-3 text-xs text-white/60">
@@ -491,7 +566,7 @@ export default function BusinessConsentsPage() {
                             className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
                           >
                             <i className="fas fa-file-download" />
-                            Descarcă PDF
+                            Descarcă consimțământ
                           </button>
                           <button
                             type="button"
@@ -499,7 +574,7 @@ export default function BusinessConsentsPage() {
                             className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
                           >
                             <i className="fas fa-print" />
-                            Print
+                            Print consimțământ
                           </button>
                           <button
                             type="button"
@@ -566,67 +641,233 @@ export default function BusinessConsentsPage() {
               </div>
             ) : (
               <>
-                {clientDocuments.filter((doc) => doc.pdfUrl).length === 0 ? (
+                {/* Search and Filter Section */}
+                <div className="mb-6 space-y-3 rounded-2xl border border-white/10 bg-[#0B0E17]/40 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                    {/* File Name Search */}
+                    <div className="flex-1">
+                      <label htmlFor="fileSearch" className="mb-1 block text-xs font-semibold text-white/70">
+                        Caută după nume fișier sau serviciu
+                      </label>
+                      <div className="relative">
+                        <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                        <input
+                          id="fileSearch"
+                          type="text"
+                          value={fileSearchQuery}
+                          onChange={(e) => setFileSearchQuery(e.target.value)}
+                          placeholder="Ex: consent, upload, serviciu..."
+                          className="w-full rounded-xl border border-white/10 bg-white/5 px-10 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20"
+                        />
+                        {fileSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setFileSearchQuery("")}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
+                          >
+                            <i className="fas fa-times" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {/* Date Filter (Month-Day) */}
+                    <div className="md:w-48">
+                      <label htmlFor="fileDateFilter" className="mb-1 block text-xs font-semibold text-white/70">
+                        Filtrează după dată (lună-zi)
+                      </label>
+                      <div className="relative">
+                        <i className="fas fa-calendar absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                        <input
+                          id="fileDateFilter"
+                          type="text"
+                          value={fileDateFilter}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/\D/g, "");
+                            if (value.length <= 5) {
+                              let formatted = value;
+                              if (value.length > 2) {
+                                formatted = `${value.slice(0, 2)}-${value.slice(2)}`;
+                              }
+                              setFileDateFilter(formatted);
+                            }
+                          }}
+                          placeholder="MM-ZZ (ex: 01-15)"
+                          maxLength={5}
+                          className="w-full rounded-xl border border-white/10 bg-white/5 px-10 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20"
+                        />
+                        {fileDateFilter && (
+                          <button
+                            type="button"
+                            onClick={() => setFileDateFilter("")}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
+                          >
+                            <i className="fas fa-times" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {(fileSearchQuery || fileDateFilter) && (
+                    <div className="flex items-center gap-2 text-xs text-white/60">
+                      <i className="fas fa-info-circle" />
+                      <span>
+                        {groupedDocuments.length} {groupedDocuments.length === 1 ? "document găsit" : "documente găsite"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {groupedDocuments.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-white/10 bg-[#0B0E17]/40 px-4 py-6 text-sm text-white/60">
-                    Nu există încă fișiere încărcate pentru acest client.
+                    {fileSearchQuery || fileDateFilter
+                      ? "Nu s-au găsit documente care să corespundă criteriilor de căutare."
+                      : "Nu există încă fișiere încărcate pentru acest client."}
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {clientDocuments
-                      .filter((doc) => doc.pdfUrl)
-                      .map((doc) => (
-                        <div
-                          key={doc.id}
-                          className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0E17]/60 p-4 md:flex-row md:items-center md:justify-between"
-                        >
-                          <div>
+                    {groupedDocuments.map((group) => (
+                      <div
+                        key={group.dateKey}
+                        className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0E17]/60 p-4 md:flex-row md:items-center md:justify-between"
+                      >
+                        <div className="flex-1 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <i className="fas fa-calendar-day text-[#6366F1]" />
                             <p className="text-sm font-semibold text-white">
-                              {doc.booking.service?.name ?? "Serviciu necunoscut"}
-                            </p>
-                            <p className="text-xs text-white/60">
-                              {new Date(doc.booking.date).toLocaleString("ro-RO", {
-                                weekday: "short",
+                              {group.date.toLocaleDateString("ro-RO", {
+                                weekday: "long",
                                 day: "numeric",
                                 month: "long",
-                                hour: "2-digit",
-                                minute: "2-digit",
+                                year: "numeric",
                               })}
                             </p>
-                            <p className="text-xs text-white/70">
-                              Fișier: {doc.fileName ?? (doc.source === "BUSINESS_UPLOAD" ? "upload-fara-nume.pdf" : "document-generat.pdf")}
-                            </p>
-                            <p className="text-xs text-white/50">
-                              Încărcat: {new Date(doc.createdAt).toLocaleString("ro-RO")}
-                            </p>
-                            <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/70">
-                              <i className="fas fa-file-alt" />
-                              {doc.source === "BUSINESS_UPLOAD" ? "Încărcat manual" : "Semnat digital"}
+                            <span className="text-xs text-white/50">
+                              ({group.documents.length} {group.documents.length === 1 ? "fișier" : "fișiere"})
                             </span>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenDocument(doc.pdfUrl ?? undefined)}
-                              className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
-                            >
-                              <i className="fas fa-eye" />
-                              Deschide
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadDocument(doc.booking.id, doc.pdfUrl ?? undefined)}
-                              className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
-                            >
-                              <i className="fas fa-download" />
-                              Descarcă
-                            </button>
+                          <div className="space-y-2">
+                            {group.documents.map((doc) => (
+                              <div
+                                key={doc.id}
+                                className="flex flex-col gap-2 rounded-xl border border-white/5 bg-white/5 p-3 md:flex-row md:items-center md:justify-between"
+                              >
+                                <div className="flex-1">
+                                  <p className="text-sm font-semibold text-white">
+                                    {doc.booking.service?.name ?? "Serviciu necunoscut"}
+                                  </p>
+                                  <p className="text-xs text-white/60">
+                                    {new Date(doc.booking.date).toLocaleString("ro-RO", {
+                                      weekday: "short",
+                                      day: "numeric",
+                                      month: "long",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </p>
+                                  <p className="text-xs text-white/70">
+                                    Fișier: {doc.fileName ?? (doc.source === "BUSINESS_UPLOAD" ? "upload-fara-nume.pdf" : "document-generat.pdf")}
+                                  </p>
+                                  <p className="text-xs text-white/50">
+                                    Încărcat: {new Date(doc.createdAt).toLocaleTimeString("ro-RO", {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </p>
+                                  <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/70">
+                                    <i className="fas fa-file-alt" />
+                                    {doc.source === "BUSINESS_UPLOAD" ? "Încărcat manual" : "Semnat digital"}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDocument(doc.pdfUrl ?? undefined)}
+                                    className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                                  >
+                                    <i className="fas fa-eye" />
+                                    Deschide
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadDocument(doc.booking.id, doc.pdfUrl ?? undefined)}
+                                    className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                                  >
+                                    <i className="fas fa-download" />
+                                    Descarcă
+                                  </button>
+                                  {!doc.id.startsWith("legacy-") && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleDeleteDocumentClick(
+                                          doc.id,
+                                          filesModalClient?.id ?? "",
+                                          doc.fileName ?? (doc.source === "BUSINESS_UPLOAD" ? "upload-fara-nume.pdf" : "document-generat.pdf")
+                                        )
+                                      }
+                                      className="flex items-center gap-2 rounded-2xl border border-red-500/50 px-4 py-2 text-xs font-semibold text-red-400 transition hover:bg-red-500/20"
+                                    >
+                                      <i className="fas fa-trash" />
+                                      Șterge
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      ))}
+                      </div>
+                    ))}
                   </div>
                 )}
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmModal && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 py-8"
+          onClick={() => setDeleteConfirmModal(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-6 shadow-2xl shadow-black/40"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/20">
+                <i className="fas fa-exclamation-triangle text-xl text-red-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-white">Confirmă ștergerea</h3>
+                <p className="mt-1 text-sm text-white/70">
+                  Ești sigur că vrei să ștergi acest document? Această acțiune nu poate fi anulată.
+                </p>
+                {deleteConfirmModal.fileName && (
+                  <p className="mt-2 text-xs text-white/50">
+                    Fișier: <span className="font-medium text-white/70">{deleteConfirmModal.fileName}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmModal(null)}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+              >
+                Anulează
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteDocumentConfirm}
+                className="flex-1 rounded-xl border border-red-500/50 bg-red-500/20 px-4 py-2.5 text-sm font-semibold text-red-400 transition hover:bg-red-500/30"
+              >
+                <i className="fas fa-trash mr-2" />
+                Șterge
+              </button>
+            </div>
           </div>
         </div>
       )}

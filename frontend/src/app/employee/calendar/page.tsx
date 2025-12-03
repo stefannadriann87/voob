@@ -9,7 +9,6 @@ import useBookings, { Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import useApi from "../../../hooks/useApi";
 import useWorkingHours from "../../../hooks/useWorkingHours";
-import useCalendarUpdates from "../../../hooks/useCalendarUpdates";
 import {
   getBookingCancellationStatus,
   isBookingTooSoon,
@@ -75,6 +74,7 @@ export default function EmployeeCalendarPage() {
     return getBookingCancellationStatus(bookingToCancel.date, bookingToCancel.reminderSentAt);
   }, [bookingToCancel, bypassCancellationLimits]);
   const [holidays, setHolidays] = useState<Array<{ id: string; startDate: string; endDate: string; reason: string | null }>>([]);
+  const [workingHoursRefreshToken, setWorkingHoursRefreshToken] = useState(0);
 
   // Get business ID from employee association and business object
   const { businessId, business } = useMemo(() => {
@@ -107,22 +107,24 @@ export default function EmployeeCalendarPage() {
   }, [business]);
 
   // Use working hours hook
-  const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook } = useWorkingHours({
+  const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook, isBreakTime } = useWorkingHours({
+    businessId,
     employeeId: user?.id || null,
     slotDurationMinutes,
+    refreshToken: workingHoursRefreshToken,
   });
 
-  // DISABLED: Automatic polling removed to prevent excessive requests
-  // Real-time updates will happen only on:
-  // - Manual refresh (user action)
-  // - After creating/canceling a booking
-  // - After page becomes visible (if needed)
-  // useCalendarUpdates({
-  //   enabled: false, // Disabled to prevent excessive requests
-  //   interval: 60000,
-  //   businessId: businessId || null,
-  //   onUpdate: () => {},
-  // });
+  // Listen for working hours updates from settings page
+  useEffect(() => {
+    const handleWorkingHoursUpdate = () => {
+      setWorkingHoursRefreshToken((prev) => prev + 1);
+    };
+
+    window.addEventListener("workingHoursUpdated", handleWorkingHoursUpdate);
+    return () => {
+      window.removeEventListener("workingHoursUpdated", handleWorkingHoursUpdate);
+    };
+  }, []);
 
   // Fetch holidays from employee settings - only once when user.id changes
   const holidaysFetchedRef = useRef<string | null>(null);
@@ -137,7 +139,7 @@ export default function EmployeeCalendarPage() {
         setHolidays(data.holidays);
         holidaysFetchedRef.current = user.id;
       } catch (error) {
-        console.error("Failed to fetch holidays:", error);
+        // Failed to fetch holidays - silently fail
       }
     };
     void fetchHolidays();
@@ -194,7 +196,6 @@ export default function EmployeeCalendarPage() {
         );
         setClients(data);
       } catch (error) {
-        console.error("Failed to fetch clients:", error);
         setClients([]);
       } finally {
         setLoadingClients(false);
@@ -265,6 +266,9 @@ export default function EmployeeCalendarPage() {
         });
         const isBlocked = !!blockingHoliday;
 
+        // Check if this slot is a break/pause period
+        const isBreak = isBreakTime(day, hour);
+
         const booking = businessBookings.find((b) => {
           const bookingStart = new Date(b.date);
           const bookingStartMs = bookingStart.getTime();
@@ -279,7 +283,7 @@ export default function EmployeeCalendarPage() {
 
         let status: "available" | "booked" | "past" | "blocked" = "available";
         if (isPast) status = "past";
-        if (isBlocked || isTooSoon) status = "blocked";
+        if (isBlocked || isTooSoon || isBreak) status = "blocked";
         if (booking) status = "booked";
 
         // Check if this is the first slot of the booking (to show details only on the first slot)
@@ -299,10 +303,11 @@ export default function EmployeeCalendarPage() {
           isFirstSlot: isFirstSlotOfBooking || false,
           clientColor: clientColor || null,
           blockingHoliday: blockingHoliday || null,
+          isBreak, // Flag to indicate if this is a break/pause period
         };
       });
     });
-  }, [weekDays, businessBookings, getAvailableHoursForDay, holidays, slotDurationMinutes]);
+  }, [weekDays, businessBookings, getAvailableHoursForDay, holidays, slotDurationMinutes, isBreakTime]);
 
   if (!hydrated) {
     return null;
@@ -479,7 +484,6 @@ export default function EmployeeCalendarPage() {
                         const handleMouseEnter = (e: React.MouseEvent<HTMLElement>) => {
                           // Always handle hover for booked slots, even if disabled
                           if (slot.status === "booked" && slot.booking) {
-                            console.log("🔵 Mouse entered booked slot:", slot.booking.id, slot.booking.client?.name, "Slot ISO:", slot.iso);
                             setHoveredSlot(slot.iso);
                             // Clear any existing timeout
                             if (tooltipTimeoutRef.current) {
@@ -498,7 +502,6 @@ export default function EmployeeCalendarPage() {
                             tooltipTimeoutRef.current = setTimeout(() => {
                               // Verify element still exists
                               if (!targetElement || !booking) {
-                                console.log("⚠️ Element or booking no longer available");
                                 return;
                               }
                               
@@ -552,20 +555,17 @@ export default function EmployeeCalendarPage() {
                                 }
                               }
                               
-                              console.log("🟢 Setting tooltip position:", { x, y, showAbove, bookingId: booking.id });
                               setTooltipPosition({
                                 x,
                                 y,
                                 showAbove,
                               });
                               setTooltipBooking(booking);
-                              console.log("✅ Tooltip state set, booking:", booking.client?.name);
                             }, 100);
                           }
                         };
 
                         const handleMouseLeave = () => {
-                          console.log("Mouse left slot");
                           setHoveredSlot(null);
                           if (tooltipTimeoutRef.current) {
                             clearTimeout(tooltipTimeoutRef.current);
@@ -576,7 +576,6 @@ export default function EmployeeCalendarPage() {
                             // Only hide if mouse is not over tooltip
                             const tooltipElement = tooltipRef.current;
                             if (!tooltipElement || !tooltipElement.matches(":hover")) {
-                              console.log("Hiding tooltip");
                               setTooltipBooking(null);
                               setTooltipPosition(null);
                             }
@@ -648,7 +647,7 @@ export default function EmployeeCalendarPage() {
                               )
                             ) : slot.status === "blocked" ? (
                               <span className="text-[10px] opacity-60 truncate">
-                                {slot.blockingHoliday?.reason || "Blocat"}
+                                {slot.isBreak ? "Pauză" : slot.blockingHoliday?.reason || "Blocat"}
                               </span>
                             ) : (
                               <span>{slot.label}</span>
@@ -681,7 +680,6 @@ export default function EmployeeCalendarPage() {
             }}
             onMouseEnter={(e) => {
               e.stopPropagation();
-              console.log("🟡 Mouse entered tooltip");
               // Keep tooltip visible when hovering over it
               if (tooltipTimeoutRef.current) {
                 clearTimeout(tooltipTimeoutRef.current);
@@ -690,7 +688,6 @@ export default function EmployeeCalendarPage() {
             }}
             onMouseLeave={(e) => {
               e.stopPropagation();
-              console.log("🔴 Mouse left tooltip");
               // Small delay to allow clicking buttons
               setTimeout(() => {
                 setTooltipBooking(null);
@@ -877,7 +874,7 @@ export default function EmployeeCalendarPage() {
                       setBookingToCancel(null);
                       void fetchBookings();
                     } catch (error) {
-                      console.error("Cancel booking failed:", error);
+                      // Cancel booking failed - error handled by UI
                     } finally {
                       setCancellingId(null);
                     }
@@ -977,7 +974,7 @@ export default function EmployeeCalendarPage() {
                       });
                       void fetchBookings();
                     } catch (error) {
-                      console.error("Update booking failed:", error);
+                      // Update booking failed - error handled by UI
                     }
                   }}
                   className="flex-1 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
@@ -1084,7 +1081,7 @@ export default function EmployeeCalendarPage() {
                   setClientSearchQuery("");
                   setSelectedSlotDate(null);
                 } catch (error) {
-                  console.error("Failed to create booking:", error);
+                  // Failed to create booking - error handled by UI
                 } finally {
                   setCreatingBooking(false);
                 }
@@ -1188,7 +1185,7 @@ export default function EmployeeCalendarPage() {
                           );
                           setClients(updatedClients);
                         } catch (error) {
-                          console.error("Failed to create client:", error);
+                          // Failed to create client - error handled by UI
                         } finally {
                           setCreatingClient(false);
                         }

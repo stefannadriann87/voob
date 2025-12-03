@@ -9,7 +9,6 @@ import useBookings, { Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import useApi from "../../../hooks/useApi";
 import useWorkingHours from "../../../hooks/useWorkingHours";
-import useCalendarUpdates from "../../../hooks/useCalendarUpdates";
 import {
   getBookingCancellationStatus,
   isBookingTooSoon,
@@ -128,20 +127,9 @@ export default function BusinessBookingsPage() {
   // Use working hours hook
   const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook, isBreakTime } = useWorkingHours({
     businessId: businessId || null,
+    employeeId: selectedEmployeeId,
     slotDurationMinutes,
   });
-
-  // DISABLED: Automatic polling removed to prevent excessive requests
-  // Real-time updates will happen only on:
-  // - Manual refresh (user action)
-  // - After creating/canceling a booking
-  // - After page becomes visible (if needed)
-  // useCalendarUpdates({
-  //   enabled: false, // Disabled to prevent excessive requests
-  //   interval: 60000,
-  //   businessId: businessId || null,
-  //   onUpdate: () => {},
-  // });
 
   // Fetch holidays - only once when businessId changes
   const holidaysFetchedRef = useRef<string | null>(null);
@@ -156,7 +144,7 @@ export default function BusinessBookingsPage() {
         setHolidays(data.holidays);
         holidaysFetchedRef.current = businessId;
       } catch (error) {
-        console.error("Failed to fetch holidays:", error);
+        // Failed to fetch holidays - silently fail
       }
     };
     void fetchHolidays();
@@ -203,7 +191,6 @@ export default function BusinessBookingsPage() {
   // Listen for booking created events from AI chat
   useEffect(() => {
     const handleBookingCreated = () => {
-      console.log("🔄 Refreshing bookings after AI created a booking");
       void fetchBookings();
     };
 
@@ -226,7 +213,6 @@ export default function BusinessBookingsPage() {
         );
         setClients(data);
       } catch (error) {
-        console.error("Failed to fetch clients:", error);
         setClients([]);
       } finally {
         setLoadingClients(false);
@@ -908,7 +894,6 @@ export default function BusinessBookingsPage() {
                           
                           // Only handle hover for booked slots that are not in the past
                           if (slot.status === "booked" && slot.booking && !isPast) {
-                            console.log("🔵 Mouse entered booked slot:", slot.booking.id, slot.booking.client?.name, "Slot ISO:", slot.iso);
                             setHoveredSlot(slot.iso);
                             // Clear any existing timeout
                             if (tooltipTimeoutRef.current) {
@@ -927,7 +912,6 @@ export default function BusinessBookingsPage() {
                             tooltipTimeoutRef.current = setTimeout(() => {
                               // Verify element still exists
                               if (!targetElement || !booking) {
-                                console.log("⚠️ Element or booking no longer available");
                                 return;
                               }
                               
@@ -981,20 +965,17 @@ export default function BusinessBookingsPage() {
                                 }
                               }
                               
-                              console.log("🟢 Setting tooltip position:", { x, y, showAbove, bookingId: booking.id });
                               setTooltipPosition({
                                 x,
                                 y,
                                 showAbove,
                               });
                               setTooltipBooking(booking);
-                              console.log("✅ Tooltip state set, booking:", booking.client?.name);
                             }, 100);
                           }
                         };
 
                         const handleMouseLeave = () => {
-                          console.log("Mouse left slot");
                           setHoveredSlot(null);
                           if (tooltipTimeoutRef.current) {
                             clearTimeout(tooltipTimeoutRef.current);
@@ -1005,7 +986,6 @@ export default function BusinessBookingsPage() {
                             // Only hide if mouse is not over tooltip
                             const tooltipElement = tooltipRef.current;
                             if (!tooltipElement || !tooltipElement.matches(":hover")) {
-                              console.log("Hiding tooltip");
                               setTooltipBooking(null);
                               setTooltipPosition(null);
                             }
@@ -1126,7 +1106,6 @@ export default function BusinessBookingsPage() {
             }}
             onMouseEnter={(e) => {
               e.stopPropagation();
-              console.log("🟡 Mouse entered tooltip");
               // Keep tooltip visible when hovering over it
               if (tooltipTimeoutRef.current) {
                 clearTimeout(tooltipTimeoutRef.current);
@@ -1135,7 +1114,6 @@ export default function BusinessBookingsPage() {
             }}
             onMouseLeave={(e) => {
               e.stopPropagation();
-              console.log("🔴 Mouse left tooltip");
               // Small delay to allow clicking buttons
               setTimeout(() => {
                 setTooltipBooking(null);
@@ -1388,7 +1366,6 @@ export default function BusinessBookingsPage() {
                         setCancelSuccessMessage(null);
                       }, 2000);
                     } catch (error: any) {
-                      console.error("Cancel booking failed:", error);
                       // Show error message to user
                       const errorMessage = error?.response?.data?.error || error?.message || "Eroare la anularea rezervării.";
                       setCancelErrorMessage(errorMessage);
@@ -1548,7 +1525,6 @@ export default function BusinessBookingsPage() {
                   setSelectedSlotDate(null);
                   setCreateBookingError(null);
                 } catch (error: any) {
-                  console.error("Failed to create booking:", error);
                   // Extract error message from backend
                   const errorMessage =
                     error?.response?.data?.error ||
@@ -1658,7 +1634,7 @@ export default function BusinessBookingsPage() {
                           );
                           setClients(updatedClients);
                         } catch (error) {
-                          console.error("Failed to create client:", error);
+                          // Failed to create client - error handled by UI
                         } finally {
                           setCreatingClient(false);
                         }

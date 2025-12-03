@@ -64,29 +64,28 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
     const authenticatedRole = authReq.user?.role;
 
     // Verify client has access to this business (unless superadmin or business owner)
-    // Temporarily disabled to debug booking creation issue
-    // if (authenticatedRole === "CLIENT" && authenticatedUserId === clientId) {
-    //   try {
-    //     const clientLink = await prisma.clientBusinessLink.findUnique({
-    //       where: {
-    //         clientId_businessId: {
-    //           clientId,
-    //           businessId,
-    //         },
-    //       },
-    //     });
+    if (authenticatedRole === "CLIENT" && authenticatedUserId === clientId) {
+      try {
+        const clientLink = await prisma.clientBusinessLink.findUnique({
+          where: {
+            clientId_businessId: {
+              clientId,
+              businessId,
+            },
+          },
+        });
 
-    //     if (!clientLink) {
-    //       return res.status(403).json({ 
-    //         error: "Nu ai acces la acest business. Te rugăm să te conectezi la business-ul respectiv." 
-    //       });
-    //     }
-    //   } catch (linkError: any) {
-    //     logger.error("Error checking client business link:", linkError);
-    //     // If link check fails due to DB error, allow booking to proceed
-    //     // (might be a new client or the link table might not exist yet)
-    //   }
-    // }
+        if (!clientLink) {
+          return res.status(403).json({ 
+            error: "Nu ai acces la acest business. Te rugăm să te conectezi la business-ul respectiv." 
+          });
+        }
+      } catch (linkError: any) {
+        logger.error("Error checking client business link:", linkError);
+        // If link check fails due to DB error, allow booking to proceed
+        // (might be a new client or the link table might not exist yet)
+      }
+    }
 
     const [business, service] = await Promise.all([
       prisma.business.findUnique({
@@ -1233,7 +1232,7 @@ router.post("/confirm", verifyJWT, async (req, res) => {
         booking.service?.name,
         booking.business.id
       ).catch((error: unknown) => {
-        console.error("Failed to send confirmation SMS:", error);
+        logger.error("Failed to send confirmation SMS", error);
       });
     }
 

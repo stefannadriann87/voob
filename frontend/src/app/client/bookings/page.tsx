@@ -142,14 +142,6 @@ export default function ClientBookingsPage() {
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const openConsentModal = useCallback(
     async (newBooking: Booking) => {
-      console.log("=== openConsentModal CALLED ===", {
-        id: newBooking.id,
-        businessId: newBooking.businessId,
-        businessName: newBooking.business?.name,
-        businessType: newBooking.business?.businessType,
-        status: newBooking.status,
-      });
-      
       // Set booking first
       setConsentBooking(newBooking);
       
@@ -161,12 +153,10 @@ export default function ClientBookingsPage() {
       setConsentLoading(true);
       
       // Show modal immediately
-      console.log("Setting showConsentModal to true");
       setShowConsentModal(true);
       
       try {
         const { data } = await api.get<{ template: ConsentTemplate }>("/consent/template");
-        console.log("Consent template loaded:", data.template);
         setConsentTemplate(data.template);
         setConsentValues(buildConsentInitialValues(data.template, newBooking));
       } catch (err) {
@@ -179,7 +169,6 @@ export default function ClientBookingsPage() {
         setConsentError(message);
       } finally {
         setConsentLoading(false);
-        console.log("Consent modal loading finished, showConsentModal should be:", true);
       }
     },
     [api]
@@ -304,14 +293,6 @@ export default function ClientBookingsPage() {
   const selectedBusinessId = businessIdOverride ?? availableBusinesses[0]?.id ?? null;
   const selectedBusiness = useMemo(() => {
     const business = availableBusinesses.find((business) => business.id === selectedBusinessId) ?? null;
-    if (business) {
-      console.log("Selected business updated:", {
-        id: business.id,
-        name: business.name,
-        businessType: business.businessType,
-        hasBusinessType: !!business.businessType,
-      });
-    }
     return business;
   }, [availableBusinesses, selectedBusinessId]);
   const selectedServiceId =
@@ -351,6 +332,7 @@ export default function ClientBookingsPage() {
   // Use working hours hook (after selectedBusinessId and slotDurationMinutes are defined)
   const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook, isBreakTime } = useWorkingHours({
     businessId: selectedBusinessId,
+    employeeId: selectedEmployeeId,
     slotDurationMinutes,
   });
 
@@ -949,65 +931,21 @@ const handleConsentSubmit = async () => {
         const businessType = selectedBusiness?.businessType ?? booking.business?.businessType;
         const needsConsent = requiresConsentForBusiness(businessType);
 
-        // Debug logging - detailed check
-        console.log("=== CONSENT CHECK (OFFLINE) ===", {
-          selectedBusinessId: selectedBusiness?.id,
-          selectedBusinessName: selectedBusiness?.name,
-          selectedBusinessType: selectedBusiness?.businessType,
-          selectedBusinessTypeType: typeof selectedBusiness?.businessType,
-          bookingBusinessId: booking.business?.id,
-          bookingBusinessName: booking.business?.name,
-          bookingBusinessType: booking.business?.businessType,
-          bookingBusinessTypeType: typeof booking.business?.businessType,
-          finalBusinessType: businessType,
-          finalBusinessTypeType: typeof businessType,
-          needsConsent,
-          bookingStatus: booking.status,
-          bookingStatusType: typeof booking.status,
-          willOpenModal: needsConsent && booking.status === "PENDING_CONSENT",
-        });
-
         // Check if consent is required - use string comparison to be safe
         const bookingStatus = String(booking.status).toUpperCase();
         const needsConsentModal = needsConsent && bookingStatus === "PENDING_CONSENT";
-        
-        console.log("=== FINAL CONSENT CHECK (OFFLINE) ===", {
-          needsConsent,
-          bookingStatus: booking.status,
-          bookingStatusNormalized: bookingStatus,
-          needsConsentModal,
-          willOpenModal: needsConsentModal,
-          CONSENT_REQUIRED_TYPES: ["MEDICAL_DENTAL", "THERAPY_COACHING"],
-          isMedicalDental: businessType === "MEDICAL_DENTAL",
-        });
 
         // Force check: if business is MEDICAL_DENTAL and status is PENDING_CONSENT, open modal
         const isMedicalDental = businessType === "MEDICAL_DENTAL" || booking.business?.businessType === "MEDICAL_DENTAL";
         const isPendingConsent = bookingStatus === "PENDING_CONSENT" || booking.status === "PENDING_CONSENT";
         
         if (needsConsentModal || (isMedicalDental && isPendingConsent)) {
-          console.log("Opening consent modal for booking:", booking.id, {
-            needsConsentModal,
-            isMedicalDental,
-            isPendingConsent,
-            forceOpen: !needsConsentModal && isMedicalDental && isPendingConsent,
-          });
           // Close confirmation modal first
           closeConfirmationModal();
           // Small delay to ensure modal is closed before opening consent modal
           await new Promise((resolve) => setTimeout(resolve, 100));
           await openConsentModal(booking);
           return;
-        } else {
-          console.log("NOT opening consent modal. Reason:", {
-            needsConsent,
-            bookingStatus: booking.status,
-            bookingStatusNormalized: bookingStatus,
-            conditionMet: needsConsentModal,
-            isMedicalDental,
-            isPendingConsent,
-            businessType,
-          });
         }
         setRecentBooking(booking);
         setConfirmationStep("success");
@@ -1075,65 +1013,21 @@ const handleConsentSubmit = async () => {
       const businessType = selectedBusiness?.businessType ?? booking.data.business?.businessType;
       const needsConsent = requiresConsentForBusiness(businessType);
 
-      // Debug logging - detailed check
-      console.log("=== CONSENT CHECK (STRIPE) ===", {
-        selectedBusinessId: selectedBusiness?.id,
-        selectedBusinessName: selectedBusiness?.name,
-        selectedBusinessType: selectedBusiness?.businessType,
-        selectedBusinessTypeType: typeof selectedBusiness?.businessType,
-        bookingBusinessId: booking.data.business?.id,
-        bookingBusinessName: booking.data.business?.name,
-        bookingBusinessType: booking.data.business?.businessType,
-        bookingBusinessTypeType: typeof booking.data.business?.businessType,
-        finalBusinessType: businessType,
-        finalBusinessTypeType: typeof businessType,
-        needsConsent,
-        bookingStatus: booking.data.status,
-        bookingStatusType: typeof booking.data.status,
-        willOpenModal: needsConsent && booking.data.status === "PENDING_CONSENT",
-      });
-
       // Check if consent is required - use string comparison to be safe
       const bookingStatus = String(booking.data.status).toUpperCase();
       const needsConsentModal = needsConsent && bookingStatus === "PENDING_CONSENT";
-      
-      console.log("=== FINAL CONSENT CHECK (STRIPE) ===", {
-        needsConsent,
-        bookingStatus: booking.data.status,
-        bookingStatusNormalized: bookingStatus,
-        needsConsentModal,
-        willOpenModal: needsConsentModal,
-        CONSENT_REQUIRED_TYPES: ["MEDICAL_DENTAL", "THERAPY_COACHING"],
-        isMedicalDental: businessType === "MEDICAL_DENTAL",
-      });
 
       // Force check: if business is MEDICAL_DENTAL and status is PENDING_CONSENT, open modal
       const isMedicalDental = businessType === "MEDICAL_DENTAL" || booking.data.business?.businessType === "MEDICAL_DENTAL";
       const isPendingConsent = bookingStatus === "PENDING_CONSENT" || booking.data.status === "PENDING_CONSENT";
       
       if (needsConsentModal || (isMedicalDental && isPendingConsent)) {
-        console.log("Opening consent modal for booking:", booking.data.id, {
-          needsConsentModal,
-          isMedicalDental,
-          isPendingConsent,
-          forceOpen: !needsConsentModal && isMedicalDental && isPendingConsent,
-        });
         // Close confirmation modal first
         closeConfirmationModal();
         // Small delay to ensure modal is closed before opening consent modal
         await new Promise((resolve) => setTimeout(resolve, 100));
         await openConsentModal(booking.data);
         return;
-      } else {
-        console.log("NOT opening consent modal. Reason:", {
-          needsConsent,
-          bookingStatus: booking.data.status,
-          bookingStatusNormalized: bookingStatus,
-          conditionMet: needsConsentModal,
-          isMedicalDental,
-          isPendingConsent,
-          businessType,
-        });
       }
       setRecentBooking(booking.data);
       setConfirmationStep("success");
