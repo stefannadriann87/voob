@@ -748,13 +748,22 @@ const handleConsentSubmit = async () => {
       signature: null, // No signature required
       formData: consentValues,
     });
+    
+    // Salvează booking-ul pentru modala de succes
+    const completedBooking = { ...consentBooking };
+    
+    // Închide modala de consent
     setShowConsentModal(false);
-    setConsentBooking(null);
     setConsentTemplate(null);
     setConsentValues({});
     setDataPrivacyConsent(false);
-    setSuccessMessage("Consimțământ semnat cu succes! Rezervarea a fost confirmată.");
-    setTimeout(() => setSuccessMessage(null), 2000);
+    
+    // Afișează modala de succes
+    setRecentBooking(completedBooking);
+    setConfirmationStep("success");
+    setShowConfirmationModal(true);
+    setConsentBooking(null);
+    
     resetBookingForm();
     void fetchBookings();
   } catch (err) {
@@ -1461,7 +1470,7 @@ const handleConsentSubmit = async () => {
                 </h3>
                 <p className="mt-1 text-sm text-white/60">
                   {confirmationStep === "success"
-                    ? "Plata a fost procesată, iar rezervarea este confirmată. Vei primi email și SMS."
+                    ? "Rezervarea ta a fost confirmată cu succes! Vei primi notificare pe email și SMS."
                     : "Verifică detaliile, alege metoda de plată și finalizează rezervarea."}
                 </p>
               </div>
@@ -1688,31 +1697,7 @@ const handleConsentSubmit = async () => {
 
                 </div>
               </div>
-            ) : (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300">
-                  <i className="fas fa-check text-2xl" />
-                </div>
-                <h4 className="mt-4 text-2xl font-semibold text-white">Totul este gata!</h4>
-                <p className="mt-2 text-sm text-white/70">{successMessage ?? "Rezervarea și plata au fost procesate cu succes."}</p>
-                {recentBooking && (
-                  <div className="mt-6 flex flex-col gap-2 text-sm text-white/70">
-                    <div className="flex items-center justify-center gap-2">
-                      <i className="fas fa-building text-white/50" />
-                      <span>{recentBooking.business.name}</span>
-                    </div>
-                    <div className="flex items-center justify-center gap-2">
-                      <i className="fas fa-spa text-white/50" />
-                      <span>{recentBooking.service?.name}</span>
-                    </div>
-                    <div className="flex items-center justify-center gap-2">
-                      <i className="fas fa-clock text-white/50" />
-                      <span>{new Date(recentBooking.date).toLocaleString("ro-RO", { dateStyle: "medium", timeStyle: "short" })}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            ) : null}
 
             {confirmationError && (
               <p className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
@@ -1759,24 +1744,92 @@ const handleConsentSubmit = async () => {
                   )}
               </div>
             ) : (
-              <div className="mt-6 flex flex-wrap justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={closeConfirmationModal}
-                  className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
-                >
-                  Închide
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    closeConfirmationModal();
-                    router.push("/client/bookings");
-                  }}
-                  className="rounded-2xl bg-[#6366F1] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED]"
-                >
-                  Vezi rezervările
-                </button>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                {/* Success Header */}
+                <div className="text-center">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300">
+                    <i className="fas fa-check text-2xl" />
+                  </div>
+                  <h4 className="mt-4 text-2xl font-semibold text-white">Totul este gata!</h4>
+                  <p className="mt-2 text-sm text-white/70">Rezervarea ta a fost confirmată cu succes. Vei primi notificare pe email și SMS.</p>
+                </div>
+                
+                {/* Booking Details */}
+                {recentBooking && (
+                  <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex flex-col gap-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-2 text-white/60">
+                          <i className="fas fa-building w-4 text-center" />
+                          Business
+                        </span>
+                        <span className="font-semibold text-white">{recentBooking.business?.name ?? "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-2 text-white/60">
+                          <i className="fas fa-spa w-4 text-center" />
+                          Serviciu
+                        </span>
+                        <span className="font-semibold text-white">{recentBooking.service?.name ?? "—"}</span>
+                      </div>
+                      {recentBooking.employee && (
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-2 text-white/60">
+                            <i className="fas fa-user-md w-4 text-center" />
+                            Specialist
+                          </span>
+                          <span className="font-semibold text-white">{recentBooking.employee.name}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-2 text-white/60">
+                          <i className="fas fa-clock w-4 text-center" />
+                          Data și ora
+                        </span>
+                        <span className="font-semibold text-white">
+                          {new Date(recentBooking.date).toLocaleString("ro-RO", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-white/10 pt-3">
+                        <span className="flex items-center gap-2 text-white/60">
+                          <i className="fas fa-receipt w-4 text-center" />
+                          Total plătit
+                        </span>
+                        <span className="text-lg font-bold text-emerald-400">
+                          {recentBooking.service?.price?.toLocaleString("ro-RO", {
+                            style: "currency",
+                            currency: "RON",
+                          }) ?? "—"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Action Buttons */}
+                <div className="mt-6 flex flex-wrap justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={closeConfirmationModal}
+                    className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                  >
+                    Închide
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeConfirmationModal();
+                      router.push("/client/dashboard");
+                    }}
+                    className="rounded-2xl bg-[#6366F1] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED]"
+                  >
+                    <i className="fas fa-calendar-check mr-2" />
+                    Vezi rezervările mele
+                  </button>
+                </div>
               </div>
             )}
           </div>

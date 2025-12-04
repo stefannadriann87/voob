@@ -1,6 +1,5 @@
 import { AxiosError } from "axios";
 import { useCallback, useEffect, useState } from "react";
-import { jwtDecode } from "jwt-decode";
 import useApi from "./useApi";
 import type { BusinessTypeValue } from "../constants/businessTypes";
 
@@ -14,6 +13,7 @@ export interface AuthUser {
   specialization?: string | null;
   avatar?: string | null;
   role: Role;
+  businessId?: string | null;
   business?: {
     id: string;
     name: string;
@@ -40,12 +40,6 @@ interface RegisterPayload {
   businessName?: string;
   businessType?: BusinessTypeValue;
   captchaToken?: string;
-}
-
-interface JwtPayload {
-  userId: string;
-  role: Role;
-  exp?: number;
 }
 
 const AUTH_EVENT = "larstef-auth-change";
@@ -92,6 +86,10 @@ function getErrorMessage(err: unknown, defaultMessage: string): string {
   return defaultMessage;
 }
 
+/**
+ * Obține user-ul stocat local (doar pentru cache UI, NU pentru autentificare)
+ * SECURITATE: Token-ul JWT este în HttpOnly cookie, nu în localStorage
+ */
 function getStoredUser(): AuthUser | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem("larstef_user");
@@ -103,6 +101,14 @@ function getStoredUser(): AuthUser | null {
   }
 }
 
+/**
+ * Hook pentru autentificare
+ * 
+ * SECURITATE:
+ * - JWT este stocat în HttpOnly cookie (nu accesibil din JavaScript)
+ * - Doar datele user-ului sunt în localStorage (pentru cache UI)
+ * - Token-ul nu este niciodată expus în browser/React
+ */
 export default function useAuth() {
   const api = useApi();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -114,30 +120,35 @@ export default function useAuth() {
     setUser(getStoredUser());
   }, []);
 
-  const persistAuth = useCallback((token: string, userPayload: AuthUser) => {
+  /**
+   * Salvează user-ul în localStorage (doar pentru cache UI)
+   * Token-ul este setat automat în HttpOnly cookie de către backend
+   */
+  const persistUser = useCallback((userPayload: AuthUser) => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem("larstef_token", token);
     window.localStorage.setItem("larstef_user", JSON.stringify(userPayload));
     window.dispatchEvent(new Event(AUTH_EVENT));
     setUser(userPayload);
   }, []);
 
+  /**
+   * Login - Token-ul vine în HttpOnly cookie, nu în response body
+   */
   const login = useCallback(
     async ({ email, password, role, captchaToken }: LoginPayload) => {
       setLoading(true);
       setError(null);
       try {
-        const { data } = await api.post<{
-          token: string;
-          user: AuthUser;
-        }>("/auth/login", { email, password, role, captchaToken });
+        const { data } = await api.post<{ user: AuthUser }>("/auth/login", { 
+          email, 
+          password, 
+          role, 
+          captchaToken 
+        });
 
-        const decoded = jwtDecode<JwtPayload>(data.token);
-        if (decoded.exp && decoded.exp * 1000 < Date.now()) {
-          throw new Error("Token expirat");
-        }
-
-        persistAuth(data.token, data.user);
+        // Token-ul este setat automat în HttpOnly cookie de către backend
+        // Salvăm doar user-ul pentru cache UI
+        persistUser(data.user);
         return data.user;
       } catch (err) {
         const message = getErrorMessage(err, "Eroare la autentificare. Te rugăm să încerci din nou.");
@@ -147,7 +158,7 @@ export default function useAuth() {
         setLoading(false);
       }
     },
-    [api, persistAuth]
+    [api, persistUser]
   );
 
   const register = useCallback(
@@ -213,20 +224,33 @@ export default function useAuth() {
     [api]
   );
 
-  const logout = useCallback(() => {
+  /**
+   * Logout - Șterge cookie-ul HttpOnly pe backend și datele locale
+   */
+  const logout = useCallback(async () => {
+    try {
+      // Șterge cookie-ul JWT pe backend
+      await api.post("/auth/logout");
+    } catch (err) {
+      // Continuă chiar dacă request-ul eșuează (ex: deja deconectat)
+      console.error("Logout request failed:", err);
+    }
+    
+    // Șterge datele locale
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem("larstef_token");
       window.localStorage.removeItem("larstef_user");
       window.dispatchEvent(new Event(AUTH_EVENT));
     }
     setUser(null);
     setHydrated(true);
-  }, []);
+  }, [api]);
 
+  /**
+   * Fetch user curent de pe server
+   * Cookie-ul JWT este trimis automat (withCredentials: true)
+   */
   const fetchCurrentUser = useCallback(async () => {
     if (typeof window === "undefined") return null;
-    const token = window.localStorage.getItem("larstef_token");
-    if (!token) return null;
 
     try {
       const { data } = await api.get<{ user: AuthUser }>("/auth/me");
@@ -234,11 +258,19 @@ export default function useAuth() {
       setUser(data.user);
       return data.user;
     } catch (err) {
-      console.error("Failed to fetch current user:", err);
-      logout();
+      // 401 = nu e autentificat (normal, nu e eroare)
+      const axiosErr = err as AxiosError;
+      if (axiosErr.response?.status !== 401) {
+        console.error("Failed to fetch current user:", err);
+      }
+      // Șterge datele locale dacă sesiunea e invalidă
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("larstef_user");
+      }
+      setUser(null);
       return null;
     }
-  }, [api, logout]);
+  }, [api]);
 
   const updateProfile = useCallback(
     async (data: { phone?: string; name?: string; specialization?: string; avatar?: string }) => {
@@ -265,15 +297,21 @@ export default function useAuth() {
     if (typeof window === "undefined") return;
 
     const initialize = async () => {
+      // Încercăm să luăm user-ul din localStorage (cache)
       const stored = getStoredUser();
       if (stored) {
         setUser(stored);
         setHydrated(true);
+        // Verificăm în background dacă sesiunea e încă validă
+        fetchCurrentUser().catch(() => {
+          // Ignorăm eroarea - deja am setat user-ul din cache
+        });
       } else {
+        // Nu avem cache, încercăm să luăm de pe server
         try {
           await fetchCurrentUser();
-        } catch (error) {
-          // If fetch fails, user is not authenticated - this is normal
+        } catch {
+          // User nu e autentificat - normal
         }
         setHydrated(true);
       }
@@ -302,4 +340,3 @@ export default function useAuth() {
     logout,
   };
 }
-

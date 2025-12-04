@@ -1,5 +1,7 @@
 import express = require("express");
 import cors = require("cors");
+const helmet = require("helmet");
+import cookieParser = require("cookie-parser");
 import dotenv = require("dotenv");
 const { validateRequiredEnv, getEnv } = require("./lib/envValidator");
 const { logger } = require("./lib/logger");
@@ -39,6 +41,25 @@ const rawBodySaver = (req: express.Request, _res: express.Response, buf: Buffer)
 
 const app = express();
 
+// Security headers cu Helmet.js
+// Protecție: XSS, Clickjacking, MIME sniffing, etc.
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.stripe.com"],
+      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: process.env.NODE_ENV === "production" ? [] : null,
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Permite embedding pentru Stripe
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
+
 // CORS configuration - suportă multiple origins pentru AWS
 const allowedOrigins = [
   getEnv("FRONTEND_URL", "http://localhost:3001"),
@@ -62,6 +83,10 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
+
+// Cookie parser pentru JWT HttpOnly cookies
+app.use(cookieParser());
+
 app.use(express.json({ limit: "12mb", verify: rawBodySaver }));
 app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 
@@ -94,6 +119,37 @@ app.use("/platform-settings", platformSettingsRouter);
 app.use("/billing", billingRouter);
 app.post("/webhooks/stripe", stripeWebhookRouter);
 app.post("/billing/webhooks", express.raw({ type: "application/json" }), billingWebhookHandler);
+
+// Global Error Handler - Format standard pentru toate erorile
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  
+  logger.error("Unhandled error", err, {
+    path: req.path,
+    method: req.method,
+    ip: req.ip,
+  });
+
+  // Format standard de eroare
+  const errorResponse: { error: string; code?: string; details?: string | undefined } = {
+    error: isProduction ? "A apărut o eroare. Te rugăm să încerci din nou." : err.message,
+  };
+
+  // Adaugă detalii doar în development
+  if (!isProduction && err.stack) {
+    errorResponse.details = err.stack;
+  }
+
+  // Determină status code
+  const statusCode = (err as any).statusCode || (err as any).status || 500;
+  
+  res.status(statusCode).json(errorResponse);
+});
+
+// 404 Handler
+app.use((req: express.Request, res: express.Response) => {
+  res.status(404).json({ error: "Endpoint negăsit." });
+});
 
 const PORT = getEnv("PORT", "4000");
 app.listen(Number(PORT), () => {

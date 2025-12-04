@@ -27,6 +27,32 @@ interface EmailOptions extends nodemailer.SendMailOptions {
 async function sendEmail(options: EmailOptions) {
   const { icalEvent, attachments: existingAttachments, ...nodemailerOptions } = options;
 
+  // IMPORTANT: Validare pentru a preveni trimiterea către adrese de test invalide
+  const emailAddress = options.to;
+  if (emailAddress && typeof emailAddress === "string") {
+    // Blochează adrese de test invalide care pot cauza retry-uri infinite
+    const testEmailPatterns = [
+      /@test\.com$/i,
+      /@example\.com$/i,
+      /@test\.test$/i,
+      /test-\d+@/i, // Pattern: test-123456@...
+      /client-\d+@/i, // Pattern: client-123456@...
+    ];
+    
+    const isTestEmail = testEmailPatterns.some((pattern) => pattern.test(emailAddress));
+    
+    if (isTestEmail) {
+      const { logger } = require("../lib/logger");
+      logger.warn("Blocked email to test address", { 
+        email: emailAddress, 
+        subject: options.subject,
+        reason: "Test email addresses are blocked to prevent delivery failures"
+      });
+      // Return early without sending - nu aruncăm eroare pentru a nu afecta flow-ul
+      return { messageId: "blocked-test-email", accepted: [], rejected: [] };
+    }
+  }
+
   // Convert icalEvent to attachment if provided
   const attachments = existingAttachments ? [...existingAttachments] : [];
   if (icalEvent) {

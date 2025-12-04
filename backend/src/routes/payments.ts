@@ -124,20 +124,28 @@ router.post("/create-intent", verifyJWT, validate(createPaymentIntentSchema), as
     const installments = null;
     const amountPerInstallment = null;
 
-    await prisma.payment.create({
-      data: {
-        businessId,
-        amount: service.price,
-        currency: "RON",
-        method: mapClientMethodToPrisma(clientMethod),
-        status: "PENDING",
-        gateway: "stripe",
-        externalPaymentId: paymentIntent.id,
-        installments: installments ?? undefined,
-        amountPerInstallment: amountPerInstallment ?? undefined,
-        metadata,
-      },
+    // Verifică dacă există deja un Payment pentru acest intent (idempotency key reused)
+    const existingPayment = await prisma.payment.findFirst({
+      where: { externalPaymentId: paymentIntent.id },
     });
+
+    if (!existingPayment) {
+      // Creează Payment nou doar dacă nu există
+      await prisma.payment.create({
+        data: {
+          businessId,
+          amount: service.price,
+          currency: "RON",
+          method: mapClientMethodToPrisma(clientMethod),
+          status: "PENDING",
+          gateway: "stripe",
+          externalPaymentId: paymentIntent.id,
+          installments: installments ?? undefined,
+          amountPerInstallment: amountPerInstallment ?? undefined,
+          metadata,
+        },
+      });
+    }
 
     return res.json({
       paymentIntentId: paymentIntent.id,

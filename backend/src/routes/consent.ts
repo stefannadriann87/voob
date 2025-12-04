@@ -412,7 +412,7 @@ router.post("/upload", verifyJWT, async (req, res) => {
 router.get("/client/:clientId", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const { clientId } = req.params;
-  const { businessId } = req.query as { businessId?: string };
+  const { businessId, employeeId } = req.query as { businessId?: string; employeeId?: string };
 
   if (!authReq.user) {
     return res.status(401).json({ error: "Autentificare necesară." });
@@ -440,14 +440,28 @@ router.get("/client/:clientId", verifyJWT, async (req, res) => {
       return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza documentele acestui client." });
     }
 
+    // Dacă e employee și cere filtrare pe employeeId, verifică că e propriul ID
+    if (employeeId && isEmployee && !isOwner && !isSuperAdmin) {
+      if (employeeId !== authReq.user.userId) {
+        return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza documentele altui angajat." });
+      }
+    }
+
+    // Construiește where clause pentru documents
+    const documentWhereClause: any = { businessId, clientId };
+    if (employeeId) {
+      documentWhereClause.booking = { employeeId };
+    }
+
     const documents = await prisma.consentDocument.findMany({
-      where: { businessId, clientId },
+      where: documentWhereClause,
       orderBy: { createdAt: "desc" },
       include: {
         booking: {
           select: {
             id: true,
             date: true,
+            employeeId: true,
             service: { select: { id: true, name: true } },
             employee: { select: { id: true, name: true, email: true } },
           },
@@ -459,14 +473,20 @@ router.get("/client/:clientId", verifyJWT, async (req, res) => {
       documents.map((doc: ConsentDocumentWithBooking) => doc.bookingId)
     );
 
-    const legacyBookings = await prisma.booking.findMany({
-      where: {
-        businessId,
-        clientId,
-        consentForm: {
-          isNot: null,
-        },
+    // Construiește where clause pentru legacy bookings
+    const legacyWhereClause: any = {
+      businessId,
+      clientId,
+      consentForm: {
+        isNot: null,
       },
+    };
+    if (employeeId) {
+      legacyWhereClause.employeeId = employeeId;
+    }
+
+    const legacyBookings = await prisma.booking.findMany({
+      where: legacyWhereClause,
       include: {
         consentForm: {
           select: { id: true, pdfUrl: true, createdAt: true },
@@ -561,7 +581,12 @@ router.get("/:bookingId", verifyJWT, async (req, res) => {
 
 router.get("/", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const { businessId, date, search } = req.query as { businessId?: string; date?: string; search?: string };
+  const { businessId, employeeId, date, search } = req.query as { 
+    businessId?: string; 
+    employeeId?: string;
+    date?: string; 
+    search?: string;
+  };
 
   if (!authReq.user) {
     return res.status(401).json({ error: "Autentificare necesară." });
@@ -592,23 +617,43 @@ router.get("/", verifyJWT, async (req, res) => {
       return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza consimțămintele acestui business." });
     }
 
-    const referenceDate = date ? new Date(date) : new Date();
-    if (Number.isNaN(referenceDate.getTime())) {
-      return res.status(400).json({ error: "Data selectată nu este validă." });
+    // Dacă e employee și cere filtrare pe employeeId, verifică că e propriul ID
+    if (employeeId && isEmployee && !isOwner && !isSuperAdmin) {
+      if (employeeId !== authReq.user.userId) {
+        return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza consimțămintele altui angajat." });
+      }
     }
 
-    const dayStart = new Date(referenceDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    // Pentru employee, permitem afișarea tuturor booking-urilor cu consimțăminte dacă nu este specificată o dată
+    // Pentru owner/superadmin, filtrează după dată (implicit astăzi)
+    const isEmployeeOnly = isEmployee && !isOwner && !isSuperAdmin;
+    const shouldFilterByDate = date || !isEmployeeOnly;
 
     const whereClause: Prisma.BookingWhereInput = {
       businessId,
-      date: {
+    };
+
+    if (shouldFilterByDate) {
+      const referenceDate = date ? new Date(date) : new Date();
+      if (Number.isNaN(referenceDate.getTime())) {
+        return res.status(400).json({ error: "Data selectată nu este validă." });
+      }
+
+      const dayStart = new Date(referenceDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      whereClause.date = {
         gte: dayStart,
         lt: dayEnd,
-      },
-    };
+      };
+    }
+
+    // Filtrare după employeeId dacă e specificat
+    if (employeeId) {
+      whereClause.employeeId = employeeId;
+    }
 
     const trimmedSearch = search?.trim();
     if (trimmedSearch) {

@@ -4,12 +4,14 @@
  */
 
 const { createClient } = require("redis");
+const { logger } = require("./logger");
 
 let redisClient: any = null;
+let connectionAttempted = false;
 
 async function getRedisClient() {
-  // Dacă Redis nu e instalat sau configurat, returnează null (folosim fallback la DB)
-  if (!createClient || !process.env.REDIS_URL) {
+  // Dacă Redis nu e configurat, returnează null (folosim fallback la DB)
+  if (!process.env.REDIS_URL) {
     return null;
   }
 
@@ -17,20 +19,29 @@ async function getRedisClient() {
     return redisClient;
   }
 
-  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+  // Evită încercări repetate de conectare dacă a eșuat deja
+  if (connectionAttempted && !redisClient) {
+    return null;
+  }
+
+  const redisUrl = process.env.REDIS_URL;
 
   try {
+    connectionAttempted = true;
     redisClient = createClient({
       url: redisUrl,
     });
 
     redisClient.on("error", (err: any) => {
-      console.warn("Redis Client Error (using DB fallback):", err.message);
-      redisClient = null; // Reset pentru a încerca reconectare la următoarea cerere
+      // Log doar o dată, nu la fiecare eroare
+      if (redisClient) {
+        logger.warn("Redis Client Error - using DB fallback", { error: err.message });
+        redisClient = null;
+      }
     });
 
     redisClient.on("connect", () => {
-      console.log("✅ Redis Client Connected");
+      logger.info("Redis Client Connected");
     });
 
     if (!redisClient.isOpen) {
@@ -38,8 +49,9 @@ async function getRedisClient() {
     }
 
     return redisClient;
-  } catch (error) {
-    console.warn("Redis connection failed (using DB fallback):", error);
+  } catch (error: any) {
+    logger.warn("Redis connection failed - using DB fallback", { error: error?.message });
+    redisClient = null;
     return null;
   }
 }

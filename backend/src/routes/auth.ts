@@ -15,15 +15,36 @@ const {
   recordRegistrationAttempt,
 } = require("../services/rateLimitService");
 const { rateLimitRegistration, rateLimitLogin } = require("../middleware/rateLimit");
+const { JWT_COOKIE_NAME } = require("../middleware/auth");
 
 const router = express.Router();
 
-const { validateEnv, getEnv, getEnvNumber } = require("../lib/envValidator");
+const { validateEnv, getEnv, getEnvNumber, getEnvBool } = require("../lib/envValidator");
 const { logger } = require("../lib/logger");
 
 const JWT_SECRET = validateEnv("JWT_SECRET", { required: true, minLength: 32 });
 const FRONTEND_URL = getEnv("FRONTEND_URL", "http://localhost:3000");
 const RESET_TOKEN_EXPIRATION_MINUTES = getEnvNumber("RESET_TOKEN_EXP_MINUTES", 60);
+
+// Cookie configuration pentru JWT
+const isProduction = process.env.NODE_ENV === "production";
+const JWT_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 zile în milisecunde
+
+/**
+ * Opțiuni pentru JWT HttpOnly cookie
+ * - httpOnly: true = nu poate fi accesat din JavaScript (protecție XSS)
+ * - secure: true în production = trimis doar pe HTTPS
+ * - sameSite: 'lax' = protecție CSRF, permite navigare normală
+ * - path: '/' = disponibil pe toate rutele
+ * - maxAge: 7 zile = expiră automat
+ */
+const getJwtCookieOptions = (): express.CookieOptions => ({
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? "strict" : "lax",
+  path: "/",
+  maxAge: JWT_COOKIE_MAX_AGE,
+});
 
 const slugify = (value: string) =>
   value
@@ -70,17 +91,33 @@ type TokenPayload = {
   role: RoleType;
 };
 
-const authenticate = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+/**
+ * Extrage token din request (cookie sau Authorization header)
+ */
+const extractTokenFromRequest = (req: express.Request): string | null => {
+  // 1. Prioritate: HttpOnly Cookie
+  const cookieReq = req as express.Request & { cookies?: { [key: string]: string } };
+  if (cookieReq.cookies && cookieReq.cookies[JWT_COOKIE_NAME]) {
+    return cookieReq.cookies[JWT_COOKIE_NAME];
+  }
+  
+  // 2. Fallback: Authorization header (pentru backward compatibility și mobile apps)
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  if (header?.startsWith("Bearer ")) {
+    return header.split(" ")[1] || null;
+  }
+  
+  return null;
+};
+
+const authenticate = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const token = extractTokenFromRequest(req);
+  
+  if (!token) {
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 
   try {
-    const token = header.split(" ")[1];
-    if (!token) {
-      return res.status(401).json({ error: "Token lipsă." });
-    }
     const payload = jwt.verify(token, JWT_SECRET) as unknown as TokenPayload;
     (req as express.Request & { user?: TokenPayload }).user = payload;
     next();
@@ -192,10 +229,14 @@ router.post("/register", rateLimitRegistration, async (req, res) => {
         ip,
         userAgent,
         false,
-        "Email deja folosit",
+        "Email deja înregistrat",
         captchaResult.score
       );
-      return res.status(409).json({ error: "Email deja folosit." });
+      // Mesaj generic pentru a preveni email enumeration
+      // Nu dezvăluim dacă email-ul există sau nu
+      return res.status(400).json({ 
+        error: "Nu s-a putut crea contul. Verifică datele introduse sau încearcă să te autentifici." 
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -309,8 +350,11 @@ router.post("/login", rateLimitLogin, async (req, res) => {
 
     const { password: _password, ...userResponse } = user;
 
+    // Setează JWT în HttpOnly cookie (nu poate fi accesat din JavaScript)
+    res.cookie(JWT_COOKIE_NAME, token, getJwtCookieOptions());
+
+    // Returnează user fără token (token-ul este în cookie)
     return res.json({
-      token,
       user: userResponse,
     });
   } catch (error) {
@@ -581,6 +625,22 @@ router.post("/clients", authenticate, async (req, res) => {
     logger.error("Create client failed", error);
     return res.status(500).json({ error: "Eroare la crearea clientului." });
   }
+});
+
+/**
+ * POST /auth/logout
+ * Șterge JWT cookie pentru a deconecta utilizatorul
+ */
+router.post("/logout", (req, res) => {
+  // Șterge cookie-ul JWT
+  res.clearCookie(JWT_COOKIE_NAME, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "strict" : "lax",
+    path: "/",
+  });
+  
+  return res.json({ ok: true, message: "Deconectare reușită." });
 });
 
 export = router;

@@ -745,27 +745,65 @@ export default function ClientDashboardPage() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <p className="text-base font-semibold text-white">{business.name}</p>
-                      {business.domain && (
-                        <p className="mt-1 text-xs text-white/60">{business.domain}</p>
-                      )}
-                      {business.email && (
-                        <p className="mt-2 text-xs text-white/50">{business.email}</p>
-                      )}
                       {(() => {
                         const phone = (business as { phone?: string | null }).phone;
                         const address = (business as { address?: string | null }).address;
+                        const latitude = (business as { latitude?: number | null }).latitude;
+                        const longitude = (business as { longitude?: number | null }).longitude;
+                        const email = (business as { email?: string | null }).email;
+                        
+                        // Construiește link-ul pentru Google Maps
+                        const getMapsUrl = () => {
+                          if (latitude && longitude) {
+                            return `https://www.google.com/maps?q=${latitude},${longitude}`;
+                          }
+                          if (address) {
+                            return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+                          }
+                          return null;
+                        };
+                        
+                        const mapsUrl = getMapsUrl();
+                        
                         return (
                           <div className="mt-3 space-y-1.5">
-                            {address && (
-                              <div className="flex items-start gap-2">
-                                <i className="fas fa-map-marker-alt text-white/40 mt-0.5 text-xs" />
-                                <p className="text-xs text-white/70">{address}</p>
+                            {email && (
+                              <div className="flex items-center gap-2">
+                                <i className="fas fa-envelope text-white/40 text-xs" />
+                                <a
+                                  href={`mailto:${email}`}
+                                  className="text-xs text-white/70 transition hover:text-[#6366F1] hover:underline"
+                                >
+                                  {email}
+                                </a>
                               </div>
                             )}
                             {phone && (
                               <div className="flex items-center gap-2">
                                 <i className="fas fa-phone text-white/40 text-xs" />
-                                <p className="text-xs text-white/70">{phone}</p>
+                                <a
+                                  href={`tel:${phone.replace(/\s/g, "")}`}
+                                  className="text-xs text-white/70 transition hover:text-[#6366F1] hover:underline"
+                                >
+                                  {phone}
+                                </a>
+                              </div>
+                            )}
+                            {address && (
+                              <div className="flex items-start gap-2">
+                                <i className="fas fa-map-marker-alt text-white/40 mt-0.5 text-xs" />
+                                {mapsUrl ? (
+                                  <a
+                                    href={mapsUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-white/70 transition hover:text-[#6366F1] hover:underline"
+                                  >
+                                    {address}
+                                  </a>
+                                ) : (
+                                  <p className="text-xs text-white/70">{address}</p>
+                                )}
                               </div>
                             )}
                           </div>

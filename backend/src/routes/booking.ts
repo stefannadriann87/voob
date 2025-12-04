@@ -645,6 +645,7 @@ router.delete("/:id", verifyJWT, async (req, res) => {
     }
 
     // If booking is already cancelled, return error
+    // IMPORTANT: Verificăm înainte de orice altă operațiune pentru a preveni trimiterea multiplă de email-uri
     if (booking.status === "CANCELLED") {
       return res.status(400).json({ error: "Rezervarea a fost deja anulată." });
     }
@@ -820,21 +821,44 @@ router.delete("/:id", verifyJWT, async (req, res) => {
       }
     }
 
-    // If booking is paid, set status to CANCELLED instead of deleting
-    // This allows the client to reuse the payment for a new booking (if no refund)
+    // IMPORTANT: Folosim updateMany cu condiție pentru a preveni race conditions și trimiterea multiplă de email-uri
+    // Actualizăm doar dacă status-ul nu este deja CANCELLED
+    let bookingWasCancelled = false;
+    
     if (isPaid) {
-      await prisma.booking.update({
-        where: { id },
+      // If booking is paid, set status to CANCELLED instead of deleting
+      // This allows the client to reuse the payment for a new booking (if no refund)
+      const updateResult = await prisma.booking.updateMany({
+        where: { 
+          id,
+          status: { not: "CANCELLED" } // Actualizează doar dacă nu este deja anulat
+        },
         data: { status: "CANCELLED" },
       });
+      bookingWasCancelled = updateResult.count > 0;
     } else {
       // For unpaid bookings, we can delete them completely
-      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        if (booking.consentForm) {
-          await tx.consentForm.delete({ where: { bookingId: id } });
-        }
-        await tx.booking.delete({ where: { id } });
+      // Verificăm dacă booking-ul există și nu este deja anulat înainte de ștergere
+      const existingBooking = await prisma.booking.findUnique({
+        where: { id },
+        select: { id: true, status: true },
       });
+      
+      if (existingBooking && existingBooking.status !== "CANCELLED") {
+        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+          if (booking.consentForm) {
+            await tx.consentForm.delete({ where: { bookingId: id } });
+          }
+          await tx.booking.delete({ where: { id } });
+        });
+        bookingWasCancelled = true;
+      }
+    }
+    
+    // Dacă booking-ul a fost deja anulat de alt request, nu trimitem email-uri
+    if (!bookingWasCancelled) {
+      logger.warn("Booking was already cancelled, skipping notifications", { bookingId: id });
+      return res.status(400).json({ error: "Rezervarea a fost deja anulată." });
     }
 
     // Trimite SMS de anulare după anularea rezervării
@@ -1012,10 +1036,24 @@ router.post("/confirm", verifyJWT, async (req, res) => {
     }
 
     // CRITIC FIX: Verifică dacă payment-ul este SUCCEEDED înainte de a crea booking
+    // Dacă DB nu e actualizat, verifică direct cu Stripe
     if (payment.status !== "SUCCEEDED") {
-      return res.status(400).json({ 
-        error: "Plata nu este confirmată. Așteaptă confirmarea de la Stripe." 
-      });
+      const stripe = getStripeClient();
+      const stripeIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      
+      if (stripeIntent.status === "succeeded") {
+        // Stripe confirmă plata - actualizează DB-ul
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: { status: "SUCCEEDED" },
+        });
+        logger.info("Payment status updated from Stripe", { paymentId: payment.id, stripeStatus: stripeIntent.status });
+      } else {
+        // Stripe nu confirmă plata
+        return res.status(400).json({ 
+          error: `Plata nu este confirmată. Status Stripe: ${stripeIntent.status}` 
+        });
+      }
     }
 
     if (payment.bookingId) {

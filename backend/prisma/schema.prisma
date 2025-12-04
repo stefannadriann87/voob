@@ -29,6 +29,7 @@ model User {
   consentForms     ConsentForm[]
   employeeHolidays EmployeeHoliday[]
   resetTokens      PasswordResetToken[]
+  sessions         UserSession[]
   business         Business?            @relation(fields: [businessId], references: [id])
 }
 
@@ -241,6 +242,23 @@ model PasswordResetToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
+}
+
+model UserSession {
+  id           String    @id @default(cuid())
+  userId       String
+  tokenHash    String    @unique // Hash of JWT pentru invalidare
+  userAgent    String?
+  ipAddress    String?
+  lastActivity DateTime  @default(now())
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  isActive     Boolean   @default(true)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
 }
 
 model SubscriptionPlan {

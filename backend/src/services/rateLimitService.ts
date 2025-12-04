@@ -5,11 +5,14 @@
 
 const prisma = require("../lib/prisma");
 const { getRedisClient } = require("../lib/redis");
+const { logger } = require("../lib/logger");
 
 const REGISTRATION_RATE_LIMIT = Number(process.env.REGISTRATION_RATE_LIMIT || 5); // Max 5 înregistrări/24h
 const LOGIN_RATE_LIMIT = Number(process.env.LOGIN_RATE_LIMIT || 10); // Max 10 attempts/15min
 const LOGIN_FAILED_LIMIT = Number(process.env.LOGIN_FAILED_LIMIT || 5); // Max 5 failed înainte de blocare
-const IP_BLOCK_DURATION_HOURS = Number(process.env.IP_BLOCK_DURATION_HOURS || 1); // 1 oră blocare
+
+// Progressive lockout: 1h -> 24h -> 7 zile -> permanent
+const LOCKOUT_DURATIONS_HOURS = [1, 24, 168, null]; // null = permanent
 
 /**
  * Obține IP-ul din request
@@ -48,7 +51,7 @@ async function checkRegistrationLimit(ip: string): Promise<{ allowed: boolean; r
       };
     }
   } catch (error) {
-    console.warn("Redis not available, using DB fallback:", error);
+    // Redis nu e disponibil, folosim fallback la DB (silent în production)
   }
   
   // Fallback la DB dacă Redis nu e disponibil
@@ -91,7 +94,7 @@ async function checkLoginLimit(ip: string): Promise<{ allowed: boolean; remainin
       };
     }
   } catch (error) {
-    console.warn("Redis not available, using DB fallback:", error);
+    // Redis nu e disponibil, folosim fallback la DB (silent în production)
   }
   
   // Fallback la DB dacă Redis nu e disponibil
@@ -186,7 +189,7 @@ async function recordRegistrationAttempt(
       },
     });
   } catch (error) {
-    console.error("Error recording registration attempt:", error);
+    logger.error("Error recording registration attempt", error);
   }
 }
 
@@ -211,7 +214,7 @@ async function recordLoginAttempt(
       },
     });
   } catch (error) {
-    console.error("Error recording login attempt:", error);
+    logger.error("Error recording login attempt", error);
   }
 }
 
@@ -228,7 +231,28 @@ async function checkSuspiciousPattern(ip: string): Promise<{ suspicious: boolean
 }
 
 /**
- * Verifică failed login attempts și blochează IP dacă e necesar
+ * Obține numărul de blocări anterioare pentru un IP (pentru progressive lockout)
+ */
+async function getPreviousBlockCount(ip: string): Promise<number> {
+  // Numără câte blocări a avut IP-ul în ultimele 30 de zile
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  
+  const blocks = await prisma.ipBlacklist.findMany({
+    where: {
+      ipAddress: ip,
+      blockedAt: { gte: thirtyDaysAgo },
+    },
+  });
+  
+  return blocks.length;
+}
+
+/**
+ * Verifică failed login attempts și blochează IP cu progressive lockout
+ * Prima blocare: 1 oră
+ * A doua blocare: 24 ore
+ * A treia blocare: 7 zile
+ * A patra+ blocare: permanent
  */
 async function checkAndBlockFailedLogins(ip: string): Promise<boolean> {
   const failedCount = await prisma.loginAttempt.count({
@@ -242,7 +266,24 @@ async function checkAndBlockFailedLogins(ip: string): Promise<boolean> {
   });
 
   if (failedCount >= LOGIN_FAILED_LIMIT) {
-    await blockIp(ip, `Prea multe încercări eșuate de login (${failedCount})`, IP_BLOCK_DURATION_HOURS);
+    // Progressive lockout
+    const previousBlocks = await getPreviousBlockCount(ip);
+    const lockoutIndex = Math.min(previousBlocks, LOCKOUT_DURATIONS_HOURS.length - 1);
+    const lockoutDuration = LOCKOUT_DURATIONS_HOURS[lockoutIndex];
+    
+    const reason = lockoutDuration 
+      ? `Prea multe încercări eșuate (${failedCount}). Blocare ${lockoutIndex + 1}: ${lockoutDuration}h`
+      : `Prea multe încercări eșuate (${failedCount}). Blocare permanentă.`;
+    
+    await blockIp(ip, reason, lockoutDuration ?? undefined);
+    
+    logger.warn("IP blocked due to failed logins", { 
+      ip, 
+      failedCount, 
+      blockNumber: lockoutIndex + 1,
+      duration: lockoutDuration ? `${lockoutDuration}h` : "permanent"
+    });
+    
     return true; // IP blocat
   }
 
@@ -260,5 +301,6 @@ module.exports = {
   recordLoginAttempt,
   checkSuspiciousPattern,
   checkAndBlockFailedLogins,
+  getPreviousBlockCount,
 };
 

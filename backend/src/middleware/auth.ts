@@ -10,6 +10,9 @@ const JWT_SECRET = validateEnv("JWT_SECRET", {
   minLength: 32,
 });
 
+// Numele cookie-ului pentru JWT
+const JWT_COOKIE_NAME = "larstef_auth";
+
 interface AuthUser {
   userId: string;
   role: RoleType;
@@ -25,17 +28,37 @@ interface AIContext {
 interface AuthenticatedRequest extends express.Request {
   user?: AuthUser;
   aiContext?: AIContext;
+  cookies: { [key: string]: string };
 }
 
-const verifyJWT = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Token lipsă." });
+/**
+ * Extrage JWT din request
+ * Prioritate: 1. HttpOnly Cookie, 2. Authorization Header (backward compatibility)
+ */
+const extractToken = (req: express.Request): string | null => {
+  const cookieReq = req as AuthenticatedRequest;
+  
+  // 1. Prioritate: HttpOnly Cookie (securitate maximă)
+  if (cookieReq.cookies && cookieReq.cookies[JWT_COOKIE_NAME]) {
+    return cookieReq.cookies[JWT_COOKIE_NAME];
   }
-  const token = authHeader.split(" ")[1];
+  
+  // 2. Fallback: Authorization header (pentru backward compatibility și mobile apps)
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.split(" ")[1] || null;
+  }
+  
+  return null;
+};
+
+const verifyJWT = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const token = extractToken(req);
+  
   if (!token) {
     return res.status(401).json({ error: "Token lipsă." });
   }
+  
   try {
     const payload = jwt.verify(token, JWT_SECRET) as unknown as AuthUser;
     (req as AuthenticatedRequest).user = payload;
@@ -49,10 +72,10 @@ const verifyJWT = (req: express.Request, res: express.Response, next: express.Ne
     
     next();
   } catch (error) {
-    logger.error("JWT verification failed", error, { token: token.substring(0, 10) + "..." });
+    logger.error("JWT verification failed", error, { tokenPrefix: token.substring(0, 10) + "..." });
     return res.status(401).json({ error: "Token invalid sau expirat." });
   }
 };
 
-module.exports = { verifyJWT };
+module.exports = { verifyJWT, JWT_COOKIE_NAME };
 

@@ -88,7 +88,7 @@ export default function useBusiness() {
         console.error("Network Error Details:", {
           endpoint: options?.scope === "linked" ? "/client/businesses" : "/business",
           baseURL: api.defaults.baseURL,
-          hasToken: typeof window !== "undefined" ? !!window.localStorage.getItem("larstef_token") : false,
+          hasUser: typeof window !== "undefined" ? !!window.localStorage.getItem("larstef_user") : false,
           error: axiosError.message,
           code: axiosError.code,
         });
