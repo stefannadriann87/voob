@@ -108,6 +108,7 @@ model Business {
   invoices         Invoice[]
   payments         Payment[]
   services         Service[]
+  courts           Court[]
   smsUsageLogs     SmsUsageLog[]
   subscriptions    Subscription[]
   employees        User[]
@@ -153,11 +154,43 @@ model Service {
   business   Business  @relation(fields: [businessId], references: [id])
 }
 
+model Court {
+  id         String        @id @default(cuid())
+  businessId String
+  name       String
+  number     Int
+  isActive   Boolean       @default(true)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  business   Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  bookings   Booking[]
+  pricing    CourtPricing[]
+
+  @@unique([businessId, number])
+  @@index([businessId])
+}
+
+model CourtPricing {
+  id        String   @id @default(cuid())
+  courtId   String
+  timeSlot  TimeSlot
+  price     Float
+  startHour Int
+  endHour   Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  court     Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@unique([courtId, timeSlot])
+  @@index([courtId])
+}
+
 model Booking {
   id               String               @id @default(cuid())
   clientId         String
   businessId       String
-  serviceId        String
+  serviceId        String?
+  courtId          String?
   employeeId       String?
   date             DateTime
   paid             Boolean              @default(false)
@@ -171,7 +204,8 @@ model Booking {
   business         Business             @relation(fields: [businessId], references: [id])
   client           User                 @relation(fields: [clientId], references: [id])
   employee         User?                @relation("EmployeeBookings", fields: [employeeId], references: [id])
-  service          Service              @relation(fields: [serviceId], references: [id])
+  service          Service?             @relation(fields: [serviceId], references: [id])
+  court            Court?               @relation(fields: [courtId], references: [id])
   consentDocuments ConsentDocument[]
   consentForm      ConsentForm?         @relation("BookingConsent")
   payments         Payment[]
@@ -518,6 +552,12 @@ enum PaymentStatus {
   REFUNDED
   PENDING
   CANCELED
+}
+
+enum TimeSlot {
+  MORNING
+  AFTERNOON
+  NIGHT
 }
 
 enum SubscriptionStatus {

@@ -676,8 +676,8 @@ export default function ClientDashboardPage() {
             <p className="mt-3 text-lg desktop:text-2xl font-semibold">
               {isBusinessUser
                 ? bookings
-                    .filter((booking) => booking.paid)
-                    .reduce((acc, booking) => acc + booking.service.price, 0)
+                    .filter((booking) => booking.paid && booking.service)
+                    .reduce((acc, booking) => acc + (booking.service?.price || 0), 0)
                     .toLocaleString("ro-RO", { style: "currency", currency: "RON" })
                 : filteredBookings.filter((booking) => new Date(booking.date).getTime() >= now).length}
             </p>
@@ -700,7 +700,7 @@ export default function ClientDashboardPage() {
         <section className="rounded-3xl border border-dashed border-white/10 bg-white/5 p-6">
           <h2 className="text-xl font-semibold text-white">Nu ai business-uri conectate încă</h2>
           <p className="mt-2 text-sm text-white/60">
-            Partenerii LARSTEF îți oferă acces exclusiv prin codul lor QR. Scanează-l pentru a vedea servicii și a face
+            Partenerii VOOB îți oferă acces exclusiv prin codul lor QR. Scanează-l pentru a vedea servicii și a face
             rezervări.
           </p>
           <button
@@ -850,7 +850,7 @@ export default function ClientDashboardPage() {
                   <BookingCard
                     key={booking.id}
                     id={booking.id}
-                    serviceName={booking.service.name}
+                    serviceName={booking.service?.name || "Serviciu"}
                     businessName={booking.business.name}
                     date={booking.date}
                     paid={booking.paid}
@@ -1373,7 +1373,7 @@ export default function ClientDashboardPage() {
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <span className="text-sm text-white/60">Serviciu</span>
-                    <span className="text-lg font-semibold text-white">{booking.service.name}</span>
+                    <span className="text-lg font-semibold text-white">{booking.service?.name || "Serviciu"}</span>
                   </div>
                   <div className="mb-3 flex items-center justify-between">
                     <span className="text-sm text-white/60">Business</span>
@@ -1390,7 +1390,7 @@ export default function ClientDashboardPage() {
                   </div>
                   <div className="mb-3 flex items-center justify-between">
                     <span className="text-sm text-white/60">Durată</span>
-                    <span className="font-medium text-white">{booking.service.duration} minute</span>
+                    <span className="font-medium text-white">{booking.service?.duration || 0} minute</span>
                   </div>
                   {booking.employee && (
                     <div className="mb-3 flex items-center justify-between">
@@ -1401,7 +1401,7 @@ export default function ClientDashboardPage() {
                   <div className="mb-3 flex items-center justify-between">
                     <span className="text-sm text-white/60">Preț</span>
                     <span className="text-lg font-semibold text-[#6366F1]">
-                      {booking.service.price.toLocaleString("ro-RO", {
+                      {(booking.service?.price || 0).toLocaleString("ro-RO", {
                         style: "currency",
                         currency: "RON",
                       })}

@@ -39,14 +39,14 @@ async function seed() {
 
   // 2. Create Client with all businesses linked
   const client = await prisma.user.upsert({
-    where: { email: "client@larstef.app" },
+    where: { email: "client@voob.io" },
     update: {
       name: "Client Test",
       password: hashedPassword,
       role: Role.CLIENT,
     },
     create: {
-      email: "client@larstef.app",
+      email: "client@voob.io",
       name: "Client Test",
       password: hashedPassword,
       role: Role.CLIENT,

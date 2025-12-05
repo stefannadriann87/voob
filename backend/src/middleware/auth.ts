@@ -11,7 +11,7 @@ const JWT_SECRET = validateEnv("JWT_SECRET", {
 });
 
 // Numele cookie-ului pentru JWT
-const JWT_COOKIE_NAME = "larstef_auth";
+const JWT_COOKIE_NAME = "voob_auth";
 
 interface AuthUser {
   userId: string;

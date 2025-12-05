@@ -311,7 +311,7 @@ export default function BusinessProfilePage() {
       ctx.fillStyle = "#FFFFFF";
       ctx.font = "600 72px 'Space Grotesk', 'Inter', sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("LARSTEF", width / 2, 140);
+      ctx.fillText("VOOB", width / 2, 140);
       ctx.font = "400 24px 'Inter', sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.7)";
       ctx.fillText("Timpul tău, organizat perfect!", width / 2, 190);
@@ -385,7 +385,7 @@ export default function BusinessProfilePage() {
       const safeName =
         ownedBusiness.domain?.replace(/[^a-z0-9-]/gi, "-") || ownedBusiness.id.slice(0, 6);
       link.href = posterDataUrl;
-      link.download = `larstef-qr-${safeName}.png`;
+      link.download = `voob-qr-${safeName}.png`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -831,7 +831,7 @@ export default function BusinessProfilePage() {
                 {ownedBusiness.qrCodeUrl ? (
                   <img
                     src={ownedBusiness.qrCodeUrl}
-                    alt={`QR LARSTEF ${ownedBusiness.name}`}
+                    alt={`QR VOOB ${ownedBusiness.name}`}
                     className="w-full max-w-[220px] rounded-2xl border border-white/10 bg-white p-4"
                   />
                 ) : (

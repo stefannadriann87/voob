@@ -23,7 +23,7 @@ async function seed() {
 
   const [proPlan, businessPlan] = await Promise.all([
     prisma.subscriptionPlan.upsert({
-      where: { name: "LARSTEF PRO" },
+      where: { name: "VOOB PRO" },
       update: {
         price: 149,
         smsIncluded: 150,
@@ -31,7 +31,7 @@ async function seed() {
         description: "Plan de bază cu 1 utilizator și 150 SMS/lună",
       },
       create: {
-        name: "LARSTEF PRO",
+        name: "VOOB PRO",
         price: 149,
         currency: "RON",
         billingCycle: "MONTHLY",
@@ -41,7 +41,7 @@ async function seed() {
       },
     }),
     prisma.subscriptionPlan.upsert({
-      where: { name: "LARSTEF BUSINESS" },
+      where: { name: "VOOB BUSINESS" },
       update: {
         price: 299,
         smsIncluded: 500,
@@ -49,7 +49,7 @@ async function seed() {
         description: "Plan premium cu 5 utilizatori și 500 SMS/lună",
       },
       create: {
-        name: "LARSTEF BUSINESS",
+        name: "VOOB BUSINESS",
         price: 299,
         currency: "RON",
         billingCycle: "MONTHLY",
@@ -65,7 +65,7 @@ async function seed() {
     update: {},
     create: {
       email: superAdminEmail,
-      name: "LARSTEF SuperAdmin",
+      name: "VOOB SuperAdmin",
       password: hashedSuperAdminPassword,
       role: Role.SUPERADMIN,
     },
@@ -107,10 +107,10 @@ async function seed() {
   });
 
   const dentistOwner = await prisma.user.upsert({
-    where: { email: "dentist@larstef.app" },
+    where: { email: "dentist@voob.io" },
     update: {},
     create: {
-      email: "dentist@larstef.app",
+      email: "dentist@voob.io",
       name: "Dr. Alex Dentist",
       password: hashedDefaultPassword,
       role: Role.BUSINESS,
@@ -156,10 +156,10 @@ async function seed() {
   });
 
   const client = await prisma.user.upsert({
-    where: { email: "client@larstef.app" },
+    where: { email: "client@voob.io" },
     update: {},
     create: {
-      email: "client@larstef.app",
+      email: "client@voob.io",
       name: "Mihai Client",
       password: hashedDefaultPassword,
       role: Role.CLIENT,

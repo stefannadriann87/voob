@@ -43,7 +43,7 @@ export default function DeepLinkHandler() {
     if (!businessId) {
       // Check for pending business ID in localStorage
       const pendingBizId = typeof window !== "undefined" 
-        ? window.localStorage.getItem("larstef_pending_business_id")
+        ? window.localStorage.getItem("voob_pending_business_id")
         : null;
       
       if (pendingBizId && user && user.role === "CLIENT") {
@@ -52,7 +52,7 @@ export default function DeepLinkHandler() {
           .then(() => {
             fetchBusinesses({ scope: "linked" });
             if (typeof window !== "undefined") {
-              window.localStorage.removeItem("larstef_pending_business_id");
+              window.localStorage.removeItem("voob_pending_business_id");
             }
           })
           .catch((err) => {
@@ -64,7 +64,7 @@ export default function DeepLinkHandler() {
 
     // Store pending business ID if user is not authenticated
     if (!user && typeof window !== "undefined") {
-      window.localStorage.setItem("larstef_pending_business_id", businessId);
+      window.localStorage.setItem("voob_pending_business_id", businessId);
       return;
     }
 
@@ -75,7 +75,7 @@ export default function DeepLinkHandler() {
           fetchBusinesses({ scope: "linked" });
           // Clear pending business ID
           if (typeof window !== "undefined") {
-            window.localStorage.removeItem("larstef_pending_business_id");
+            window.localStorage.removeItem("voob_pending_business_id");
           }
           // Redirect to dashboard if on link page
           if (pathname === "/link") {
@@ -107,7 +107,7 @@ export default function DeepLinkHandler() {
             });
         } else if (bizId && !user) {
           // Store for later
-          window.localStorage.setItem("larstef_pending_business_id", bizId);
+          window.localStorage.setItem("voob_pending_business_id", bizId);
         }
       }
     };

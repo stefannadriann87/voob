@@ -27,8 +27,8 @@ export default function useApi(): AxiosInstance {
         if (error.response?.status === 401) {
           // Clear local user data if unauthorized
           if (typeof window !== "undefined") {
-            window.localStorage.removeItem("larstef_user");
-            window.dispatchEvent(new Event("larstef-auth-change"));
+            window.localStorage.removeItem("voob_user");
+            window.dispatchEvent(new Event("voob-auth-change"));
           }
         }
         

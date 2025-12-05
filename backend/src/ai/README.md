@@ -1,4 +1,4 @@
-# LARSTEF AI Agent - Backend Structure
+# VOOB AI Agent - Backend Structure
 
 ## 📁 Structura Directoarelor
 

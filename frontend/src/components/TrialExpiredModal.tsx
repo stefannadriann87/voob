@@ -37,10 +37,10 @@ export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps
 
   const currentBusiness = businesses.find((b) => b.id === businessId);
   const availablePlans = [
-    { id: "pro", name: "LARSTEF PRO", price: 149, features: ["1 utilizator", "150 SMS/lună", "Suport 24-48h"] },
+    { id: "pro", name: "VOOB PRO", price: 149, features: ["1 utilizator", "150 SMS/lună", "Suport 24-48h"] },
     {
       id: "business",
-      name: "LARSTEF BUSINESS",
+      name: "VOOB BUSINESS",
       price: 299,
       features: ["5 utilizatori", "500 SMS/lună", "Suport prioritar 2-4h"],
       popular: true,
@@ -75,7 +75,7 @@ export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps
           </div>
           <h2 className="text-3xl font-bold text-white mb-2">Trial-ul tău a expirat</h2>
           <p className="text-white/70">
-            Pentru a continua să folosești LARSTEF, te rugăm să activezi un plan de abonament.
+            Pentru a continua să folosești VOOB, te rugăm să activezi un plan de abonament.
           </p>
         </div>
 

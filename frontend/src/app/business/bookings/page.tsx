@@ -194,9 +194,9 @@ export default function BusinessBookingsPage() {
       void fetchBookings();
     };
 
-    window.addEventListener("larstef:booking-created", handleBookingCreated);
+    window.addEventListener("voob:booking-created", handleBookingCreated);
     return () => {
-      window.removeEventListener("larstef:booking-created", handleBookingCreated);
+      window.removeEventListener("voob:booking-created", handleBookingCreated);
     };
   }, [fetchBookings]);
 

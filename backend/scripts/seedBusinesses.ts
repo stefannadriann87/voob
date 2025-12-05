@@ -10,10 +10,10 @@ async function seedBusinesses() {
 
   // 1. Beauty & Wellness
   const beautyOwner = await prisma.user.upsert({
-    where: { email: "beauty@larstef.app" },
+    where: { email: "beauty@voob.io" },
     update: {},
     create: {
-      email: "beauty@larstef.app",
+      email: "beauty@voob.io",
       name: "Salon Beauty & Wellness",
       password: hashedPassword,
       role: Role.BUSINESS,
@@ -66,10 +66,10 @@ async function seedBusinesses() {
 
   // 2. Medical & Dental
   const medicalOwner = await prisma.user.upsert({
-    where: { email: "medical@larstef.app" },
+    where: { email: "medical@voob.io" },
     update: {},
     create: {
-      email: "medical@larstef.app",
+      email: "medical@voob.io",
       name: "Dr. Popescu",
       password: hashedPassword,
       role: Role.BUSINESS,
@@ -134,10 +134,10 @@ async function seedBusinesses() {
 
   // 3. Therapy & Coaching
   const therapyOwner = await prisma.user.upsert({
-    where: { email: "therapy@larstef.app" },
+    where: { email: "therapy@voob.io" },
     update: {},
     create: {
-      email: "therapy@larstef.app",
+      email: "therapy@voob.io",
       name: "Psiholog Maria",
       password: hashedPassword,
       role: Role.BUSINESS,
@@ -189,10 +189,10 @@ async function seedBusinesses() {
 
   // 4. Sport & Outdoor
   const sportOwner = await prisma.user.upsert({
-    where: { email: "sport@larstef.app" },
+    where: { email: "sport@voob.io" },
     update: {},
     create: {
-      email: "sport@larstef.app",
+      email: "sport@voob.io",
       name: "Sport & Outdoor Center",
       password: hashedPassword,
       role: Role.BUSINESS,
@@ -244,10 +244,10 @@ async function seedBusinesses() {
 
   // 5. Home & Freelance Services
   const homeOwner = await prisma.user.upsert({
-    where: { email: "home@larstef.app" },
+    where: { email: "home@voob.io" },
     update: {},
     create: {
-      email: "home@larstef.app",
+      email: "home@voob.io",
       name: "Home Services Pro",
       password: hashedPassword,
       role: Role.BUSINESS,

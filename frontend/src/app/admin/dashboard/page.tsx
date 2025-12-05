@@ -88,7 +88,7 @@ export default function AdminDashboardPage() {
   return (
     <>
       <Head>
-        <title>SuperAdmin Dashboard - LARSTEF</title>
+        <title>SuperAdmin Dashboard - VOOB</title>
       </Head>
       <div className="space-y-8">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

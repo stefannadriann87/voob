@@ -23,7 +23,7 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
             <LayoutDashboard className="h-4 w-4 transition-all duration-300" />
           </div>
           <div className="transition-all duration-300">
-            <p className="text-sm font-semibold text-white transition-all duration-300">LARSTEF</p>
+            <p className="text-sm font-semibold text-white transition-all duration-300">VOOB</p>
             <p className="text-[10px] text-white/50 transition-all duration-300">Timpul tău, organizat perfect</p>
           </div>
         </Link>

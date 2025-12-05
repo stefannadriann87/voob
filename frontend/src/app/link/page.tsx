@@ -8,9 +8,9 @@ import useBusiness from "../../hooks/useBusiness";
 
 type StatusState = { type: "success" | "error" | "info"; message: string } | null;
 
-const APP_STORE_URL = "https://apps.apple.com/app/larstef"; // Update with actual App Store URL
-const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.larstef.app"; // Update with actual Play Store URL
-const APP_DEEP_LINK_SCHEME = "larstef://"; // Update with actual deep link scheme
+const APP_STORE_URL = "https://apps.apple.com/app/voob"; // Update with actual App Store URL
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.voob.app"; // Update with actual Play Store URL
+const APP_DEEP_LINK_SCHEME = "voob://"; // Update with actual deep link scheme
 
 export default function LinkPage() {
   const router = useRouter();
@@ -31,13 +31,13 @@ export default function LinkPage() {
     if (!user) {
       // Store pending business ID in localStorage
       if (typeof window !== "undefined") {
-        window.localStorage.setItem("larstef_pending_business_id", bizId);
+        window.localStorage.setItem("voob_pending_business_id", bizId);
       }
       return;
     }
     // Clear pending business ID if user is authenticated
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem("larstef_pending_business_id");
+      window.localStorage.removeItem("voob_pending_business_id");
     }
   }, [hydrated, user, bizId]);
 

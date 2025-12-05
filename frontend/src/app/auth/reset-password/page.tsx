@@ -40,7 +40,7 @@ export default function ResetPasswordPage() {
   return (
     <>
       <Head>
-        <title>Setează o parolă nouă - LARSTEF</title>
+        <title>Setează o parolă nouă - VOOB</title>
       </Head>
       <div className="min-h-screen bg-[#0B0E17] text-white">
         <AuthHeader />

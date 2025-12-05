@@ -38,7 +38,7 @@ const buildIcsEvent = (params: {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//LARSTEF//Demo Booking//RO",
+    "PRODID:-//VOOB//Demo Booking//RO",
     "CALSCALE:GREGORIAN",
     "METHOD:REQUEST",
     "BEGIN:VEVENT",
@@ -207,22 +207,22 @@ router.post("/demo-booking", async (req: Request, res: Response) => {
     const icsContent = buildIcsEvent({
       start: slotDate,
       durationMinutes: WORKING_HOURS.slotLength,
-      summary: "Demo LARSTEF",
-      description: `Demo LARSTEF cu ${firstName} ${lastName}`,
+      summary: "Demo VOOB",
+      description: `Demo VOOB cu ${firstName} ${lastName}`,
       meetLink,
     });
 
     // Fire-and-forget notifications
     sendSms({
       phone,
-      message: `Salut ${firstName}! Programarea ta pentru demo LARSTEF este confirmată pe ${formattedDate} la ${formattedTime}. Link Meet: ${meetLink}`,
+      message: `Salut ${firstName}! Programarea ta pentru demo VOOB este confirmată pe ${formattedDate} la ${formattedTime}. Link Meet: ${meetLink}`,
     }).catch((error: unknown) => console.error("Demo SMS error:", error));
 
     // Trimite email către utilizator
     sendEmail({
       to: email,
-      subject: "Demo LARSTEF confirmat",
-      text: `Salut ${firstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nȚi-am atașat și un calendar invite.\n\nEchipa LARSTEF`,
+      subject: "Demo VOOB confirmat",
+      text: `Salut ${firstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nȚi-am atașat și un calendar invite.\n\nEchipa VOOB`,
       icalEvent: {
         method: "REQUEST",
         content: icsContent,
@@ -232,8 +232,8 @@ router.post("/demo-booking", async (req: Request, res: Response) => {
     // Trimite copie la adresa de test pentru verificare
     sendEmail({
       to: TEST_EMAIL,
-      subject: "Demo LARSTEF confirmat (copie test)",
-      text: `Salut ${firstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nEmail original: ${email}\nTelefon: ${phone}\n\nȚi-am atașat și un calendar invite.\n\nEchipa LARSTEF`,
+      subject: "Demo VOOB confirmat (copie test)",
+      text: `Salut ${firstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nEmail original: ${email}\nTelefon: ${phone}\n\nȚi-am atașat și un calendar invite.\n\nEchipa VOOB`,
       icalEvent: {
         method: "REQUEST",
         content: icsContent,
@@ -243,7 +243,7 @@ router.post("/demo-booking", async (req: Request, res: Response) => {
     if (ADMIN_EMAIL) {
       sendEmail({
         to: ADMIN_EMAIL,
-        subject: "Nou demo LARSTEF programat",
+        subject: "Nou demo VOOB programat",
         text: `Detalii demo:\nNume: ${firstName} ${lastName}\nEmail: ${email}\nTelefon: ${phone}\nData: ${formattedDate}\nOra: ${formattedTime}\nMeet: ${meetLink}`,
       }).catch((error: unknown) => console.error("Demo admin email error:", error));
     }

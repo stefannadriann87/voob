@@ -50,7 +50,7 @@ export default function BusinessSubscriptionPage() {
         // Pentru moment, folosim planurile hardcodate
         const proPlan: SubscriptionPlan = {
           id: "pro",
-          name: "LARSTEF PRO",
+          name: "VOOB PRO",
           price: 149,
           currency: "RON",
           billingCycle: "MONTHLY",
@@ -61,7 +61,7 @@ export default function BusinessSubscriptionPage() {
 
         const businessPlan: SubscriptionPlan = {
           id: "business",
-          name: "LARSTEF BUSINESS",
+          name: "VOOB BUSINESS",
           price: 299,
           currency: "RON",
           billingCycle: "MONTHLY",
@@ -141,12 +141,12 @@ export default function BusinessSubscriptionPage() {
             <div
               key={plan.id}
               className={`relative border rounded-2xl p-8 ${
-                plan.name === "LARSTEF BUSINESS"
+                plan.name === "VOOB BUSINESS"
                   ? "border-[#6366F1] bg-[#6366F1]/10"
                   : "border-white/10 bg-[#0B0E17]/60"
               }`}
             >
-              {plan.name === "LARSTEF BUSINESS" && (
+              {plan.name === "VOOB BUSINESS" && (
                 <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
                   <span className="bg-[#6366F1] text-white px-4 py-1 rounded-full text-xs font-semibold">
                     CEA MAI POPULARĂ
@@ -191,7 +191,7 @@ export default function BusinessSubscriptionPage() {
                     />
                   </svg>
                   <span className="text-white/70">
-                    {plan.name === "LARSTEF BUSINESS" ? "Suport prioritar 2-4h" : "Suport în 24-48h"}
+                    {plan.name === "VOOB BUSINESS" ? "Suport prioritar 2-4h" : "Suport în 24-48h"}
                   </span>
                 </li>
               </ul>
@@ -200,7 +200,7 @@ export default function BusinessSubscriptionPage() {
                 onClick={() => handleSubscribe(plan.id)}
                 disabled={checkoutLoading || !selectedBusinessId}
                 className={`w-full py-3 rounded-lg font-semibold transition-colors ${
-                  plan.name === "LARSTEF BUSINESS"
+                  plan.name === "VOOB BUSINESS"
                     ? "bg-[#6366F1] text-white hover:bg-[#4F46E5]"
                     : "bg-white/10 text-white hover:bg-white/20"
                 } ${checkoutLoading || !selectedBusinessId ? "opacity-50 cursor-not-allowed" : ""}`}

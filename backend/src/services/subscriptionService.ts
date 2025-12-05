@@ -109,7 +109,7 @@ async function checkEmployeeLimit(businessId: string): Promise<{
         canAdd: false,
         currentCount: currentEmployeeCount,
         maxAllowed: maxEmployees,
-        error: `Ai atins limita de ${maxEmployees} ${maxEmployees === 1 ? "utilizator" : "utilizatori"} pentru planul ${planName}.${planName === "LARSTEF PRO" ? " Upgrade la BUSINESS pentru până la 5 utilizatori." : " Contactează suportul pentru upgrade."}`,
+        error: `Ai atins limita de ${maxEmployees} ${maxEmployees === 1 ? "utilizator" : "utilizatori"} pentru planul ${planName}.${planName === "VOOB PRO" ? " Upgrade la BUSINESS pentru până la 5 utilizatori." : " Contactează suportul pentru upgrade."}`,
       };
     }
 
@@ -223,7 +223,7 @@ async function checkSmsLimit(businessId: string): Promise<{
         canSend: false,
         currentUsage,
         limit: smsLimit,
-        error: `Ai atins limita de ${smsLimit} SMS/lună pentru planul ${planName}.${planName === "LARSTEF PRO" ? " Upgrade la BUSINESS pentru 500 SMS/lună." : " Contactează suportul pentru upgrade."}`,
+        error: `Ai atins limita de ${smsLimit} SMS/lună pentru planul ${planName}.${planName === "VOOB PRO" ? " Upgrade la BUSINESS pentru 500 SMS/lună." : " Contactează suportul pentru upgrade."}`,
       };
     }
 

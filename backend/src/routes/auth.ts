@@ -72,10 +72,10 @@ const transporter =
 
 const sendResetEmail = async (to: string, resetLink: string) => {
   const mailOptions = {
-    from: process.env.EMAIL_FROM || "no-reply@larstef.app",
+    from: process.env.EMAIL_FROM || "no-reply@voob.io",
     to,
-    subject: "Resetare parolă LARSTEF",
-    text: `Salut!\n\nAi solicitat resetarea parolei contului tău LARSTEF. Accesează linkul de mai jos pentru a seta o parolă nouă:\n\n${resetLink}\n\nDacă nu ai făcut tu această solicitare, ignoră acest mesaj.`,
+    subject: "Resetare parolă VOOB",
+    text: `Salut!\n\nAi solicitat resetarea parolei contului tău VOOB. Accesează linkul de mai jos pentru a seta o parolă nouă:\n\n${resetLink}\n\nDacă nu ai făcut tu această solicitare, ignoră acest mesaj.`,
   };
 
   const info = await transporter.sendMail(mailOptions);
@@ -592,7 +592,7 @@ router.post("/clients", authenticate, async (req, res) => {
     }
 
     // Generate email if not provided
-    const clientEmail = email?.trim() || `guest-${Date.now()}@larstef.app`;
+    const clientEmail = email?.trim() || `guest-${Date.now()}@voob.io`;
     
     // Check if email already exists
     const existingUser = await prisma.user.findUnique({ where: { email: clientEmail } });

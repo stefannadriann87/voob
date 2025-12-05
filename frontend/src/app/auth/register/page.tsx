@@ -80,7 +80,7 @@ export default function RegisterPage() {
   return (
     <>
       <Head>
-        <title>Înregistrare - LARSTEF</title>
+        <title>Înregistrare - VOOB</title>
       </Head>
       <div className="min-h-screen bg-[#0B0E17] text-white">
         <AuthHeader />
@@ -187,7 +187,7 @@ export default function RegisterPage() {
                     <input
                       value={businessName}
                       onChange={(event) => setBusinessName(event.target.value)}
-                      placeholder="Ex: Larstef Clinic"
+                      placeholder="Ex: Voob Clinic"
                       required
                       className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
                     />

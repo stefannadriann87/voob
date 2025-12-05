@@ -117,7 +117,7 @@ export default function EmployeeDashboardPage() {
   return (
     <>
       <Head>
-        <title>Employee Dashboard - LARSTEF</title>
+        <title>Employee Dashboard - VOOB</title>
       </Head>
       <div className="flex flex-col gap-10 max-w-7xl">
         <section className="rounded-3xl border border-white/10 bg-white/5 p-8">

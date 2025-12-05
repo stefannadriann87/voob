@@ -79,7 +79,7 @@ router.post("/register", verifyJWT, async (req: express.Request, res: express.Re
 
     // Creează subscription cu status TRIAL
     const proPlan = await prisma.subscriptionPlan.findUnique({
-      where: { name: "LARSTEF PRO" },
+      where: { name: "VOOB PRO" },
     });
 
     if (proPlan) {

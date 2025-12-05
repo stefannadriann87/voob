@@ -11,8 +11,8 @@ export interface CookiePreferences {
   marketing: boolean;
 }
 
-const COOKIE_CONSENT_KEY = "larstef_cookie_consent";
-const COOKIE_PREFERENCES_KEY = "larstef_cookie_preferences";
+const COOKIE_CONSENT_KEY = "voob_cookie_consent";
+const COOKIE_PREFERENCES_KEY = "voob_cookie_preferences";
 
 export function useCookieConsent() {
   const [hasConsent, setHasConsent] = useState<boolean | null>(null);

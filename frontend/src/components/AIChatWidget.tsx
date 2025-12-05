@@ -22,7 +22,7 @@ export default function AIChatWidget({ initialOpen = false, onBookingCreated }: 
   const [messages, setMessages] = useState<Message[]>([
     {
       from: "ai",
-      text: "Salut! Sunt asistentul LARSTEF AI. Cu ce te pot ajuta astăzi?",
+      text: "Salut! Sunt asistentul VOOB AI. Cu ce te pot ajuta astăzi?",
     },
   ]);
   const [input, setInput] = useState("");
@@ -35,9 +35,9 @@ export default function AIChatWidget({ initialOpen = false, onBookingCreated }: 
       const handleBookingCreated = () => {
         onBookingCreated();
       };
-      window.addEventListener("larstef:booking-created", handleBookingCreated);
+      window.addEventListener("voob:booking-created", handleBookingCreated);
       return () => {
-        window.removeEventListener("larstef:booking-created", handleBookingCreated);
+        window.removeEventListener("voob:booking-created", handleBookingCreated);
       };
     }
   }, [pathname, onBookingCreated]);
@@ -79,7 +79,7 @@ export default function AIChatWidget({ initialOpen = false, onBookingCreated }: 
             onBookingCreated();
           }
           // Dispatch custom event for other components (e.g., bookings page)
-          window.dispatchEvent(new Event("larstef:booking-created"));
+          window.dispatchEvent(new Event("voob:booking-created"));
         }, 1000);
       }
     } catch (error: any) {
@@ -123,7 +123,7 @@ export default function AIChatWidget({ initialOpen = false, onBookingCreated }: 
     <div className="fixed bottom-4 right-4 z-[9999] sm:bottom-6 sm:right-6">
       <div className="flex w-[calc(100vw-2rem)] max-w-80 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0B0E17]/95 backdrop-blur-sm text-white shadow-2xl shadow-black/50 sm:w-80">
         <div className="flex items-center justify-between bg-[#6366F1]/30 px-5 py-3">
-          <span className="text-sm font-semibold">LARSTEF AI Assistant</span>
+          <span className="text-sm font-semibold">VOOB AI Assistant</span>
           <button
             type="button"
             onClick={() => setIsOpen(false)}

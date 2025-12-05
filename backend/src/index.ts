@@ -94,7 +94,7 @@ app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 app.use(globalRateLimiter);
 
 app.get("/", (req, res) => {
-  res.json({ message: "LARSTEF API running ✅" });
+  res.json({ message: "VOOB API running ✅" });
 });
 
 // Health check endpoints (înainte de rate limiting pentru monitoring)

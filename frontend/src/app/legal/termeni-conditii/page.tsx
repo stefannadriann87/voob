@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Termeni și Condiții - LARSTEF",
-  description: "Termenii și condițiile de utilizare ale platformei LARSTEF",
+  title: "Termeni și Condiții - VOOB",
+  description: "Termenii și condițiile de utilizare ale platformei VOOB",
 };
 
 export default function TermeniConditiiPage() {
@@ -13,7 +13,7 @@ export default function TermeniConditiiPage() {
       <header className="legal-header">
         <div className="legal-header-container">
           <Link href="/" className="legal-header-logo">
-            <div className="logo">LARSTEF</div>
+            <div className="logo">VOOB</div>
           </Link>
         </div>
       </header>
@@ -30,7 +30,7 @@ export default function TermeniConditiiPage() {
         <section className="legal-section">
           <h2>1. Acceptarea Termenilor</h2>
           <p>
-            Prin accesarea și utilizarea platformei LARSTEF, acceptați să respectați și să fiți
+            Prin accesarea și utilizarea platformei VOOB, acceptați să respectați și să fiți
             obligați de acești Termeni și Condiții de utilizare. Dacă nu sunteți de acord cu oricare
             dintre prevederile acestui document, vă rugăm să nu utilizați serviciile noastre.
           </p>
@@ -39,7 +39,7 @@ export default function TermeniConditiiPage() {
         <section className="legal-section">
           <h2>2. Descrierea Serviciilor</h2>
           <p>
-            LARSTEF este o platformă de management și rezervare online care permite utilizatorilor să:
+            VOOB este o platformă de management și rezervare online care permite utilizatorilor să:
           </p>
           <ul>
             <li>Creeze și gestioneze rezervări pentru diverse tipuri de afaceri</li>
@@ -54,7 +54,7 @@ export default function TermeniConditiiPage() {
           <h2>3. Conturi de Utilizator</h2>
           <h3>3.1. Crearea Contului</h3>
           <p>
-            Pentru a utiliza serviciile LARSTEF, trebuie să vă creați un cont. Sunteți responsabil pentru:
+            Pentru a utiliza serviciile VOOB, trebuie să vă creați un cont. Sunteți responsabil pentru:
           </p>
           <ul>
             <li>Furnizarea de informații exacte, curente și complete</li>
@@ -115,7 +115,7 @@ export default function TermeniConditiiPage() {
         <section className="legal-section">
           <h2>6. Proprietate Intelectuală</h2>
           <p>
-            Platforma LARSTEF, inclusiv designul, codul, logo-urile, conținutul și alte materiale,
+            Platforma VOOB, inclusiv designul, codul, logo-urile, conținutul și alte materiale,
             este proprietatea noastră sau a furnizorilor noștri de licențe și este protejată de
             legile privind drepturile de autor și alte legi de proprietate intelectuală.
           </p>
@@ -179,7 +179,7 @@ export default function TermeniConditiiPage() {
             Pentru întrebări despre acești Termeni, vă rugăm să ne contactați la:
           </p>
           <ul>
-            <li>Email: <a href="mailto:contact@larstef.ro">contact@larstef.ro</a></li>
+            <li>Email: <a href="mailto:contact@voob.io">contact@voob.io</a></li>
             <li>Telefon: <a href="tel:+40748293830">+40748293830</a></li>
             <li>Adresă: Iași, România</li>
           </ul>

@@ -121,7 +121,7 @@ async function buildAIContext(user: AuthUser): Promise<any> {
  * Construiește mesajul de sistem pentru LLM
  */
 function buildSystemMessage(context: AIContext, availableTools: string[]): string {
-  return `Ești LARSTEF AI Assistant. Utilizatorul are rolul ${context.role}.
+  return `Ești VOOB AI Assistant. Utilizatorul are rolul ${context.role}.
 Are ID-ul ${context.userId}${context.businessId ? ` și businessId ${context.businessId}` : ""}.
 Poți executa doar acțiunile permise pentru acest rol: ${availableTools.join(", ")}.
 

@@ -9,7 +9,8 @@ export interface Booking {
   id: string;
   clientId: string;
   businessId: string;
-  serviceId: string;
+  serviceId?: string | null;
+  courtId?: string | null;
   employeeId?: string | null;
   date: string;
   reminderSentAt?: string | null;
@@ -19,7 +20,8 @@ export interface Booking {
   status: BookingStatus;
   duration?: number | null; // Durata în minute (opțional, override service duration)
   business: { id: string; name: string; businessType: BusinessTypeValue };
-  service: { id: string; name: string; duration: number; price: number };
+  service?: { id: string; name: string; duration: number; price: number } | null;
+  court?: { id: string; name: string; number: number } | null;
   client: { id: string; name: string; email: string; phone?: string | null };
   employee?: { id: string; name: string; email: string } | null;
   consentForm?: {
@@ -34,7 +36,8 @@ export interface Booking {
 interface CreateBookingInput {
   clientId: string;
   businessId: string;
-  serviceId: string;
+  serviceId?: string;
+  courtId?: string;
   employeeId?: string;
   date: string;
   paid?: boolean;

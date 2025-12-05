@@ -76,7 +76,7 @@ export default function LoginPage() {
   return (
     <>
       <Head>
-        <title>Autentificare - LARSTEF</title>
+        <title>Autentificare - VOOB</title>
       </Head>
       <div className="min-h-screen bg-[#0B0E17] text-white">
         <AuthHeader />

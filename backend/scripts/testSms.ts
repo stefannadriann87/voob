@@ -50,7 +50,7 @@ async function testSmsService() {
   /*
   // De-comentează pentru test real:
   const testPhone = "+40712345678"; // Înlocuiește cu un număr valid
-  const testMessage = "Test SMS de la LARSTEF - " + new Date().toLocaleString("ro-RO");
+  const testMessage = "Test SMS de la VOOB - " + new Date().toLocaleString("ro-RO");
   
   console.log(`   Trimite SMS la ${testPhone}...`);
   const result = await sendSms({

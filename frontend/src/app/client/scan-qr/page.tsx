@@ -94,7 +94,7 @@ export default function ClientScanQrPage() {
     async (payload: string) => {
       const businessId = extractBusinessId(payload);
       if (!businessId) {
-        setStatus({ type: "error", message: "Cod QR invalid. Folosește un cod emis de LARSTEF." });
+        setStatus({ type: "error", message: "Cod QR invalid. Folosește un cod emis de VOOB." });
         return;
       }
 
@@ -220,7 +220,7 @@ export default function ClientScanQrPage() {
       <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
         <h1 className="text-3xl font-semibold text-white">Scanează QR-ul business-ului tău</h1>
         <p className="mt-2 text-sm text-white/60">
-          Fiecare partener LARSTEF are un cod QR unic. Scanează-l pentru a-ți conecta contul și pentru a putea face
+          Fiecare partener VOOB are un cod QR unic. Scanează-l pentru a-ți conecta contul și pentru a putea face
           rezervări doar la business-urile aprobate.
         </p>
       </section>
@@ -260,7 +260,7 @@ export default function ClientScanQrPage() {
                   <input
                     value={manualInput}
                     onChange={(event) => setManualInput(event.target.value)}
-                    placeholder="https://app.larstef.ro/qr/join?businessId=..."
+                    placeholder="https://voob.io/qr/join?businessId=..."
                     className="rounded-2xl border border-white/10 bg-[#0B0E17]/70 px-4 py-3 text-sm text-white outline-none transition focus:border-[#6366F1]"
                   />
                   <button

@@ -40,6 +40,7 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
     clientId,
     businessId,
     serviceId,
+    courtId,
     employeeId,
     date,
     paid,
@@ -87,16 +88,10 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
       }
     }
 
-    const [business, service] = await Promise.all([
-      prisma.business.findUnique({
-        where: { id: businessId },
-        select: { id: true, businessType: true, status: true },
-      }),
-      prisma.service.findFirst({
-        where: { id: serviceId, businessId },
-        select: { id: true, duration: true },
-      }),
-    ]);
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, businessType: true, status: true },
+    });
 
     if (!business) {
       return res.status(404).json({ error: "Business-ul nu a fost găsit." });
@@ -106,73 +101,148 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
       return res.status(403).json({ error: "Business-ul este suspendat. Rezervările sunt oprite temporar." });
     }
 
-    if (!service) {
-      return res.status(404).json({ error: "Serviciul nu a fost găsit pentru acest business." });
-    }
+    // SPORT_OUTDOOR: folosește courts, nu services
+    const isSportOutdoor = business.businessType === "SPORT_OUTDOOR";
+    
+    let bookingStart: Date;
+    let bookingEnd: Date;
+    let serviceDurationMinutes: number;
+    let court: any = null;
+    let service: any = null;
+    
+    if (isSportOutdoor) {
+      // Validare pentru SPORT_OUTDOOR
+      if (!courtId) {
+        return res.status(400).json({ error: "Terenul (courtId) este obligatoriu pentru business type SPORT_OUTDOOR." });
+      }
+      if (serviceId) {
+        return res.status(400).json({ error: "Serviciile (serviceId) nu sunt permise pentru business type SPORT_OUTDOOR. Folosește terenuri (courtId)." });
+      }
+      if (employeeId) {
+        return res.status(400).json({ error: "Angajații (employeeId) nu sunt permisi pentru business type SPORT_OUTDOOR." });
+      }
 
-    // Calculate booking end time based on service duration or override duration
-    const serviceDurationMinutes = duration ?? service.duration;
-    const bookingStart = new Date(bookingDate);
-    const bookingEnd = new Date(bookingStart.getTime() + serviceDurationMinutes * 60 * 1000);
-
-    // VALIDATION: Check for overlapping bookings with the same employee
-    if (employeeId) {
-      const overlappingBookings = await prisma.booking.findMany({
-        where: {
-          employeeId,
-          businessId,
-          status: { not: "CANCELLED" }, // Exclude cancelled bookings
-          date: {
-            // Check for overlap: bookingStart < existingEnd && bookingEnd > existingStart
-            // We need to check bookings that overlap with our time range
-            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS), // Start search from 24h before
-            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS), // End search 24h after
-          },
-        },
+      // Verifică terenul
+      court = await prisma.court.findFirst({
+        where: { id: courtId, businessId, isActive: true },
         include: {
-          service: { select: { duration: true } },
+          pricing: {
+            orderBy: { timeSlot: "asc" },
+          },
         },
       });
 
-      // Check each existing booking for actual overlap
-      for (const existingBooking of overlappingBookings) {
-        const existingStart = new Date(existingBooking.date);
-        const existingDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
-        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
-
-        // Check if bookings overlap: bookingStart < existingEnd && bookingEnd > existingStart
-        if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
-          return res.status(409).json({
-            error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.",
-          });
-        }
+      if (!court) {
+        return res.status(404).json({ error: "Terenul nu a fost găsit sau nu este activ." });
       }
-    } else {
-      // If no employee specified, check for overlapping bookings without employee
+
+      // Durata este implicit 60 minute (1 oră) pentru SPORT_OUTDOOR
+      serviceDurationMinutes = 60;
+      bookingStart = new Date(bookingDate);
+      bookingEnd = new Date(bookingStart.getTime() + serviceDurationMinutes * 60 * 1000);
+
+      // Verificare suprapunere pentru teren
       const overlappingBookings = await prisma.booking.findMany({
         where: {
+          courtId,
           businessId,
-          employeeId: null,
           status: { not: "CANCELLED" },
           date: {
             gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
             lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
           },
         },
-        include: {
-          service: { select: { duration: true } },
-        },
       });
 
       for (const existingBooking of overlappingBookings) {
         const existingStart = new Date(existingBooking.date);
-        const existingDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
-        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+        const existingEnd = new Date(existingStart.getTime() + 60 * 60 * 1000); // 1 oră pentru SPORT_OUTDOOR
 
         if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
           return res.status(409).json({
-            error: "Există deja o rezervare care se suprapune cu intervalul selectat.",
+            error: "Terenul este deja rezervat pentru această oră.",
           });
+        }
+      }
+    } else {
+      // Logica normală pentru business types non-SPORT_OUTDOOR
+      if (!serviceId) {
+        return res.status(400).json({ error: "Serviciul (serviceId) este obligatoriu." });
+      }
+
+      service = await prisma.service.findFirst({
+        where: { id: serviceId, businessId },
+        select: { id: true, duration: true, price: true },
+      });
+
+      if (!service) {
+        return res.status(404).json({ error: "Serviciul nu a fost găsit pentru acest business." });
+      }
+
+      // Calculate booking end time based on service duration or override duration
+      serviceDurationMinutes = duration ?? service.duration;
+      bookingStart = new Date(bookingDate);
+      bookingEnd = new Date(bookingStart.getTime() + serviceDurationMinutes * 60 * 1000);
+
+      // VALIDATION: Check for overlapping bookings with the same employee
+      if (employeeId) {
+        const overlappingBookings = await prisma.booking.findMany({
+          where: {
+            employeeId,
+            businessId,
+            status: { not: "CANCELLED" }, // Exclude cancelled bookings
+            date: {
+              // Check for overlap: bookingStart < existingEnd && bookingEnd > existingStart
+              // We need to check bookings that overlap with our time range
+              gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS), // Start search from 24h before
+              lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS), // End search 24h after
+            },
+          },
+          include: {
+            service: { select: { duration: true } },
+          },
+        });
+
+        // Check each existing booking for actual overlap
+        for (const existingBooking of overlappingBookings) {
+          const existingStart = new Date(existingBooking.date);
+          const existingDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
+          const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+
+          // Check if bookings overlap: bookingStart < existingEnd && bookingEnd > existingStart
+          if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
+            return res.status(409).json({
+              error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.",
+            });
+          }
+        }
+      } else {
+        // If no employee specified, check for overlapping bookings without employee
+        const overlappingBookings = await prisma.booking.findMany({
+          where: {
+            businessId,
+            employeeId: null,
+            status: { not: "CANCELLED" },
+            date: {
+              gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
+              lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+            },
+          },
+          include: {
+            service: { select: { duration: true } },
+          },
+        });
+
+        for (const existingBooking of overlappingBookings) {
+          const existingStart = new Date(existingBooking.date);
+          const existingDuration = existingBooking.duration ?? existingBooking.service?.duration ?? 60;
+          const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
+
+          if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
+            return res.status(409).json({
+              error: "Există deja o rezervare care se suprapune cu intervalul selectat.",
+            });
+          }
         }
       }
     }
@@ -199,8 +269,8 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
       // Continue if holiday check fails
     }
 
-    // VALIDATION: Check for employee holidays (if employee is specified)
-    if (employeeId) {
+    // VALIDATION: Check for employee holidays (if employee is specified) - nu se aplică pentru SPORT_OUTDOOR
+    if (employeeId && !isSportOutdoor) {
       try {
         const employeeHolidays = await prisma.employeeHoliday.findMany({
           where: {
@@ -293,13 +363,12 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
       }
     }
 
-    logger.info("Creating booking", { clientId, businessId, serviceId, employeeId, date, initialStatus });
+    logger.info("Creating booking", { clientId, businessId, serviceId, courtId, employeeId, date, initialStatus });
     
     // Prepare booking data
     const bookingData: any = {
       client: { connect: { id: clientId } },
       business: { connect: { id: businessId } },
-      service: { connect: { id: serviceId } },
       date: new Date(date),
       paid: isPaid,
       paymentMethod: paymentMethod ?? PaymentMethod.OFFLINE,
@@ -308,13 +377,36 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
       status: initialStatus,
     };
 
-    if (duration) {
-      bookingData.duration = duration;
-    }
+    // SPORT_OUTDOOR: folosește courtId, nu serviceId
+    if (isSportOutdoor) {
+      bookingData.court = { connect: { id: courtId } };
+      bookingData.duration = 60; // Implicit 1 oră pentru SPORT_OUTDOOR
+      
+      // Calculează prețul bazat pe timeSlot (folosind court deja încărcat)
+      const bookingHour = bookingDate.getHours();
+      if (court && court.pricing) {
+        let bookingPrice = 0;
+        for (const pricing of court.pricing) {
+          if (bookingHour >= pricing.startHour && bookingHour < pricing.endHour) {
+            bookingPrice = pricing.price;
+            break;
+          }
+        }
+        // Prețul va fi folosit mai jos pentru Payment dacă e necesar
+        bookingData.price = bookingPrice;
+      }
+    } else {
+      // Logica normală pentru business types non-SPORT_OUTDOOR
+      bookingData.service = { connect: { id: serviceId } };
+      
+      if (duration) {
+        bookingData.duration = duration;
+      }
 
-    // Only connect employee if employeeId is provided and valid
-    if (employeeId) {
-      bookingData.employee = { connect: { id: employeeId } };
+      // Only connect employee if employeeId is provided and valid
+      if (employeeId) {
+        bookingData.employee = { connect: { id: employeeId } };
+      }
     }
 
     const booking = await prisma.booking.create({
@@ -322,8 +414,9 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
       include: {
         client: { select: { id: true, name: true, email: true, phone: true } },
         business: { select: { id: true, name: true, businessType: true } },
-        service: true,
-        employee: employeeId ? { select: { id: true, name: true, email: true } } : false,
+        service: !isSportOutdoor,
+        court: isSportOutdoor ? { include: { pricing: true } } : false,
+        employee: employeeId && !isSportOutdoor ? { select: { id: true, name: true, email: true } } : false,
         consentForm: true,
       },
     }).catch((createError: any) => {
@@ -340,12 +433,13 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
     // Trimite SMS de confirmare dacă rezervarea este confirmată (nu necesită consimțământ)
     if (initialStatus === "CONFIRMED" && booking.client.phone) {
       // Fire-and-forget: nu așteptăm răspunsul pentru a nu bloca request-ul
+      const serviceOrCourtName = isSportOutdoor ? booking.court?.name : booking.service?.name;
       sendBookingConfirmationSms(
         booking.client.name || "Client",
         booking.client.phone,
         booking.business.name || "Business",
         booking.date,
-        booking.service?.name,
+        serviceOrCourtName,
         booking.business.id
       ).catch((error: unknown) => {
         logger.error("Failed to send confirmation SMS", error);
@@ -947,7 +1041,7 @@ router.delete("/:id", verifyJWT, async (req, res) => {
               <p>Dacă ai întrebări sau dorești să faci o nouă rezervare, te rugăm să ne contactezi.</p>
               
               <div class="footer">
-                <p>Cu respect,<br>Echipa LARSTEF</p>
+                <p>Cu respect,<br>Echipa VOOB</p>
                 <p>Acest email a fost trimis automat. Te rugăm să nu răspunzi la acest email.</p>
               </div>
             </div>

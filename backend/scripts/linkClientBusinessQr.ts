@@ -16,7 +16,7 @@ const TARGET_DOMAINS = [
 ];
 
 async function ensureQrAndLinkClient() {
-  const clientEmail = process.env.CLIENT_EMAIL || "client@larstef.app";
+  const clientEmail = process.env.CLIENT_EMAIL || "client@voob.io";
 
   const client = await prisma.user.findUnique({
     where: { email: clientEmail },

@@ -31,7 +31,7 @@ function loadSystemPrompt(): string {
     return fs.readFileSync(promptPath, "utf-8");
   } catch (error) {
     console.warn("Nu s-a putut încărca system prompt, folosind default.");
-    return "Ești AI-ul platformei LARSTEF CRM. Răspunde în română, fii concis și util.";
+    return "Ești AI-ul platformei VOOB CRM. Răspunde în română, fii concis și util.";
   }
 }
 

@@ -82,7 +82,7 @@ function BillingForm() {
           // Fallback
           const proPlan: SubscriptionPlan = {
             id: "pro",
-            name: "LARSTEF PRO",
+            name: "VOOB PRO",
             price: 149,
             currency: "RON",
             billingCycle: "MONTHLY",
@@ -90,7 +90,7 @@ function BillingForm() {
 
           const businessPlan: SubscriptionPlan = {
             id: "business",
-            name: "LARSTEF BUSINESS",
+            name: "VOOB BUSINESS",
             price: 299,
             currency: "RON",
             billingCycle: "MONTHLY",
@@ -102,7 +102,7 @@ function BillingForm() {
         console.error("Failed to fetch plans:", error);
         const proPlan: SubscriptionPlan = {
           id: "pro",
-          name: "LARSTEF PRO",
+          name: "VOOB PRO",
           price: 149,
           currency: "RON",
           billingCycle: "MONTHLY",
@@ -110,7 +110,7 @@ function BillingForm() {
 
         const businessPlan: SubscriptionPlan = {
           id: "business",
-          name: "LARSTEF BUSINESS",
+          name: "VOOB BUSINESS",
           price: 299,
           currency: "RON",
           billingCycle: "MONTHLY",
@@ -394,7 +394,7 @@ function BillingForm() {
                   className="mt-1 w-5 h-5 rounded border-white/20 bg-white/5 text-purple-500 focus:ring-purple-500"
                 />
                 <label htmlFor="consent" className="text-sm text-white/80 leading-relaxed">
-                  Sunt de acord ca LARSTEF să îmi debiteze automat cardul lunar pentru abonamentul selectat.{" "}
+                  Sunt de acord ca VOOB să îmi debiteze automat cardul lunar pentru abonamentul selectat.{" "}
                   Confirm că am citit și accept Termenii și Condițiile și Politica de Confidențialitate.{" "}
                   Pot anula oricând din zona de facturare înainte de data următoarei plăți.
                 </label>

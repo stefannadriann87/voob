@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LARSTEF - Timpul tău, organizat perfect!",
+  title: "VOOB - Timpul tău, organizat perfect!",
   description:
     "Platforma completă de booking cu plăți Stripe, Klarna și automatizări AI pentru afacerea ta.",
 };

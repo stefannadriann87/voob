@@ -9,7 +9,7 @@ const prisma = new PrismaClient();
  * Usage: npx ts-node scripts/linkClientToAllBusinesses.ts [clientEmail]
  */
 async function linkClientToAllBusinesses() {
-  const clientEmail = process.argv[2] || "client@larstef.app";
+  const clientEmail = process.argv[2] || "client@voob.io";
 
   console.log(`\n🔍 Căutăm clientul: ${clientEmail}\n`);
 

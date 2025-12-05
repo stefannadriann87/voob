@@ -8,6 +8,7 @@ import useAuth from "../../../hooks/useAuth";
 import useBookings, { type Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import useApi from "../../../hooks/useApi";
+import useCourts from "../../../hooks/useCourts";
 
 type InsightSlot = {
   day: string;
@@ -59,6 +60,30 @@ export default function BusinessDashboardPage() {
   const [insights, setInsights] = useState<BusinessInsights | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
+  
+  // Court management state
+  const [courtModalOpen, setCourtModalOpen] = useState(false);
+  const [editingCourtId, setEditingCourtId] = useState<string | null>(null);
+  const [courtName, setCourtName] = useState("");
+  const [courtNumber, setCourtNumber] = useState("");
+  const [courtFeedback, setCourtFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [courtToDelete, setCourtToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deletingCourtId, setDeletingCourtId] = useState<string | null>(null);
+  
+  // Court pricing state
+  const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [selectedCourtForPricing, setSelectedCourtForPricing] = useState<string | null>(null);
+  const [morningPrice, setMorningPrice] = useState("");
+  const [morningStartHour, setMorningStartHour] = useState("8");
+  const [morningEndHour, setMorningEndHour] = useState("12");
+  const [afternoonPrice, setAfternoonPrice] = useState("");
+  const [afternoonStartHour, setAfternoonStartHour] = useState("12");
+  const [afternoonEndHour, setAfternoonEndHour] = useState("18");
+  const [nightPrice, setNightPrice] = useState("");
+  const [nightStartHour, setNightStartHour] = useState("18");
+  const [nightEndHour, setNightEndHour] = useState("22");
+  const [pricingFeedback, setPricingFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [savingPricing, setSavingPricing] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 60000);
@@ -94,6 +119,10 @@ export default function BusinessDashboardPage() {
 
     return businesses[0] ?? null;
   }, [businesses, user]);
+
+  // Detect if business is SPORT_OUTDOOR
+  const isSportOutdoor = business?.businessType === "SPORT_OUTDOOR";
+  const { courts, loading: courtsLoading, refreshCourts } = useCourts(isSportOutdoor ? business?.id ?? null : null);
 
   // Filter bookings for this business and only today's bookings
   const businessBookings = useMemo(() => {
@@ -250,6 +279,229 @@ export default function BusinessDashboardPage() {
     }
   }, [serviceToDelete, business?.id, deleteService, fetchBusinesses]);
 
+  // Court management handlers
+  const handleOpenCourtModal = useCallback((courtId?: string) => {
+    if (courtId && courts.length > 0) {
+      const court = courts.find((c) => c.id === courtId);
+      if (court) {
+        setEditingCourtId(courtId);
+        setCourtName(court.name);
+        setCourtNumber(court.number.toString());
+      }
+    } else {
+      setEditingCourtId(null);
+      setCourtName("");
+      setCourtNumber("");
+    }
+    setCourtFeedback(null);
+    setCourtModalOpen(true);
+  }, [courts]);
+
+  const handleCloseCourtModal = useCallback(() => {
+    setCourtModalOpen(false);
+    setEditingCourtId(null);
+    setCourtName("");
+    setCourtNumber("");
+    setCourtFeedback(null);
+  }, []);
+
+  const handleSubmitCourt = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!business?.id) return;
+
+    const number = Number(courtNumber);
+
+    if (!courtName.trim() || Number.isNaN(number) || number <= 0) {
+      setCourtFeedback({ type: "error", message: "Completează un nume și un număr valid pentru teren." });
+      return;
+    }
+
+    try {
+      if (editingCourtId) {
+        // Update existing court
+        await api.put(`/business/${business.id}/courts/${editingCourtId}`, {
+          name: courtName.trim(),
+          number,
+        });
+        setCourtFeedback({ type: "success", message: "Teren actualizat cu succes." });
+      } else {
+        // Add new court
+        await api.post(`/business/${business.id}/courts`, {
+          name: courtName.trim(),
+          number,
+        });
+        setCourtFeedback({ type: "success", message: "Teren adăugat cu succes." });
+      }
+      
+      // Close modal after a short delay to show success message
+      setTimeout(() => {
+        handleCloseCourtModal();
+        // Refresh courts
+        refreshCourts();
+      }, 1000);
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.error || "Eroare la operațiunea cu terenul.";
+      setCourtFeedback({ 
+        type: "error", 
+        message: editingCourtId 
+          ? `Nu am putut actualiza terenul: ${errorMessage}` 
+          : `Nu am putut adăuga terenul: ${errorMessage}` 
+      });
+    }
+  };
+
+  const handleDeleteCourt = useCallback(async () => {
+    if (!courtToDelete || !business?.id) return;
+    
+    setDeletingCourtId(courtToDelete.id);
+    try {
+      await api.delete(`/business/${business.id}/courts/${courtToDelete.id}`);
+      setCourtToDelete(null);
+      // Refresh courts
+      refreshCourts();
+    } catch (error: any) {
+      console.error("Delete court failed:", error);
+      setCourtToDelete(null);
+    } finally {
+      setDeletingCourtId(null);
+    }
+  }, [courtToDelete, business?.id, api]);
+
+  const handleOpenPricingModal = useCallback((courtId: string) => {
+    const court = courts.find((c) => c.id === courtId);
+    if (court && court.pricing) {
+      setSelectedCourtForPricing(courtId);
+      
+      // Set pricing values from existing pricing
+      const morning = court.pricing.find((p) => p.timeSlot === "MORNING");
+      const afternoon = court.pricing.find((p) => p.timeSlot === "AFTERNOON");
+      const night = court.pricing.find((p) => p.timeSlot === "NIGHT");
+      
+      if (morning) {
+        setMorningPrice(morning.price.toString());
+        setMorningStartHour(morning.startHour.toString());
+        setMorningEndHour(morning.endHour.toString());
+      } else {
+        setMorningPrice("");
+        setMorningStartHour("8");
+        setMorningEndHour("12");
+      }
+      
+      if (afternoon) {
+        setAfternoonPrice(afternoon.price.toString());
+        setAfternoonStartHour(afternoon.startHour.toString());
+        setAfternoonEndHour(afternoon.endHour.toString());
+      } else {
+        setAfternoonPrice("");
+        setAfternoonStartHour("12");
+        setAfternoonEndHour("18");
+      }
+      
+      if (night) {
+        setNightPrice(night.price.toString());
+        setNightStartHour(night.startHour.toString());
+        setNightEndHour(night.endHour.toString());
+      } else {
+        setNightPrice("");
+        setNightStartHour("18");
+        setNightEndHour("22");
+      }
+    } else {
+      // New pricing - set defaults
+      setSelectedCourtForPricing(courtId);
+      setMorningPrice("");
+      setMorningStartHour("8");
+      setMorningEndHour("12");
+      setAfternoonPrice("");
+      setAfternoonStartHour("12");
+      setAfternoonEndHour("18");
+      setNightPrice("");
+      setNightStartHour("18");
+      setNightEndHour("22");
+    }
+    setPricingFeedback(null);
+    setPricingModalOpen(true);
+  }, [courts]);
+
+  const handleClosePricingModal = useCallback(() => {
+    setPricingModalOpen(false);
+    setSelectedCourtForPricing(null);
+    setPricingFeedback(null);
+  }, []);
+
+  const handleSubmitPricing = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!business?.id || !selectedCourtForPricing) return;
+
+    const morningPriceNum = Number(morningPrice);
+    const afternoonPriceNum = Number(afternoonPrice);
+    const nightPriceNum = Number(nightPrice);
+    const morningStart = Number(morningStartHour);
+    const morningEnd = Number(morningEndHour);
+    const afternoonStart = Number(afternoonStartHour);
+    const afternoonEnd = Number(afternoonEndHour);
+    const nightStart = Number(nightStartHour);
+    const nightEnd = Number(nightEndHour);
+
+    if (
+      Number.isNaN(morningPriceNum) || morningPriceNum < 0 ||
+      Number.isNaN(afternoonPriceNum) || afternoonPriceNum < 0 ||
+      Number.isNaN(nightPriceNum) || nightPriceNum < 0 ||
+      Number.isNaN(morningStart) || morningStart < 0 || morningStart > 23 ||
+      Number.isNaN(morningEnd) || morningEnd < 0 || morningEnd > 23 ||
+      Number.isNaN(afternoonStart) || afternoonStart < 0 || afternoonStart > 23 ||
+      Number.isNaN(afternoonEnd) || afternoonEnd < 0 || afternoonEnd > 23 ||
+      Number.isNaN(nightStart) || nightStart < 0 || nightStart > 23 ||
+      Number.isNaN(nightEnd) || nightEnd < 0 || nightEnd > 23 ||
+      morningStart >= morningEnd ||
+      afternoonStart >= afternoonEnd ||
+      nightStart >= nightEnd
+    ) {
+      setPricingFeedback({ type: "error", message: "Completează prețuri valide și intervale de ore corecte (0-23, start < end)." });
+      return;
+    }
+
+    setSavingPricing(true);
+    setPricingFeedback(null);
+    
+    try {
+      await api.put(`/business/${business.id}/courts/${selectedCourtForPricing}/pricing`, {
+        pricing: [
+          {
+            timeSlot: "MORNING",
+            price: morningPriceNum,
+            startHour: morningStart,
+            endHour: morningEnd,
+          },
+          {
+            timeSlot: "AFTERNOON",
+            price: afternoonPriceNum,
+            startHour: afternoonStart,
+            endHour: afternoonEnd,
+          },
+          {
+            timeSlot: "NIGHT",
+            price: nightPriceNum,
+            startHour: nightStart,
+            endHour: nightEnd,
+          },
+        ],
+      });
+      
+      setPricingFeedback({ type: "success", message: "Tarife actualizate cu succes." });
+      
+      setTimeout(() => {
+        handleClosePricingModal();
+        refreshCourts();
+      }, 1000);
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.error || "Eroare la actualizarea tarifelor.";
+      setPricingFeedback({ type: "error", message: errorMessage });
+    } finally {
+      setSavingPricing(false);
+    }
+  };
+
   useEffect(() => {
     if (!hydrated) {
       return;
@@ -310,7 +562,7 @@ export default function BusinessDashboardPage() {
   return (
     <>
       <Head>
-        <title>Business Dashboard - LARSTEF</title>
+        <title>Business Dashboard - VOOB</title>
       </Head>
       <div className="flex flex-col gap-10">
         <section className="rounded-3xl border border-white/10 bg-white/5 p-8">
@@ -333,7 +585,12 @@ export default function BusinessDashboardPage() {
               <p className="mt-3 text-2xl font-semibold">
                 {businessBookings
                   .filter((booking) => booking.paid)
-                  .reduce((acc, booking) => acc + booking.service.price, 0)
+                  .reduce((acc, booking) => {
+                    // For SPORT_OUTDOOR, we need to calculate price from court pricing
+                    // For now, use service price if available, otherwise 0
+                    const price = booking.service?.price || 0;
+                    return acc + price;
+                  }, 0)
                   .toLocaleString("ro-RO", { style: "currency", currency: "RON" })}
               </p>
             </div>
@@ -382,7 +639,7 @@ export default function BusinessDashboardPage() {
                   <BookingCard
                     key={booking.id}
                     id={booking.id}
-                    serviceName={booking.service?.name ?? "Serviciu"}
+                    serviceName={booking.service?.name ?? booking.court?.name ?? "Rezervare"}
                     businessName={subtitleParts.join(" • ")}
                     date={booking.date}
                     paid={booking.paid}
@@ -402,17 +659,19 @@ export default function BusinessDashboardPage() {
           </div>
         </section>
 
-        <section id="services" className="flex flex-col gap-6 mobile:px-0 py-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Servicii</h2>
-            <button
-              type="button"
-              onClick={() => handleOpenServiceModal()}
-              className="rounded-2xl border border-white/10 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
-            >
-              Adaugă serviciu
-            </button>
-          </div>
+        {/* Services Section - Hidden for SPORT_OUTDOOR */}
+        {!isSportOutdoor && (
+          <section id="services" className="flex flex-col gap-6 mobile:px-0 py-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Servicii</h2>
+              <button
+                type="button"
+                onClick={() => handleOpenServiceModal()}
+                className="rounded-2xl border border-white/10 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+              >
+                Adaugă serviciu
+              </button>
+            </div>
           <div className="grid gap-2 desktop:gap-4 md:grid-cols-2 lg:grid-cols-3">
             {business?.services.map((service) => (
               <div
@@ -463,8 +722,11 @@ export default function BusinessDashboardPage() {
             )}
           </div>
         </section>
+        )}
 
-        <section id="employees" className="flex flex-col gap-6">
+        {/* Employees Section - Hidden for SPORT_OUTDOOR */}
+        {!isSportOutdoor && (
+          <section id="employees" className="flex flex-col gap-6">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Angajați</h2>
             <button
@@ -536,6 +798,98 @@ export default function BusinessDashboardPage() {
             )}
           </div>
         </section>
+        )}
+
+        {/* Courts Section - Only for SPORT_OUTDOOR */}
+        {isSportOutdoor && (
+          <section id="courts" className="flex flex-col gap-6 mobile:px-0 py-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Terenuri</h2>
+              <button
+                type="button"
+                onClick={() => handleOpenCourtModal()}
+                className="rounded-2xl border border-white/10 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+              >
+                Adaugă teren
+              </button>
+            </div>
+            <div className="grid gap-2 desktop:gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {courtsLoading ? (
+                <div className="col-span-full rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
+                  Se încarcă terenurile...
+                </div>
+              ) : courts.length > 0 ? (
+                courts
+                  .filter((court) => court.isActive)
+                  .map((court) => {
+                    const priceRange = court.pricing && court.pricing.length > 0
+                      ? {
+                          min: Math.min(...court.pricing.map((p) => p.price)),
+                          max: Math.max(...court.pricing.map((p) => p.price)),
+                        }
+                      : null;
+                    
+                    return (
+                      <div
+                        key={court.id}
+                        className="group relative rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-6 transition hover:border-[#6366F1]/60 hover:bg-white/10"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h3 className="text-lg font-semibold text-white">{court.name}</h3>
+                            <p className="mt-2 text-sm text-white/60">
+                              Teren {court.number}
+                            </p>
+                            {priceRange ? (
+                              <p className="mt-1 text-sm font-medium text-[#6366F1]">
+                                {priceRange.min === priceRange.max
+                                  ? `${priceRange.min.toLocaleString("ro-RO", { style: "currency", currency: "RON" })}/oră`
+                                  : `${priceRange.min.toLocaleString("ro-RO", { style: "currency", currency: "RON" })} - ${priceRange.max.toLocaleString("ro-RO", { style: "currency", currency: "RON" })}/oră`}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-xs text-white/40">
+                                Tarife neconfigurate
+                              </p>
+                            )}
+                          </div>
+                          <div className="ml-4 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPricingModal(court.id)}
+                              className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-[#6366F1]/20 hover:text-[#6366F1]"
+                              title="Configurează tarife"
+                            >
+                              <i className="fas fa-euro-sign text-sm" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCourtModal(court.id)}
+                              className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-[#6366F1]/20 hover:text-[#6366F1]"
+                              title="Editează teren"
+                            >
+                              <i className="fas fa-edit text-sm" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCourtToDelete({ id: court.id, name: court.name })}
+                              className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-red-500/20 hover:text-red-400"
+                              title="Șterge teren"
+                            >
+                              <i className="fas fa-trash text-sm" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+              ) : (
+                <div className="col-span-full rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
+                  Adaugă primul teren pentru a-l face disponibil clienților tăi.
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Service Modal (Add/Edit) */}
         {serviceModalOpen && (
@@ -970,6 +1324,305 @@ export default function BusinessDashboardPage() {
                   {deletingEmployeeId === employeeToDelete.id ? "Se șterge..." : "Șterge angajat"}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Court Modal (Add/Edit) */}
+        {courtModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={handleCloseCourtModal}>
+            <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-6 flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-semibold text-white">
+                    {editingCourtId ? "Editează teren" : "Adaugă teren"}
+                  </h3>
+                  <p className="mt-2 text-sm text-white/60">
+                    {editingCourtId 
+                      ? "Actualizează informațiile despre teren" 
+                      : "Completează informațiile pentru noul teren"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseCourtModal}
+                  className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+                >
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitCourt} className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span className="text-white/70">Nume teren *</span>
+                    <input
+                      value={courtName}
+                      onChange={(event) => setCourtName(event.target.value)}
+                      placeholder="Ex: Teren Fotbal 1"
+                      required
+                      className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span className="text-white/70">Număr teren *</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={courtNumber}
+                      onChange={(event) => setCourtNumber(event.target.value)}
+                      placeholder="Ex: 1"
+                      required
+                      className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                    />
+                  </label>
+                </div>
+
+                {courtFeedback && (
+                  <div
+                    className={`rounded-xl border px-4 py-3 text-sm ${
+                      courtFeedback.type === "success"
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                        : "border-red-500/40 bg-red-500/10 text-red-200"
+                    }`}
+                  >
+                    {courtFeedback.message}
+                  </div>
+                )}
+
+                <div className="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={handleCloseCourtModal}
+                    className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                  >
+                    Renunță
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED]"
+                  >
+                    {editingCourtId ? "Salvează modificările" : "Adaugă teren"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Court Confirmation Modal */}
+        {courtToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40">
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-white">Confirmă ștergerea</h3>
+                <p className="mt-2 text-sm text-white/60">
+                  Ești sigur că vrei să ștergi terenul <strong className="text-white">"{courtToDelete.name}"</strong>? 
+                  Această acțiune nu poate fi anulată.
+                </p>
+              </div>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setCourtToDelete(null)}
+                  disabled={deletingCourtId === courtToDelete.id}
+                  className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Renunță
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteCourt}
+                  disabled={deletingCourtId === courtToDelete.id}
+                  className="rounded-2xl bg-red-500/80 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {deletingCourtId === courtToDelete.id ? "Se șterge..." : "Șterge teren"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Court Pricing Modal */}
+        {pricingModalOpen && selectedCourtForPricing && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={handleClosePricingModal}>
+            <div className="w-full max-w-3xl rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-6 flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-semibold text-white">Configurează tarife</h3>
+                  <p className="mt-2 text-sm text-white/60">
+                    Setează prețurile pentru dimineață, după-amiază și nocturn
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClosePricingModal}
+                  className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+                >
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitPricing} className="space-y-6">
+                {/* Morning Pricing */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                  <h4 className="mb-4 text-lg font-semibold text-white">🌅 Dimineață</h4>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Ora de început</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={morningStartHour}
+                        onChange={(e) => setMorningStartHour(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Ora de sfârșit</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={morningEndHour}
+                        onChange={(e) => setMorningEndHour(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Preț (RON/oră) *</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={morningPrice}
+                        onChange={(e) => setMorningPrice(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Afternoon Pricing */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                  <h4 className="mb-4 text-lg font-semibold text-white">☀️ După-amiază</h4>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Ora de început</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={afternoonStartHour}
+                        onChange={(e) => setAfternoonStartHour(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Ora de sfârșit</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={afternoonEndHour}
+                        onChange={(e) => setAfternoonEndHour(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Preț (RON/oră) *</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={afternoonPrice}
+                        onChange={(e) => setAfternoonPrice(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Night Pricing */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                  <h4 className="mb-4 text-lg font-semibold text-white">🌙 Nocturn</h4>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Ora de început</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={nightStartHour}
+                        onChange={(e) => setNightStartHour(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Ora de sfârșit</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={nightEndHour}
+                        onChange={(e) => setNightEndHour(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Preț (RON/oră) *</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={nightPrice}
+                        onChange={(e) => setNightPrice(e.target.value)}
+                        required
+                        className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {pricingFeedback && (
+                  <div
+                    className={`rounded-xl border px-4 py-3 text-sm ${
+                      pricingFeedback.type === "success"
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                        : "border-red-500/40 bg-red-500/10 text-red-200"
+                    }`}
+                  >
+                    {pricingFeedback.message}
+                  </div>
+                )}
+
+                <div className="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={handleClosePricingModal}
+                    disabled={savingPricing}
+                    className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Renunță
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingPricing}
+                    className="rounded-xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingPricing ? "Se salvează..." : "Salvează tarife"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

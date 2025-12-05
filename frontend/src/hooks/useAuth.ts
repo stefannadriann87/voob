@@ -42,7 +42,7 @@ interface RegisterPayload {
   captchaToken?: string;
 }
 
-const AUTH_EVENT = "larstef-auth-change";
+const AUTH_EVENT = "voob-auth-change";
 
 /**
  * Extracts a user-friendly error message from an Axios error
@@ -92,7 +92,7 @@ function getErrorMessage(err: unknown, defaultMessage: string): string {
  */
 function getStoredUser(): AuthUser | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem("larstef_user");
+  const raw = window.localStorage.getItem("voob_user");
   if (!raw) return null;
   try {
     return JSON.parse(raw) as AuthUser;
@@ -126,7 +126,7 @@ export default function useAuth() {
    */
   const persistUser = useCallback((userPayload: AuthUser) => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem("larstef_user", JSON.stringify(userPayload));
+    window.localStorage.setItem("voob_user", JSON.stringify(userPayload));
     window.dispatchEvent(new Event(AUTH_EVENT));
     setUser(userPayload);
   }, []);
@@ -238,7 +238,7 @@ export default function useAuth() {
     
     // Șterge datele locale
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem("larstef_user");
+      window.localStorage.removeItem("voob_user");
       window.dispatchEvent(new Event(AUTH_EVENT));
     }
     setUser(null);
@@ -254,7 +254,7 @@ export default function useAuth() {
 
     try {
       const { data } = await api.get<{ user: AuthUser }>("/auth/me");
-      window.localStorage.setItem("larstef_user", JSON.stringify(data.user));
+      window.localStorage.setItem("voob_user", JSON.stringify(data.user));
       setUser(data.user);
       return data.user;
     } catch (err) {
@@ -265,7 +265,7 @@ export default function useAuth() {
       }
       // Șterge datele locale dacă sesiunea e invalidă
       if (typeof window !== "undefined") {
-        window.localStorage.removeItem("larstef_user");
+        window.localStorage.removeItem("voob_user");
       }
       setUser(null);
       return null;
@@ -278,7 +278,7 @@ export default function useAuth() {
       setError(null);
       try {
         const { data: updatedUser } = await api.put<{ user: AuthUser }>("/auth/me", data);
-        window.localStorage.setItem("larstef_user", JSON.stringify(updatedUser.user));
+        window.localStorage.setItem("voob_user", JSON.stringify(updatedUser.user));
         setUser(updatedUser.user);
         window.dispatchEvent(new Event(AUTH_EVENT));
         return updatedUser.user;

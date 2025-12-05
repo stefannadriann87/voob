@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "GDPR - LARSTEF",
-  description: "Informații despre conformitatea GDPR a platformei LARSTEF",
+  title: "GDPR - VOOB",
+  description: "Informații despre conformitatea GDPR a platformei VOOB",
 };
 
 export default function GDPRPage() {
@@ -13,7 +13,7 @@ export default function GDPRPage() {
       <header className="legal-header">
         <div className="legal-header-container">
           <Link href="/" className="legal-header-logo">
-            <div className="logo">LARSTEF</div>
+            <div className="logo">VOOB</div>
           </Link>
         </div>
       </header>
@@ -35,7 +35,7 @@ export default function GDPRPage() {
             modul în care organizațiile trebuie să gestioneze datele personale.
           </p>
           <p>
-            LARSTEF este angajat în respectarea GDPR și al protecției datelor dumneavoastră personale.
+            VOOB este angajat în respectarea GDPR și al protecției datelor dumneavoastră personale.
             Această pagină explică drepturile pe care le aveți în conformitate cu GDPR și cum le puteți
             exercita.
           </p>
@@ -45,7 +45,7 @@ export default function GDPRPage() {
           <h2>2. Datele Dumneavoastră Personale</h2>
           <p>
             Conform GDPR, "date personale" înseamnă orice informație care vă identifică direct sau
-            indirect. Pe platforma LARSTEF, prelucrăm următoarele categorii de date personale:
+            indirect. Pe platforma VOOB, prelucrăm următoarele categorii de date personale:
           </p>
           <ul>
             <li>Date de identificare (nume, prenume, email, telefon)</li>
@@ -161,7 +161,7 @@ export default function GDPRPage() {
             Pentru a exercita oricare dintre drepturile dumneavoastră GDPR, vă rugăm să ne contactați:
           </p>
           <ul>
-            <li>Email: <a href="mailto:contact@larstef.ro">contact@larstef.ro</a></li>
+            <li>Email: <a href="mailto:contact@voob.io">contact@voob.io</a></li>
             <li>Telefon: <a href="tel:+40748293830">+40748293830</a></li>
             <li>Adresă: Iași, România</li>
           </ul>
@@ -246,7 +246,7 @@ export default function GDPRPage() {
             oricare dintre aceste drepturi, vă rugăm să ne contactați:
           </p>
           <ul>
-            <li>Email: <a href="mailto:contact@larstef.ro">contact@larstef.ro</a></li>
+            <li>Email: <a href="mailto:contact@voob.io">contact@voob.io</a></li>
             <li>Telefon: <a href="tel:+40748293830">+40748293830</a></li>
             <li>Adresă: Iași, România</li>
           </ul>

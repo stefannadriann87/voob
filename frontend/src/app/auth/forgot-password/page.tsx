@@ -24,7 +24,7 @@ export default function ForgotPasswordPage() {
   return (
     <>
       <Head>
-        <title>Resetare parolă - LARSTEF</title>
+        <title>Resetare parolă - VOOB</title>
       </Head>
       <div className="min-h-screen bg-[#0B0E17] text-white">
         <AuthHeader />

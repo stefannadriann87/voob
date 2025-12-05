@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
  * Usage: npx ts-node scripts/cleanupTestBusinesses.ts [clientEmail]
  */
 async function cleanupTestBusinesses() {
-  const clientEmail = process.argv[2] || "client@larstef.app";
+  const clientEmail = process.argv[2] || "client@voob.io";
 
   console.log(`\n🔍 Căutăm clientul: ${clientEmail}\n`);
 

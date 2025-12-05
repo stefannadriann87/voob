@@ -364,7 +364,7 @@ export default function Home() {
       {/* Mobile Header */}
       <header className="mobile-header">
         <div className="mobile-logo">
-          <div className="logo">LARSTEF</div>
+          <div className="logo">VOOB</div>
           <div className="logo-motto">Timpul tău, organizat perfect!</div>
         </div>
         <button
@@ -385,7 +385,7 @@ export default function Home() {
       <aside className={`sidebar ${isSidebarOpen ? "open" : ""}`}>
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <div className="logo">LARSTEF</div>
+            <div className="logo">VOOB</div>
             <div className="logo-motto">Timpul tău, organizat perfect!</div>
           </div>
           <button
@@ -426,7 +426,7 @@ export default function Home() {
       {/* Desktop Nav */}
       <nav className="desktop-nav">
         <div className="logo-container">
-          <div className="logo">LARSTEF</div>
+          <div className="logo">VOOB</div>
           <div className="logo-motto">Timpul tău, organizat perfect!</div>
         </div>
         <div className="nav-links">
@@ -472,7 +472,7 @@ export default function Home() {
             <div className="demo-window">
               <Image
                 src="/images/img-hero.png"
-                alt="Previzualizare LARSTEF"
+                alt="Previzualizare VOOB"
                 width={960}
                 height={600}
                 className="demo-image"
@@ -487,17 +487,17 @@ export default function Home() {
         <div className="ai-container">
           <div className="ai-image">
             <div className="ai-image-wrapper" onClick={() => setIsVideoModalOpen(true)}>
-              <img src="/images/img1.png" alt="LARSTEF AI" className="ai-preview-image" />
+              <img src="/images/img1.png" alt="VOOB AI" className="ai-preview-image" />
               <div className="ai-play-button">
                 <i className="fas fa-play"></i>
               </div>
             </div>
           </div>
           <div className="ai-content">
-            <h2 className="ai-title">LARSTEF AI</h2>
+            <h2 className="ai-title">VOOB AI</h2>
             <h3 className="ai-subtitle">Asistentul tău inteligent pentru rezervări și management</h3>
             <p className="ai-text">
-              Cu LARSTEF AI poți crea, modifica sau anula programări doar printr-un mesaj.
+              Cu VOOB AI poți crea, modifica sau anula programări doar printr-un mesaj.
               AI-ul verifică disponibilitatea, gestionează calendarul, răspunde la întrebări
               și poate genera rapid rapoarte pentru afacerea ta. Totul automat, fără pași
               complicați.
@@ -512,7 +512,7 @@ export default function Home() {
             <h2 className="klarna-title">Opțiuni de plată</h2>
             <h3 className="klarna-subtitle">Modalități flexibile de plată</h3>
             <p className="klarna-text">
-              Fă o rezervare acum in platforma LARSTEF și plătește mai târziu cu opțiunile flexibile de plată
+              Fă o rezervare acum in platforma VOOB și plătește mai târziu cu opțiunile flexibile de plată
               Klarna. Poți alege dacă vrei să plătești imediat, în 30 de zile sau în 3
               rate fără dobândă.
             </p>
@@ -542,7 +542,7 @@ export default function Home() {
             <div className="video-modal-wrapper">
               <iframe
                 src="https://www.youtube.com/embed/dQw4w9WgXcQ"
-                title="LARSTEF AI Video"
+                title="VOOB AI Video"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
@@ -690,7 +690,7 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              Platforma LARSTEF este complet gratuită pentru clienți. Poți face rezervări, gestiona programările și beneficia de toate funcționalitățile fără costuri.
+              Platforma VOOB este complet gratuită pentru clienți. Poți face rezervări, gestiona programările și beneficia de toate funcționalitățile fără costuri.
             </p>
           </div>
 
@@ -699,7 +699,7 @@ export default function Home() {
               <i className="fas fa-qrcode" />
             </div>
             <h3>Scanează QR-ul business-ului</h3>
-            <p>Fiecare partener LARSTEF are un cod QR unic. Scanează-l pentru a te conecta instant la business-ul lor.</p>
+            <p>Fiecare partener VOOB are un cod QR unic. Scanează-l pentru a te conecta instant la business-ul lor.</p>
             <p
               style={{
                 marginTop: 12,
@@ -766,7 +766,7 @@ export default function Home() {
               „Programează-mă la tuns vineri după-amiază.”
             </p>
             <p style={{ marginTop: 12 }}>
-              LARSTEF verifică automat disponibilitatea, sugerează cele mai bune intervale și confirmă rezervarea pentru tine.
+              VOOB verifică automat disponibilitatea, sugerează cele mai bune intervale și confirmă rezervarea pentru tine.
             </p>
           </div>
 
@@ -824,7 +824,7 @@ export default function Home() {
               <i className="fas fa-bell" />
             </div>
             <h3>Primește notificări automate</h3>
-            <p>LARSTEF îți trimite automat confirmări și reminder-uri prin SMS și email:</p>
+            <p>VOOB îți trimite automat confirmări și reminder-uri prin SMS și email:</p>
             <ul>
               <li>
                 <i className="fas fa-check" />Confirmare imediată după rezervare
@@ -880,7 +880,7 @@ export default function Home() {
               <i className="fas fa-brain" />
             </div>
             <h3>Beneficiază de recomandări AI inteligente</h3>
-            <p>LARSTEF AI analizează programările tale și îți oferă sugestii personalizate:</p>
+            <p>VOOB AI analizează programările tale și îți oferă sugestii personalizate:</p>
             <ul>
               <li>
                 <i className="fas fa-check" />Ore recomandate bazate pe disponibilitate
@@ -922,7 +922,7 @@ export default function Home() {
             </div>
             <h3>Creează contul tău de business</h3>
             <p>
-              Înregistrează-ți afacerea pe LARSTEF în doar câteva minute. Adaugă
+              Înregistrează-ți afacerea pe VOOB în doar câteva minute. Adaugă
               numele, tipul de business și datele de contact.
             </p>
             <p
@@ -1124,7 +1124,7 @@ export default function Home() {
             </div>
             <h3>Consimțăminte automate (pentru medical)</h3>
             <p>
-              Pentru business-uri medicale, LARSTEF generează automat consimțămintele necesare cu semnătură electronică.
+              Pentru business-uri medicale, VOOB generează automat consimțămintele necesare cu semnătură electronică.
             </p>
             <p
               style={{
@@ -1153,7 +1153,7 @@ export default function Home() {
             </div>
             <h3>Notificări automate pentru clienți</h3>
             <p>
-              LARSTEF trimite automat confirmări și reminder-uri clienților prin SMS și email.
+              VOOB trimite automat confirmări și reminder-uri clienților prin SMS și email.
             </p>
             <p
               style={{
@@ -1243,7 +1243,7 @@ export default function Home() {
             </div>
             <h3>Alege planul potrivit</h3>
             <p>
-              LARSTEF PRO (149 lei/lună) sau LARSTEF BUSINESS (299 lei/lună) cu trial gratuit de 30 zile (o lună completă).
+              VOOB PRO (149 lei/lună) sau VOOB BUSINESS (299 lei/lună) cu trial gratuit de 30 zile (o lună completă).
             </p>
             <p
               style={{
@@ -1273,7 +1273,7 @@ export default function Home() {
         <p className="section-subtitle">Două planuri simple. Hosting pe AWS. Fără costuri ascunse.</p>
         <div className="grid pricing-grid-compact mobile:px-10 px-0">
           <div className="pricing-card card pricing-card-compact">
-            <h3 style={{ textAlign: "left" }}>LARSTEF PRO</h3>
+            <h3 style={{ textAlign: "left" }}>VOOB PRO</h3>
             <div className="price" style={{ textAlign: "left" }}>
               149 lei<span>/lună</span>
             </div>
@@ -1288,7 +1288,7 @@ export default function Home() {
                 <i className="fas fa-check" /> Notificări SMS
               </li>
               <li>
-                <i className="fas fa-check" /> AI LARSTEF integrat
+                <i className="fas fa-check" /> AI VOOB integrat
               </li>
               <li>
                 <i className="fas fa-check" /> Plată card online + plată la sediu
@@ -1319,13 +1319,13 @@ export default function Home() {
 
           <div className="pricing-card popular card pricing-card-compact">
             <div className="popular-badge">CEA MAI POPULARĂ</div>
-            <h3 style={{ textAlign: "left" }}>LARSTEF BUSINESS</h3>
+            <h3 style={{ textAlign: "left" }}>VOOB BUSINESS</h3>
             <div className="price" style={{ textAlign: "left" }}>
               299 lei<span>/lună</span>
             </div>
             <ul>
               <li>
-                <i className="fas fa-check" /> Tot din LARSTEF PRO +
+                <i className="fas fa-check" /> Tot din VOOB PRO +
               </li>
               <li>
                 <i className="fas fa-check" /> 5 utilizatori incluși
@@ -1576,7 +1576,7 @@ export default function Home() {
                 marginBottom: 30,
               }}
             >
-              Afacerea ta, regulile tale. Începe să o automatizezi astăzi cu LARSTEF.
+              Afacerea ta, regulile tale. Începe să o automatizezi astăzi cu VOOB.
             </p>
             <Link href="/auth/register" className="btn btn-primary">
               Începe Acum <i className="fas fa-arrow-right" />
@@ -1598,7 +1598,7 @@ export default function Home() {
       <section id="demo" className="cta-section">
         <h2 className="section-title">Testează Platforma</h2>
         <p className="section-subtitle">
-          Descoperă cum LARSTEF poate transforma modul în care gestionezi
+          Descoperă cum VOOB poate transforma modul în care gestionezi
           programările și automatizează afacerea ta.
           <br />
           <strong style={{ color: "rgba(99, 102, 241, 0.9)" }}>Testează gratuit toate funcționalitățile timp de 30 zile (o lună completă).</strong>
@@ -1620,7 +1620,7 @@ export default function Home() {
                   marginBottom: 10,
                 }}
               >
-                LARSTEF
+                VOOB
               </div>
               <div
                 style={{
@@ -1891,14 +1891,14 @@ export default function Home() {
                 >
                   <i className="fas fa-envelope" style={{ color: "#6366F1" }} />
                   <a
-                    href="mailto:contact@larstef.ro"
+                    href="mailto:contact@voob.io"
                     style={{
                       color: "rgba(255, 255, 255, 0.6)",
                       textDecoration: "none",
                       fontSize: 14,
                     }}
                   >
-                    contact@larstef.ro
+                    contact@voob.io
                   </a>
                 </li>
                 <li
@@ -1951,7 +1951,7 @@ export default function Home() {
                 margin: 0,
               }}
             >
-              &copy; 2025 LARSTEF. Toate drepturile rezervate.
+              &copy; 2025 VOOB. Toate drepturile rezervate.
             </p>
             <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
               <CookiePreferencesButton />

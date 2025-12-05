@@ -79,7 +79,7 @@ export default function Navbar({ showSidebarToggle, onToggleSidebar }: NavbarPro
             </button>
           )}
           <Link href="/" className="text-xl font-semibold tracking-tight">
-            LARSTEF
+            VOOB
           </Link>
         </div>
 

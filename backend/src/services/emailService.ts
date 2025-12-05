@@ -65,7 +65,7 @@ async function sendEmail(options: EmailOptions) {
   }
 
   const info = await transporter.sendMail({
-    from: options.from || process.env.EMAIL_FROM || "no-reply@larstef.app",
+    from: options.from || process.env.EMAIL_FROM || "no-reply@voob.io",
     ...nodemailerOptions,
     attachments: attachments.length > 0 ? attachments : undefined,
   });
@@ -75,7 +75,7 @@ async function sendEmail(options: EmailOptions) {
     console.info("📧 EMAIL PREVIEW (SMTP nu este configurat - emailul NU a fost trimis!)");
     console.info("=".repeat(80));
     console.info("To:", options.to);
-    console.info("From:", options.from || process.env.EMAIL_FROM || "no-reply@larstef.app");
+    console.info("From:", options.from || process.env.EMAIL_FROM || "no-reply@voob.io");
     console.info("Subject:", options.subject);
     console.info("Text:", options.text);
     if (options.html) {

@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function createClient() {
   const name = "Cosmin Client";
-  const email = "cosmin.client@larstef.app";
+  const email = "cosmin.client@voob.io";
   const password = "[REMOVED_SECRET]"; // Parolă simplă pentru testare
   const phone = null; // Opțional
 

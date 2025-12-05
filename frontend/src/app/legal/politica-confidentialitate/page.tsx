@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Politica de Confidențialitate - LARSTEF",
-  description: "Politica de confidențialitate a platformei LARSTEF",
+  title: "Politica de Confidențialitate - VOOB",
+  description: "Politica de confidențialitate a platformei VOOB",
 };
 
 export default function PoliticaConfidentialitatePage() {
@@ -13,7 +13,7 @@ export default function PoliticaConfidentialitatePage() {
       <header className="legal-header">
         <div className="legal-header-container">
           <Link href="/" className="legal-header-logo">
-            <div className="logo">LARSTEF</div>
+            <div className="logo">VOOB</div>
           </Link>
         </div>
       </header>
@@ -30,7 +30,7 @@ export default function PoliticaConfidentialitatePage() {
         <section className="legal-section">
           <h2>1. Introducere</h2>
           <p>
-            LARSTEF ("noi", "ni", "noastre") respectă confidențialitatea utilizatorilor noștri și
+            VOOB ("noi", "ni", "noastre") respectă confidențialitatea utilizatorilor noștri și
             este angajat în protejarea datelor dumneavoastră personale. Această Politică de
             Confidențialitate explică cum colectăm, folosim, dezvăluim și protejăm informațiile
             dumneavoastră când utilizați platforma noastră.
@@ -146,7 +146,7 @@ export default function PoliticaConfidentialitatePage() {
           </ul>
           <p>
             Pentru a exercita aceste drepturi, vă rugăm să ne contactați la{" "}
-            <a href="mailto:contact@larstef.ro">contact@larstef.ro</a>
+            <a href="mailto:contact@voob.io">contact@voob.io</a>
           </p>
         </section>
 
@@ -192,7 +192,7 @@ export default function PoliticaConfidentialitatePage() {
             Pentru întrebări sau solicitări privind confidențialitatea, vă rugăm să ne contactați:
           </p>
           <ul>
-            <li>Email: <a href="mailto:contact@larstef.ro">contact@larstef.ro</a></li>
+            <li>Email: <a href="mailto:contact@voob.io">contact@voob.io</a></li>
             <li>Telefon: <a href="tel:+40748293830">+40748293830</a></li>
             <li>Adresă: Iași, România</li>
           </ul>

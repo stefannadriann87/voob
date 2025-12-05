@@ -1,4 +1,4 @@
-# LARSTEF - Booking Management System
+# VOOB - Booking Management System
 
 Sistem de management pentru rezervări, construit cu Next.js și Node.js/Express.
 
@@ -11,7 +11,7 @@ Sistem de management pentru rezervări, construit cu Next.js și Node.js/Express
 ## Structura Proiectului
 
 ```
-LARSTEF/
+VOOB/
 ├── frontend/          # Aplicația Next.js
 ├── backend/           # API Express
 └── README.md
@@ -37,9 +37,11 @@ npm run dev
 
 ## Configurare
 
+> 📋 **Pentru o listă completă cu toate cheile și serviciile externe necesare, vezi [CONFIGURARE_KEYS_VOOB.md](./CONFIGURARE_KEYS_VOOB.md)**
+
 1. Creează un fișier `.env` în folderul `backend/` cu următoarele variabile:
    ```
-   DATABASE_URL="your_database_url"
+   DATABASE_URL="postgresql://postgres:password@localhost:5432/voob"
    JWT_SECRET="your_jwt_secret"
    PORT=3001
    OPENAI_API_KEY="your_openai_api_key"  # Opțional - pentru funcționalitate AI completă
@@ -51,8 +53,17 @@ npm run dev
    SMTP_SECURE="false"                   # true pentru port 465, false pentru 587
    SMTP_USER="your-email@gmail.com"
    SMTP_PASS="your-app-password"         # Pentru Gmail, folosește "App Password"
-   EMAIL_FROM="no-reply@larstef.app"
-   DEMO_ADMIN_EMAIL="admin@larstef.app"  # Email pentru notificări demo
+   EMAIL_FROM="no-reply@voob.io"
+   DEMO_ADMIN_EMAIL="admin@voob.io"  # Email pentru notificări demo
+   
+   # Configurare reCAPTCHA v3 (obligatoriu pentru autentificare)
+   RECAPTCHA_SECRET_KEY="your_recaptcha_secret_key"  # Secret key de la Google reCAPTCHA
+   ```
+
+2. Creează un fișier `.env.local` (sau `.env`) în folderul `frontend/` cu următoarele variabile:
+   ```
+   # Configurare reCAPTCHA v3 (obligatoriu pentru autentificare)
+   NEXT_PUBLIC_RECAPTCHA_SITE_KEY="your_recaptcha_site_key"  # Site key de la Google reCAPTCHA
    ```
 
    **Notă**: Pentru Gmail, trebuie să:

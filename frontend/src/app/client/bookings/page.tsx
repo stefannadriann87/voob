@@ -8,6 +8,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import BusinessCard from "../../../components/BusinessCard";
 import ServiceCard from "../../../components/ServiceCard";
+import CourtCard from "../../../components/CourtCard";
 import DatePicker from "../../../components/DatePicker";
 import useAuth from "../../../hooks/useAuth";
 import useBookings, { type Booking } from "../../../hooks/useBookings";
@@ -15,6 +16,7 @@ import useBusiness from "../../../hooks/useBusiness";
 import { requiresConsentForBusiness } from "../../../constants/consentTemplates";
 import useApi from "../../../hooks/useApi";
 import useWorkingHours from "../../../hooks/useWorkingHours";
+import useCourts from "../../../hooks/useCourts";
 import useCalendarUpdates from "../../../hooks/useCalendarUpdates";
 import { isBookingTooSoon, MIN_LEAD_MESSAGE, MIN_BOOKING_LEAD_MS } from "../../../utils/bookingRules";
 import { getWeekStart, formatDayLabel, getDefaultHours } from "../../../utils/calendarUtils";
@@ -109,6 +111,7 @@ export default function ClientBookingsPage() {
 
   const [businessIdOverride, setBusinessIdOverride] = useState<string | null>(null);
   const [serviceSelections, setServiceSelections] = useState<Record<string, string>>({});
+  const [courtSelections, setCourtSelections] = useState<Record<string, string>>({});
   const [employeeSelections, setEmployeeSelections] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState<string>("");
   const bookingTooSoon = useMemo(() => (selectedDate ? isBookingTooSoon(selectedDate) : false), [selectedDate]);
@@ -295,12 +298,26 @@ export default function ClientBookingsPage() {
     const business = availableBusinesses.find((business) => business.id === selectedBusinessId) ?? null;
     return business;
   }, [availableBusinesses, selectedBusinessId]);
+  
+  // Detect if business is SPORT_OUTDOOR
+  const isSportOutdoor = selectedBusiness?.businessType === "SPORT_OUTDOOR";
+  
+  // Get courts for SPORT_OUTDOOR businesses
+  const { courts, loading: courtsLoading } = useCourts(isSportOutdoor ? selectedBusinessId : null);
+  
   const selectedServiceId =
-    selectedBusinessId != null ? serviceSelections[selectedBusinessId] ?? null : null;
+    !isSportOutdoor && selectedBusinessId != null ? serviceSelections[selectedBusinessId] ?? null : null;
+  const selectedCourtId =
+    isSportOutdoor && selectedBusinessId != null ? courtSelections[selectedBusinessId] ?? null : null;
 
   const selectedService = useMemo(
     () => selectedBusiness?.services.find((service) => service.id === selectedServiceId) ?? null,
     [selectedBusiness, selectedServiceId]
+  );
+  
+  const selectedCourt = useMemo(
+    () => courts.find((court) => court.id === selectedCourtId) ?? null,
+    [courts, selectedCourtId]
   );
 
   const selectedEmployeeId =
@@ -312,8 +329,10 @@ export default function ClientBookingsPage() {
   );
 
   // Get slot duration from business, or calculate from minimum service duration, or default to 60
+  // For SPORT_OUTDOOR, always use 60 minutes (1 hour)
   const slotDurationMinutes = useMemo(() => {
     if (!selectedBusiness) return 60;
+    if (isSportOutdoor) return 60; // SPORT_OUTDOOR always uses 1 hour slots
     if (selectedBusiness.slotDuration !== null && selectedBusiness.slotDuration !== undefined) {
       return selectedBusiness.slotDuration;
     }
@@ -327,7 +346,7 @@ export default function ClientBookingsPage() {
       );
     }
     return 60; // Default
-  }, [selectedBusiness]);
+  }, [selectedBusiness, isSportOutdoor]);
 
   // Use working hours hook (after selectedBusinessId and slotDurationMinutes are defined)
   const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook, isBreakTime } = useWorkingHours({
@@ -524,7 +543,7 @@ const buildConsentInitialValues = (template: ConsentTemplate, booking: Booking) 
       return;
     }
     if (field.id === "procedure") {
-      initial[field.id] = booking.service.name;
+      initial[field.id] = booking.service?.name || booking.court?.name || "";
       return;
     }
     initial[field.id] = "";
@@ -780,8 +799,18 @@ const handleConsentSubmit = async () => {
 
 
   const handleConfirmBooking = useCallback(async () => {
-    if (!user || !selectedBusinessId || !selectedServiceId || !selectedDate) {
-      setConfirmationError("Selectează businessul, serviciul și intervalul orar.");
+    if (!user || !selectedBusinessId || !selectedDate) {
+      setConfirmationError("Selectează businessul și intervalul orar.");
+      return;
+    }
+    
+    // For SPORT_OUTDOOR, require courtId; for others, require serviceId
+    if (isSportOutdoor && !selectedCourtId) {
+      setConfirmationError("Selectează terenul și intervalul orar.");
+      return;
+    }
+    if (!isSportOutdoor && !selectedServiceId) {
+      setConfirmationError("Selectează serviciul și intervalul orar.");
       return;
     }
 
@@ -886,8 +915,9 @@ const handleConsentSubmit = async () => {
           id: optimisticBookingId,
           clientId: user.id,
           businessId: selectedBusinessId,
-          serviceId: selectedServiceId,
-          employeeId: selectedEmployeeId || undefined,
+          serviceId: isSportOutdoor ? null : (selectedServiceId || null),
+          courtId: isSportOutdoor ? (selectedCourtId || null) : null,
+          employeeId: isSportOutdoor ? null : (selectedEmployeeId || null),
           date: isoDate,
           paid: paymentAlreadyMade,
           paymentReused: paymentAlreadyMade,
@@ -899,35 +929,43 @@ const handleConsentSubmit = async () => {
                 businessType: selectedBusiness.businessType,
               }
             : { id: "", name: "", businessType: "GENERAL" },
-          service: selectedService
+          service: isSportOutdoor ? null : (selectedService
             ? {
                 id: selectedService.id,
                 name: selectedService.name,
                 duration: selectedService.duration,
                 price: selectedService.price,
               }
-            : { id: "", name: "", duration: 60, price: 0 },
+            : null),
+          court: isSportOutdoor ? (selectedCourt
+            ? {
+                id: selectedCourt.id,
+                name: selectedCourt.name,
+                number: selectedCourt.number,
+              }
+            : null) : null,
           client: {
             id: user.id,
             name: user.name || "",
             email: user.email || "",
             phone: user.phone || null,
           },
-          employee: selectedEmployee
+          employee: isSportOutdoor ? null : (selectedEmployee
             ? {
                 id: selectedEmployee.id,
                 name: selectedEmployee.name,
                 email: selectedEmployee.email,
               }
-            : null,
+            : null),
         };
 
         const booking = await createBooking(
           {
             clientId: user.id,
             businessId: selectedBusinessId,
-            serviceId: selectedServiceId,
-            employeeId: selectedEmployeeId || undefined,
+            serviceId: isSportOutdoor ? undefined : (selectedServiceId || undefined),
+            courtId: isSportOutdoor ? (selectedCourtId || undefined) : undefined,
+            employeeId: isSportOutdoor ? undefined : (selectedEmployeeId || undefined),
             date: isoDate,
             paid: paymentAlreadyMade,
             paymentMethod: "OFFLINE",
@@ -967,8 +1005,9 @@ const handleConsentSubmit = async () => {
       if (!clientSecret || !paymentIntentId) {
         const intentResponse = await api.post("/payments/create-intent", {
           businessId: selectedBusinessId,
-          serviceId: selectedServiceId,
-          employeeId: selectedEmployeeId || undefined,
+          serviceId: isSportOutdoor ? undefined : selectedServiceId,
+          courtId: isSportOutdoor ? selectedCourtId : undefined,
+          employeeId: isSportOutdoor ? undefined : (selectedEmployeeId || undefined),
           date: isoDate,
           paymentMethod: selectedPayment,
         });
@@ -995,14 +1034,19 @@ const handleConsentSubmit = async () => {
     closeConfirmationModal,
     createBooking,
     fetchBookings,
+    isSportOutdoor,
     openConsentModal,
     paymentAlreadyMade,
     paymentIntentId,
     selectedBusiness,
     selectedBusinessId,
+    selectedCourt,
+    selectedCourtId,
     selectedDate,
+    selectedEmployee,
     selectedEmployeeId,
     selectedPayment,
+    selectedService,
     selectedServiceId,
     serviceDurationMs,
     serviceDurationMinutes,
@@ -1061,7 +1105,7 @@ const handleConsentSubmit = async () => {
   return (
     <>
       <Head>
-        <title>Rezervări - LARSTEF</title>
+        <title>Rezervări - VOOB</title>
       </Head>
       <div className="flex w-full max-w-full flex-col gap-10">
           <section className="w-full rounded-3xl border border-white/10 bg-white/5 p-3 desktop:p-8">
@@ -1114,27 +1158,68 @@ const handleConsentSubmit = async () => {
               </div>
 
               <div className="flex flex-col gap-4">
-                <h2 className="text-xl font-semibold">2. Alege serviciul</h2>
+                <h2 className="text-xl font-semibold">
+                  {isSportOutdoor ? "2. Alege terenul" : "2. Alege serviciul"}
+                </h2>
                 <div className="grid gap-4 sm:grid-cols-2 justify-items-start">
-                  {selectedBusiness?.services.map((service) => (
-                    <ServiceCard
-                      key={service.id}
-                      id={service.id}
-                      name={service.name}
-                      duration={service.duration}
-                      price={service.price}
-                      selected={service.id === selectedServiceId}
-                      onSelect={(serviceId) => {
-                        if (selectedBusinessId != null) {
-                          handleServiceSelection(serviceId);
-                        }
-                      }}
-                    />
-                  ))}
-                  {selectedBusiness && selectedBusiness.services.length === 0 && (
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
-                      Businessul selectat nu are servicii configurate încă.
-                    </div>
+                  {isSportOutdoor ? (
+                    // Display courts for SPORT_OUTDOOR
+                    <>
+                      {courtsLoading ? (
+                        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
+                          Se încarcă terenurile...
+                        </div>
+                      ) : courts.length > 0 ? (
+                        courts
+                          .filter((court) => court.isActive)
+                          .map((court) => (
+                            <CourtCard
+                              key={court.id}
+                              id={court.id}
+                              name={court.name}
+                              number={court.number}
+                              pricing={court.pricing}
+                              selected={court.id === selectedCourtId}
+                              onSelect={(courtId) => {
+                                if (selectedBusinessId != null) {
+                                  setCourtSelections((prev) => ({
+                                    ...prev,
+                                    [selectedBusinessId]: courtId,
+                                  }));
+                                }
+                              }}
+                            />
+                          ))
+                      ) : (
+                        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
+                          Businessul selectat nu are terenuri configurate încă.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    // Display services for non-SPORT_OUTDOOR
+                    <>
+                      {selectedBusiness?.services.map((service) => (
+                        <ServiceCard
+                          key={service.id}
+                          id={service.id}
+                          name={service.name}
+                          duration={service.duration}
+                          price={service.price}
+                          selected={service.id === selectedServiceId}
+                          onSelect={(serviceId) => {
+                            if (selectedBusinessId != null) {
+                              handleServiceSelection(serviceId);
+                            }
+                          }}
+                        />
+                      ))}
+                      {selectedBusiness && selectedBusiness.services.length === 0 && (
+                        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
+                          Businessul selectat nu are servicii configurate încă.
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -1847,7 +1932,7 @@ const handleConsentSubmit = async () => {
                 <p className="text-xs uppercase tracking-wide text-white/50">Consimțământ digital</p>
                 <h3 className="text-2xl font-semibold text-white">{consentBooking.business.name}</h3>
                 <p className="mt-1 text-sm text-white/60">
-                  Serviciu: <strong>{consentBooking.service.name}</strong> •{" "}
+                  {consentBooking.service ? "Serviciu" : "Teren"}: <strong>{consentBooking.service?.name || consentBooking.court?.name || "N/A"}</strong> •{" "}
                   {new Date(consentBooking.date).toLocaleString("ro-RO", { dateStyle: "medium", timeStyle: "short" })}
                 </p>
               </div>

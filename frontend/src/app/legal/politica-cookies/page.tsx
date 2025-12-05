@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Politica Cookies - LARSTEF",
-  description: "Politica privind utilizarea cookie-urilor pe platforma LARSTEF",
+  title: "Politica Cookies - VOOB",
+  description: "Politica privind utilizarea cookie-urilor pe platforma VOOB",
 };
 
 export default function PoliticaCookiesPage() {
@@ -13,7 +13,7 @@ export default function PoliticaCookiesPage() {
       <header className="legal-header">
         <div className="legal-header-container">
           <Link href="/" className="legal-header-logo">
-            <div className="logo">LARSTEF</div>
+            <div className="logo">VOOB</div>
           </Link>
         </div>
       </header>
@@ -41,7 +41,7 @@ export default function PoliticaCookiesPage() {
         <section className="legal-section">
           <h2>2. Cum Folosim Cookie-urile?</h2>
           <p>
-            LARSTEF folosește cookie-uri pentru a îmbunătăți experiența dumneavoastră de navigare,
+            VOOB folosește cookie-uri pentru a îmbunătăți experiența dumneavoastră de navigare,
             pentru a analiza modul în care utilizați site-ul și pentru a personaliza conținutul și
             anunțurile. Utilizăm cookie-uri pentru:
           </p>
@@ -188,7 +188,7 @@ export default function PoliticaCookiesPage() {
             contactați:
           </p>
           <ul>
-            <li>Email: <a href="mailto:contact@larstef.ro">contact@larstef.ro</a></li>
+            <li>Email: <a href="mailto:contact@voob.io">contact@voob.io</a></li>
             <li>Telefon: <a href="tel:+40748293830">+40748293830</a></li>
             <li>Adresă: Iași, România</li>
           </ul>
