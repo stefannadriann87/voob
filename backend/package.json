@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "start": "node -r ts-node/register src/index.ts",
+    "start": "node scripts/start-check.js",
     "build": "tsc",
     "seed:auth": "ts-node scripts/seedAuth.ts",
     "seed:superadmin": "ts-node scripts/seedSuperAdmin.ts",
