@@ -41,6 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 # Compiled TypeScript files (keep source .ts files only)
+backend/dist/
 backend/**/*.js
 backend/**/*.d.ts
 backend/**/*.js.map
