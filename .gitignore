@@ -27,9 +27,11 @@ yarn-error.log*
 # Local env files
 .env
 .env*.local
+.env*.bak
 .env.development.local
 .env.test.local
 .env.production.local
+*.bak
 
 # Vercel
 .vercel
@@ -37,6 +39,13 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Compiled TypeScript files (keep source .ts files only)
+backend/**/*.js
+backend/**/*.d.ts
+backend/**/*.js.map
+backend/**/*.d.ts.map
+!backend/prisma.config.js
 
 # Prisma
 backend/prisma/migrations/

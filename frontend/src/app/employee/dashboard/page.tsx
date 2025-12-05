@@ -139,8 +139,8 @@ export default function EmployeeDashboardPage() {
               <p className="text-xs uppercase tracking-wide text-white/60">Venit estimat</p>
               <p className="mt-3 text-2xl font-semibold">
                 {businessBookings
-                  .filter((booking) => booking.paid)
-                  .reduce((acc, booking) => acc + booking.service.price, 0)
+                  .filter((booking) => booking.paid && booking.service)
+                  .reduce((acc, booking) => acc + (booking.service?.price ?? 0), 0)
                   .toLocaleString("ro-RO", { style: "currency", currency: "RON" })}
               </p>
             </div>

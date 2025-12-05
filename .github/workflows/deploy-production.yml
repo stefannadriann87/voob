@@ -1,0 +1,103 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '22.x'
+  AWS_REGION: ${{ secrets.AWS_REGION_PRODUCTION }}
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend to Production
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY_PRODUCTION }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST_PRODUCTION }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.EC2_USER_PRODUCTION }}@${{ secrets.EC2_HOST_PRODUCTION }} << 'EOF'
+            set -e
+            cd ~/voob-backend || (git clone https://github.com/${{ github.repository }}.git ~/voob-backend && cd ~/voob-backend)
+            git fetch origin
+            git checkout main
+            git pull origin main
+            
+            cd backend
+            npm ci --production
+            npx prisma migrate deploy
+            npx prisma generate
+            
+            pm2 restart voob-backend || pm2 start npm --name "voob-backend" -- start
+            pm2 save
+          EOF
+
+  deploy-frontend:
+    name: Deploy Frontend to Production
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        env:
+          NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL_PRODUCTION }}
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PRODUCTION }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PRODUCTION }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to S3
+        run: |
+          cd frontend
+          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_FRONTEND_PRODUCTION }} --delete --cache-control "public, max-age=31536000, immutable" --exclude "*.html" --exclude "service-worker.js"
+          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_FRONTEND_PRODUCTION }} --delete --cache-control "public, max-age=0, must-revalidate" --include "*.html" --include "service-worker.js"
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID_PRODUCTION }} \
+            --paths "/*"
+
