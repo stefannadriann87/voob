@@ -91,7 +91,7 @@ const clientToolDefinitions = [
     },
   },
   // Include createBooking din bookingTools pentru CLIENT
-  bookingTools.find((t) => t.function.name === "createBooking"),
+  bookingTools.find((t: any) => t.function.name === "createBooking"),
 ].filter(Boolean);
 
 // Tools pentru BUSINESS

@@ -28,7 +28,7 @@ const createBookingSchema = z.object({
   paymentReused: z.boolean().optional().default(false),
   clientNotes: z.string().max(1000, "Notele clientului nu pot depăși 1000 caractere").optional().nullable(),
   duration: z.number().int().positive().optional().nullable(), // Durata în minute
-}).refine((data) => {
+}).refine((data: any) => {
   // Fie serviceId, fie courtId trebuie să fie furnizat, dar nu ambele
   const hasServiceId = !!data.serviceId;
   const hasCourtId = !!data.courtId;
