@@ -1,14 +1,66 @@
-import bcrypt = require("bcryptjs");
-import prismaClient = require("@prisma/client");
-
-const { PrismaClient, Role, BusinessType } = prismaClient;
+import * as bcrypt from "bcryptjs";
+import { PrismaClient, Role, BusinessType, TimeSlot } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function seedBusinesses() {
   const passwordPlain = "Password123!";
   const hashedPassword = await bcrypt.hash(passwordPlain, 10);
 
-  // 1. Beauty & Wellness
+  // 1. GENERAL Business
+  const generalOwner = await prisma.user.upsert({
+    where: { email: "general@voob.io" },
+    update: {},
+    create: {
+      email: "general@voob.io",
+      name: "General Business",
+      password: hashedPassword,
+      role: Role.BUSINESS,
+    },
+  });
+
+  const generalBusiness = await prisma.business.upsert({
+    where: { domain: "general-business" },
+    update: { businessType: BusinessType.GENERAL },
+    create: {
+      name: "General Business",
+      email: "contact@general.ro",
+      domain: "general-business",
+      businessType: BusinessType.GENERAL,
+      owner: { connect: { id: generalOwner.id } },
+      services: {
+        create: [
+          { name: "Serviciu Standard", duration: 30, price: 100 },
+          { name: "Serviciu Extins", duration: 60, price: 180 },
+          { name: "Serviciu Premium", duration: 90, price: 250 },
+          { name: "Serviciu Deluxe", duration: 120, price: 350 },
+        ],
+      },
+    },
+    include: { services: true, employees: true },
+  });
+
+  const generalEmployee = await prisma.user.upsert({
+    where: { email: "angajat@general.ro" },
+    update: { businessId: generalBusiness.id },
+    create: {
+      email: "angajat@general.ro",
+      name: "Angajat General",
+      password: hashedPassword,
+      role: Role.EMPLOYEE,
+      businessId: generalBusiness.id,
+    },
+  });
+
+  await prisma.business.update({
+    where: { id: generalBusiness.id },
+    data: {
+      employees: {
+        connect: [{ id: generalOwner.id }, { id: generalEmployee.id }],
+      },
+    },
+  });
+
+  // 2. Beauty & Wellness
   const beautyOwner = await prisma.user.upsert({
     where: { email: "beauty@voob.io" },
     update: {},
@@ -32,10 +84,10 @@ async function seedBusinesses() {
       services: {
         create: [
           { name: "Manichiura", duration: 60, price: 150 },
-          { name: "Pedicura", duration: 75, price: 180 },
+          { name: "Pedicura", duration: 60, price: 180 },
           { name: "Tratament facial", duration: 90, price: 300 },
           { name: "Masaj relaxare", duration: 60, price: 250 },
-          { name: "Epilare", duration: 45, price: 200 },
+          { name: "Epilare", duration: 30, price: 200 },
           { name: "Make-up profesional", duration: 90, price: 350 },
         ],
       },
@@ -64,7 +116,7 @@ async function seedBusinesses() {
     },
   });
 
-  // 2. Medical & Dental
+  // 3. Medical & Dental
   const medicalOwner = await prisma.user.upsert({
     where: { email: "medical@voob.io" },
     update: {},
@@ -89,10 +141,10 @@ async function seedBusinesses() {
         create: [
           { name: "Consultatie medicala", duration: 30, price: 200 },
           { name: "Consultatie stomatologica", duration: 30, price: 150 },
-          { name: "Detartraj", duration: 45, price: 200 },
+          { name: "Detartraj", duration: 30, price: 200 },
           { name: "Albire dinti", duration: 60, price: 500 },
           { name: "Extractie masea de minte", duration: 30, price: 300 },
-          { name: "Plomba", duration: 45, price: 250 },
+          { name: "Plomba", duration: 30, price: 250 },
         ],
       },
     },
@@ -132,7 +184,7 @@ async function seedBusinesses() {
     },
   });
 
-  // 3. Therapy & Coaching
+  // 4. Therapy & Coaching
   const therapyOwner = await prisma.user.upsert({
     where: { email: "therapy@voob.io" },
     update: {},
@@ -155,11 +207,11 @@ async function seedBusinesses() {
       owner: { connect: { id: therapyOwner.id } },
       services: {
         create: [
-          { name: "Sesiune de terapie individuala", duration: 50, price: 250 },
+          { name: "Sesiune de terapie individuala", duration: 60, price: 250 },
           { name: "Sesiune de terapie de cuplu", duration: 90, price: 400 },
           { name: "Sesiune de coaching", duration: 60, price: 300 },
           { name: "Evaluare psihologica", duration: 60, price: 300 },
-          { name: "Consiliere pentru copii", duration: 45, price: 200 },
+          { name: "Consiliere pentru copii", duration: 30, price: 200 },
         ],
       },
     },
@@ -187,7 +239,7 @@ async function seedBusinesses() {
     },
   });
 
-  // 4. Sport & Outdoor
+  // 5. Sport & Outdoor (SPORT_OUTDOOR) - FĂRĂ servicii, DOAR terenuri
   const sportOwner = await prisma.user.upsert({
     where: { email: "sport@voob.io" },
     update: {},
@@ -208,41 +260,132 @@ async function seedBusinesses() {
       domain: "sport-outdoor-center",
       businessType: BusinessType.SPORT_OUTDOOR,
       owner: { connect: { id: sportOwner.id } },
-      services: {
+      // NU creăm servicii pentru SPORT_OUTDOOR
+    },
+    include: { services: true, employees: true, courts: true },
+  });
+
+  // Creează terenuri pentru SPORT_OUTDOOR
+  const court1 = await prisma.court.upsert({
+    where: {
+      businessId_number: {
+        businessId: sportBusiness.id,
+        number: 1,
+      },
+    },
+    update: {},
+    create: {
+      businessId: sportBusiness.id,
+      name: "Teren Tenis 1",
+      number: 1,
+      isActive: true,
+      pricing: {
         create: [
-          { name: "Sesiune de antrenament personal", duration: 60, price: 200 },
-          { name: "Clasa de fitness de grup", duration: 45, price: 80 },
-          { name: "Consultatii nutritie sportiva", duration: 60, price: 250 },
-          { name: "Echipare sportiva - inchiriere", duration: 120, price: 150 },
-          { name: "Tur ghidat montan", duration: 240, price: 400 },
+          {
+            timeSlot: TimeSlot.MORNING,
+            price: 80,
+            startHour: 8,
+            endHour: 12,
+          },
+          {
+            timeSlot: TimeSlot.AFTERNOON,
+            price: 100,
+            startHour: 12,
+            endHour: 18,
+          },
+          {
+            timeSlot: TimeSlot.NIGHT,
+            price: 120,
+            startHour: 18,
+            endHour: 22,
+          },
         ],
       },
     },
-    include: { services: true, employees: true },
+    include: { pricing: true },
   });
 
-  const sportEmployee = await prisma.user.upsert({
-    where: { email: "andrei@sportoutdoor.ro" },
-    update: { businessId: sportBusiness.id },
-    create: {
-      email: "andrei@sportoutdoor.ro",
-      name: "Andrei Trainer",
-      password: hashedPassword,
-      role: Role.EMPLOYEE,
-      businessId: sportBusiness.id,
-    },
-  });
-
-  await prisma.business.update({
-    where: { id: sportBusiness.id },
-    data: {
-      employees: {
-        connect: [{ id: sportOwner.id }, { id: sportEmployee.id }],
+  const court2 = await prisma.court.upsert({
+    where: {
+      businessId_number: {
+        businessId: sportBusiness.id,
+        number: 2,
       },
     },
+    update: {},
+    create: {
+      businessId: sportBusiness.id,
+      name: "Teren Tenis 2",
+      number: 2,
+      isActive: true,
+      pricing: {
+        create: [
+          {
+            timeSlot: TimeSlot.MORNING,
+            price: 80,
+            startHour: 8,
+            endHour: 12,
+          },
+          {
+            timeSlot: TimeSlot.AFTERNOON,
+            price: 100,
+            startHour: 12,
+            endHour: 18,
+          },
+          {
+            timeSlot: TimeSlot.NIGHT,
+            price: 120,
+            startHour: 18,
+            endHour: 22,
+          },
+        ],
+      },
+    },
+    include: { pricing: true },
   });
 
-  // 5. Home & Freelance Services
+  const court3 = await prisma.court.upsert({
+    where: {
+      businessId_number: {
+        businessId: sportBusiness.id,
+        number: 3,
+      },
+    },
+    update: {},
+    create: {
+      businessId: sportBusiness.id,
+      name: "Teren Fotbal",
+      number: 3,
+      isActive: true,
+      pricing: {
+        create: [
+          {
+            timeSlot: TimeSlot.MORNING,
+            price: 150,
+            startHour: 8,
+            endHour: 12,
+          },
+          {
+            timeSlot: TimeSlot.AFTERNOON,
+            price: 200,
+            startHour: 12,
+            endHour: 18,
+          },
+          {
+            timeSlot: TimeSlot.NIGHT,
+            price: 250,
+            startHour: 18,
+            endHour: 22,
+          },
+        ],
+      },
+    },
+    include: { pricing: true },
+  });
+
+  // NU creăm employees pentru SPORT_OUTDOOR
+
+  // 6. Home & Freelance Services
   const homeOwner = await prisma.user.upsert({
     where: { email: "home@voob.io" },
     update: {},
@@ -297,34 +440,48 @@ async function seedBusinesses() {
     },
   });
 
-  // Refresh businesses to get updated employee counts
+  // Refresh businesses to get updated data
+  const generalBusinessFinal = await prisma.business.findUnique({
+    where: { id: generalBusiness.id },
+    include: { services: true, employees: true, courts: true },
+  });
   const beautyBusinessFinal = await prisma.business.findUnique({
     where: { id: beautyBusiness.id },
-    include: { services: true, employees: true },
+    include: { services: true, employees: true, courts: true },
   });
   const medicalBusinessFinal = await prisma.business.findUnique({
     where: { id: medicalBusiness.id },
-    include: { services: true, employees: true },
+    include: { services: true, employees: true, courts: true },
   });
   const therapyBusinessFinal = await prisma.business.findUnique({
     where: { id: therapyBusiness.id },
-    include: { services: true, employees: true },
+    include: { services: true, employees: true, courts: true },
   });
   const sportBusinessFinal = await prisma.business.findUnique({
     where: { id: sportBusiness.id },
-    include: { services: true, employees: true },
+    include: { services: true, employees: true, courts: { include: { pricing: true } } },
   });
   const homeBusinessFinal = await prisma.business.findUnique({
     where: { id: homeBusiness.id },
-    include: { services: true, employees: true },
+    include: { services: true, employees: true, courts: true },
   });
 
   const summary = [
+    {
+      Business: generalBusinessFinal!.name,
+      Type: "GENERAL",
+      Domain: generalBusinessFinal!.domain,
+      Services: generalBusinessFinal!.services.length,
+      Courts: generalBusinessFinal!.courts.length,
+      Employees: generalBusinessFinal!.employees.length,
+      Owner: generalOwner.email,
+    },
     {
       Business: beautyBusinessFinal!.name,
       Type: "Beauty & Wellness",
       Domain: beautyBusinessFinal!.domain,
       Services: beautyBusinessFinal!.services.length,
+      Courts: beautyBusinessFinal!.courts.length,
       Employees: beautyBusinessFinal!.employees.length,
       Owner: beautyOwner.email,
     },
@@ -333,6 +490,7 @@ async function seedBusinesses() {
       Type: "Medical & Dental",
       Domain: medicalBusinessFinal!.domain,
       Services: medicalBusinessFinal!.services.length,
+      Courts: medicalBusinessFinal!.courts.length,
       Employees: medicalBusinessFinal!.employees.length,
       Owner: medicalOwner.email,
     },
@@ -341,6 +499,7 @@ async function seedBusinesses() {
       Type: "Therapy & Coaching",
       Domain: therapyBusinessFinal!.domain,
       Services: therapyBusinessFinal!.services.length,
+      Courts: therapyBusinessFinal!.courts.length,
       Employees: therapyBusinessFinal!.employees.length,
       Owner: therapyOwner.email,
     },
@@ -349,6 +508,7 @@ async function seedBusinesses() {
       Type: "Sport & Outdoor",
       Domain: sportBusinessFinal!.domain,
       Services: sportBusinessFinal!.services.length,
+      Courts: sportBusinessFinal!.courts.length,
       Employees: sportBusinessFinal!.employees.length,
       Owner: sportOwner.email,
     },
@@ -357,6 +517,7 @@ async function seedBusinesses() {
       Type: "Home & Freelance",
       Domain: homeBusinessFinal!.domain,
       Services: homeBusinessFinal!.services.length,
+      Courts: homeBusinessFinal!.courts.length,
       Employees: homeBusinessFinal!.employees.length,
       Owner: homeOwner.email,
     },
@@ -367,11 +528,19 @@ async function seedBusinesses() {
 
   console.log("\n📧 Credentiale pentru login:");
   console.table([
+    { Business: "General", Email: generalOwner.email, Password: passwordPlain },
     { Business: "Beauty & Wellness", Email: beautyOwner.email, Password: passwordPlain },
     { Business: "Medical & Dental", Email: medicalOwner.email, Password: passwordPlain },
     { Business: "Therapy & Coaching", Email: therapyOwner.email, Password: passwordPlain },
     { Business: "Sport & Outdoor", Email: sportOwner.email, Password: passwordPlain },
     { Business: "Home & Freelance", Email: homeOwner.email, Password: passwordPlain },
+  ]);
+
+  console.log("\n🏟️  Terenuri create pentru Sport & Outdoor:");
+  console.table([
+    { Court: court1.name, Number: court1.number, Pricing: `${court1.pricing.length} tarife` },
+    { Court: court2.name, Number: court2.number, Pricing: `${court2.pricing.length} tarife` },
+    { Court: court3.name, Number: court3.number, Pricing: `${court3.pricing.length} tarife` },
   ]);
 }
 

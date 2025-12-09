@@ -30,20 +30,33 @@ const updateBusinessSchema = z.object({
 
 /**
  * Schema pentru adăugare serviciu
+ * Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)
  */
 const createServiceSchema = z.object({
   name: z.string().min(1, "Numele serviciului este obligatoriu").max(255),
-  duration: z.number().int().positive("Durata trebuie să fie un număr pozitiv"),
+  duration: z.number()
+    .int("Durata trebuie să fie un număr întreg")
+    .positive("Durata trebuie să fie un număr pozitiv")
+    .refine((val) => val % 30 === 0, {
+      message: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)",
+    }),
   price: z.number().nonnegative("Prețul nu poate fi negativ"),
   description: z.string().max(2000).optional().nullable(),
 });
 
 /**
  * Schema pentru actualizare serviciu
+ * Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)
  */
 const updateServiceSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  duration: z.number().int().positive().optional(),
+  duration: z.number()
+    .int("Durata trebuie să fie un număr întreg")
+    .positive("Durata trebuie să fie un număr pozitiv")
+    .refine((val) => val % 30 === 0, {
+      message: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)",
+    })
+    .optional(),
   price: z.number().nonnegative().optional(),
   description: z.string().max(2000).optional().nullable(),
 });

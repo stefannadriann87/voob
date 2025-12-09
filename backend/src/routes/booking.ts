@@ -136,8 +136,19 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
         return res.status(404).json({ error: "Terenul nu a fost găsit sau nu este activ." });
       }
 
-      // Durata este implicit 60 minute (1 oră) pentru SPORT_OUTDOOR
-      serviceDurationMinutes = 60;
+      // Pentru SPORT_OUTDOOR, durata trebuie să fie multiplu de 60 minute (60, 120, 180, etc.)
+      // Dacă nu este specificat, default la 60 minute
+      if (duration !== undefined && duration !== null) {
+        if (duration % 60 !== 0) {
+          return res.status(400).json({ 
+            error: "Pentru business type SPORT_OUTDOOR, durata trebuie să fie multiplu de 60 minute (60, 120, 180, etc.)" 
+          });
+        }
+        serviceDurationMinutes = duration;
+      } else {
+        serviceDurationMinutes = 60; // Default 1 oră
+      }
+
       bookingStart = new Date(bookingDate);
       bookingEnd = new Date(bookingStart.getTime() + serviceDurationMinutes * 60 * 1000);
 
@@ -156,11 +167,13 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
 
       for (const existingBooking of overlappingBookings) {
         const existingStart = new Date(existingBooking.date);
-        const existingEnd = new Date(existingStart.getTime() + 60 * 60 * 1000); // 1 oră pentru SPORT_OUTDOOR
+        // Folosește duration din booking sau default 60 minute
+        const existingDuration = existingBooking.duration ?? 60;
+        const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
 
         if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
           return res.status(409).json({
-            error: "Terenul este deja rezervat pentru această oră.",
+            error: "Terenul este deja rezervat pentru această perioadă.",
           });
         }
       }
@@ -380,7 +393,8 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
     // SPORT_OUTDOOR: folosește courtId, nu serviceId
     if (isSportOutdoor) {
       bookingData.court = { connect: { id: courtId } };
-      bookingData.duration = 60; // Implicit 1 oră pentru SPORT_OUTDOOR
+      // Durata este deja validată mai sus (multiplu de 60 minute)
+      bookingData.duration = serviceDurationMinutes;
       
       // Calculează prețul bazat pe timeSlot (folosind court deja încărcat)
       const bookingHour = bookingDate.getHours();

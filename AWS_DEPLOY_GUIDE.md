@@ -111,11 +111,22 @@ Acest ghid te va ajuta să deploy-ezi platforma VOOB pe AWS cu pipeline CI/CD, m
        - SSH (22): Your IP
        - HTTP (80): 0.0.0.0/0
        - HTTPS (443): 0.0.0.0/0
-       - Custom TCP (4000): 0.0.0.0/0 (pentru backend API)
+       - **Notă**: Dacă nu poți adăuga Custom TCP (4000) aici, o vei adăuga după crearea instanței (vezi pasul 3)
    - **Storage**: 20 GB gp3
    - Click **Launch instance**
 
-3. **Notează Public IP** și **Public DNS**
+3. **Adaugă regula Custom TCP (4000) în Security Group** (dacă nu ai putut-o adăuga la pasul 2):
+   - Mergi la **EC2 Console** → **Security Groups** (în meniul din stânga)
+   - Selectează security group-ul creat (de ex. `launch-wizard-1`)
+   - Tab **Inbound rules** → Click **Edit inbound rules**
+   - Click **Add rule**:
+     - **Type**: Custom TCP
+     - **Port**: 4000
+     - **Source**: 0.0.0.0/0
+     - **Description**: "Backend API"
+   - Click **Save rules**
+
+4. **Notează Public IP** și **Public DNS**
 
 ### 1.4. Creează S3 Bucket pentru Frontend
 
@@ -136,6 +147,9 @@ Acest ghid te va ajuta să deploy-ezi platforma VOOB pe AWS cu pipeline CI/CD, m
    - Save
 
 4. **Bucket Policy** (pentru acces public):
+   - Selectează bucket-ul → Tab **Permissions**
+   - Scroll la secțiunea **Bucket policy** → Click **Edit**
+   - Adaugă următorul JSON (înlocuiește `voob-frontend-production` cu numele bucket-ului tău):
    ```json
    {
      "Version": "2012-10-17",
@@ -150,6 +164,7 @@ Acest ghid te va ajuta să deploy-ezi platforma VOOB pe AWS cu pipeline CI/CD, m
      ]
    }
    ```
+   - Click **Save changes**
 
 ### 1.5. Creează CloudFront Distribution
 
@@ -179,11 +194,28 @@ Acest ghid te va ajuta să deploy-ezi platforma VOOB pe AWS cu pipeline CI/CD, m
    - Click **Request**
 
 3. **Validate Certificate**:
-   - ACM va genera CNAME records
-   - Adaugă-le în DNS (Route53 sau provider-ul tău DNS)
-   - Așteaptă validarea (poate dura câteva minute)
+   - După ce ceri certificatul, ACM va genera CNAME records pentru validare
+   - **Pași detaliați pentru GoDaddy**:
+     1. În ACM Console, selectează certificatul cu status "Pending validation"
+     2. Click pe certificat → vezi secțiunea "Domains" sau "Create record in Route 53"
+     3. Vei vedea 2 înregistrări CNAME (una pentru `voob.io`, una pentru `*.voob.io`)
+     4. Pentru fiecare înregistrare:
+        - **Name**: Copiază partea înainte de `.voob.io` (ex: `_0599af3e8ecf5a21adfeb8666618832f`)
+        - **Value**: Copiază valoarea completă cu `.aws.` la final (ex: `_7834193cc5fc85ab13b766218cd9ceb4.validations.aws.`)
+     5. Mergi în GoDaddy DNS Management: https://dcc.godaddy.com/manage/voob.io/dns
+     6. Adaugă fiecare CNAME record:
+        - Type: **CNAME**
+        - Name: valoarea din ACM (fără `.voob.io`)
+        - Value: valoarea completă din ACM (cu `.aws.` la final)
+        - TTL: 1 Hour
+        - Click **Save**
+     7. **IMPORTANT**: Asigură-te că valoarea CNAME se termină cu `.aws.` (nu uita punctul final!)
+   - Așteaptă validarea (poate dura 5-30 minute după propagarea DNS)
+   - Statusul va trece de la "Pending validation" la "Issued" când este validat
 
-### 1.7. Configurează Route53 DNS
+### 1.7. Configurează DNS (Route53 sau GoDaddy)
+
+#### Opțiunea A: Dacă folosești Route53 (AWS DNS)
 
 1. **Accesează Route53 Console**: https://console.aws.amazon.com/route53/
 2. **Creează Hosted Zone** (dacă nu ai):
@@ -207,16 +239,46 @@ Acest ghid te va ajuta să deploy-ezi platforma VOOB pe AWS cu pipeline CI/CD, m
      - Selectează distribution-ul tău
      - Click **Create records**
 
-   - **CNAME pentru staging**:
-     - Name: staging
-     - Type: CNAME
-     - Value: `staging.voob.io` (sau CloudFront distribution)
-     - Click **Create records**
-
 4. **Update Name Servers**:
    - Route53 va genera 4 name servers
    - Copiază-le și adaugă-le la provider-ul tău de domeniu (unde ai cumpărat voob.io)
    - Așteaptă propagarea (poate dura până la 48h, de obicei 1-2h)
+
+#### Opțiunea B: Dacă folosești GoDaddy (sau alt provider DNS)
+
+**IMPORTANT:** Înainte de a configura DNS-ul, asigură-te că:
+1. Certificatul ACM este validat (status "Issued")
+2. CloudFront distribution are configurate:
+   - Alternate domain names: `voob.io` și `www.voob.io`
+   - Custom SSL certificate: certificatul validat din ACM
+
+**Pași pentru GoDaddy:**
+
+1. **Accesează GoDaddy DNS Management**: https://dcc.godaddy.com/manage/voob.io/dns
+2. **Adaugă record-uri pentru CloudFront**:
+   
+   - **Pentru root domain (`voob.io`)**:
+     - Type: **CNAME** (GoDaddy nu permite A record cu alias pentru CloudFront)
+     - Name: `@` (sau lasă gol pentru root domain)
+     - Value: `d2e0i25luz11uj.cloudfront.net` (înlocuiește cu Distribution Domain Name-ul tău)
+     - TTL: 1 Hour
+     - Click **Save**
+   
+   - **Pentru www (`www.voob.io`)**:
+     - Type: **CNAME**
+     - Name: `www`
+     - Value: `d2e0i25luz11uj.cloudfront.net` (înlocuiește cu Distribution Domain Name-ul tău)
+     - TTL: 1 Hour
+     - Click **Save**
+
+3. **Notă importantă pentru GoDaddy**:
+   - GoDaddy nu permite CNAME pentru root domain (@) dacă există deja A record
+   - Dacă ai un A record pentru @, șterge-l sau editează-l
+   - Alternativ, poți folosi un A record care să pointeze către IP-ul CloudFront (nu este recomandat, deoarece IP-urile CloudFront se schimbă)
+
+4. **Așteaptă propagarea DNS**:
+   - Poate dura câteva minute până la câteva ore
+   - Verifică cu: `nslookup voob.io` sau `dig voob.io`
 
 ---
 

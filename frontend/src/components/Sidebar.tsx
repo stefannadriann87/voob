@@ -88,19 +88,46 @@ export default function Sidebar({ collapsed = false, isOpen = true, onClose }: S
   const businessType = user.business?.businessType as BusinessTypeValue | undefined;
   const shouldHideConsents =
     (user.role === "BUSINESS" || user.role === "EMPLOYEE") && !requiresConsentForBusiness(businessType);
+  const isSportOutdoor = businessType === "SPORT_OUTDOOR";
+
+  // Debug: Log pentru a verifica businessType
+  if (process.env.NODE_ENV === "development" && user.role === "BUSINESS") {
+    console.log("Sidebar debug:", {
+      userId: user.id,
+      role: user.role,
+      business: user.business,
+      businessType,
+      isSportOutdoor,
+    });
+  }
 
   const items =
     shouldHideConsents && (user.role === "BUSINESS" || user.role === "EMPLOYEE")
       ? baseItems.filter((item) => {
           if (user.role === "BUSINESS") {
-            return item.path !== "/business/consents";
+            // Hide consents if not required
+            if (item.path === "/business/consents" && shouldHideConsents) {
+              return false;
+            }
+            // Hide settings for SPORT_OUTDOOR (settings are in "Configurează tarife" modal)
+            if (item.path === "/business/settings" && isSportOutdoor) {
+              return false;
+            }
           }
           if (user.role === "EMPLOYEE") {
-            return item.path !== "/employee/consents";
+            if (item.path === "/employee/consents" && shouldHideConsents) {
+              return false;
+            }
           }
           return true;
         })
-      : baseItems;
+      : baseItems.filter((item) => {
+          // Hide settings for SPORT_OUTDOOR business type
+          if (user.role === "BUSINESS" && item.path === "/business/settings" && isSportOutdoor) {
+            return false;
+          }
+          return true;
+        });
 
   const homePath = items[0]?.path ?? "/";
 

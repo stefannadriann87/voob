@@ -132,11 +132,13 @@ router.get("/", async (_req, res) => {
         }
 
         const minDuration = Math.min(...services.map((s: { duration: number }) => s.duration));
-        // Round to nearest valid slot duration (15, 30, 45, 60)
-        const validDurations = [15, 30, 45, 60];
-        const calculatedSlotDuration = validDurations.reduce((prev, curr) =>
-          Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
-        );
+        // Round to nearest valid slot duration (30, 60, 90, 120, etc.) - doar multipli de 30
+        // Slot duration nu poate fi mai mare decât durata minimă a serviciului
+        const validDurations = [30, 60, 90, 120, 150, 180];
+        const calculatedSlotDuration = validDurations.reduce((prev, curr) => {
+          if (curr > minDuration) return prev; // Nu folosim slot duration mai mare decât durata minimă
+          return Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev;
+        }, 30); // Default minim 30 minute
 
         return { ...business, slotDuration: calculatedSlotDuration };
       })
@@ -384,6 +386,13 @@ router.post("/:businessId/services", async (req, res) => {
       .json({ error: "name, duration și price sunt obligatorii pentru creare serviciu." });
   }
 
+  // Validare: durata trebuie să fie multiplu de 30 minute
+  if (duration % 30 !== 0) {
+    return res.status(400).json({ 
+      error: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)" 
+    });
+  }
+
   try {
     const service = await prisma.service.create({
       data: {
@@ -413,6 +422,13 @@ router.put("/:businessId/services/:serviceId", async (req, res) => {
     return res
       .status(400)
       .json({ error: "name, duration și price sunt obligatorii pentru actualizare serviciu." });
+  }
+
+  // Validare: durata trebuie să fie multiplu de 30 minute
+  if (duration % 30 !== 0) {
+    return res.status(400).json({ 
+      error: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)" 
+    });
   }
 
   try {
@@ -801,7 +817,7 @@ router.put("/:businessId/working-hours", async (req, res) => {
 router.put("/:businessId", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const authReq = req as AuthenticatedRequest;
-  const { name, email, address, phone, latitude, longitude } = req.body;
+  const { name, email, address, phone, latitude, longitude, businessType } = req.body;
 
   if (!businessId) {
     return res.status(400).json({ error: "businessId este obligatoriu." });
@@ -864,6 +880,21 @@ router.put("/:businessId", verifyJWT, async (req, res) => {
     }
     if (longitude !== undefined) {
       updateData.longitude = longitude !== null && longitude !== undefined ? parseFloat(longitude) : null;
+    }
+    if (businessType !== undefined) {
+      // Validare businessType
+      const normalizedBusinessType =
+        typeof businessType === "string" && Object.values(BusinessType).includes(businessType.toUpperCase())
+          ? (businessType.toUpperCase() as typeof BusinessType[keyof typeof BusinessType])
+          : null;
+      
+      if (!normalizedBusinessType) {
+        return res.status(400).json({ 
+          error: `Tipul de business este invalid. Tipuri valide: ${Object.values(BusinessType).join(", ")}` 
+        });
+      }
+      
+      updateData.businessType = normalizedBusinessType;
     }
 
     // Verifică dacă există date de actualizat
@@ -1325,11 +1356,23 @@ router.get("/:businessId/courts", verifyJWT, async (req, res) => {
     }
 
     // Verificare permisiuni
+    if (!authReq.user) {
+      return res.status(401).json({ error: "Autentificare necesară." });
+    }
+    
     const isOwner = business.ownerId === authReq.user?.userId;
     const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
+    const isClient = authReq.user?.role === "CLIENT";
+    const isSportOutdoor = business.businessType === "SPORT_OUTDOOR";
 
-    if (!isOwner && !isSuperAdmin) {
-      return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza terenurile acestui business." });
+    // Pentru SPORT_OUTDOOR, permitem și clienților să vadă terenurile
+    // Pentru business-uri normale, doar owner și superadmin
+    const hasPermission = isOwner || isSuperAdmin || (isClient && isSportOutdoor);
+    
+    if (!hasPermission) {
+      return res.status(403).json({ 
+        error: "Nu ai permisiunea de a vizualiza terenurile acestui business.",
+      });
     }
 
     const courts = await prisma.court.findMany({

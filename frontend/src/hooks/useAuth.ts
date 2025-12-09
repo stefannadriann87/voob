@@ -132,6 +132,33 @@ export default function useAuth() {
   }, []);
 
   /**
+   * Fetch user curent de pe server
+   * Cookie-ul JWT este trimis automat (withCredentials: true)
+   */
+  const fetchCurrentUser = useCallback(async () => {
+    if (typeof window === "undefined") return null;
+
+    try {
+      const { data } = await api.get<{ user: AuthUser }>("/auth/me");
+      window.localStorage.setItem("voob_user", JSON.stringify(data.user));
+      setUser(data.user);
+      return data.user;
+    } catch (err) {
+      // 401 = nu e autentificat (normal, nu e eroare)
+      const axiosErr = err as AxiosError;
+      if (axiosErr.response?.status !== 401) {
+        console.error("Failed to fetch current user:", err);
+      }
+      // Șterge datele locale dacă sesiunea e invalidă
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("voob_user");
+      }
+      setUser(null);
+      return null;
+    }
+  }, [api]);
+
+  /**
    * Login - Token-ul vine în HttpOnly cookie, nu în response body
    */
   const login = useCallback(
@@ -146,9 +173,32 @@ export default function useAuth() {
           captchaToken 
         });
 
+        // Debug: Log user data pentru debugging (ALWAYS log)
+        console.log("=== FRONTEND LOGIN RESPONSE ===");
+        console.log("Full user object:", JSON.stringify(data.user, null, 2));
+        console.log("Business:", data.user.business);
+        console.log("Business Type:", data.user.business?.businessType);
+        console.log("===============================");
+
         // Token-ul este setat automat în HttpOnly cookie de către backend
         // Salvăm doar user-ul pentru cache UI
         persistUser(data.user);
+        
+        // Force refresh user from server to ensure we have latest data (especially businessType)
+        console.log("=== FORCING USER REFRESH ===");
+        try {
+          const freshUser = await fetchCurrentUser();
+          console.log("Fresh user from /auth/me:", JSON.stringify(freshUser, null, 2));
+          if (freshUser) {
+            persistUser(freshUser);
+            console.log("✅ User refreshed successfully");
+            return freshUser;
+          }
+        } catch (refreshError) {
+          // If refresh fails, use the login response user
+          console.warn("❌ Failed to refresh user after login, using login response:", refreshError);
+        }
+        
         return data.user;
       } catch (err) {
         const message = getErrorMessage(err, "Eroare la autentificare. Te rugăm să încerci din nou.");
@@ -158,7 +208,7 @@ export default function useAuth() {
         setLoading(false);
       }
     },
-    [api, persistUser]
+    [api, persistUser, fetchCurrentUser]
   );
 
   const register = useCallback(
@@ -243,33 +293,6 @@ export default function useAuth() {
     }
     setUser(null);
     setHydrated(true);
-  }, [api]);
-
-  /**
-   * Fetch user curent de pe server
-   * Cookie-ul JWT este trimis automat (withCredentials: true)
-   */
-  const fetchCurrentUser = useCallback(async () => {
-    if (typeof window === "undefined") return null;
-
-    try {
-      const { data } = await api.get<{ user: AuthUser }>("/auth/me");
-      window.localStorage.setItem("voob_user", JSON.stringify(data.user));
-      setUser(data.user);
-      return data.user;
-    } catch (err) {
-      // 401 = nu e autentificat (normal, nu e eroare)
-      const axiosErr = err as AxiosError;
-      if (axiosErr.response?.status !== 401) {
-        console.error("Failed to fetch current user:", err);
-      }
-      // Șterge datele locale dacă sesiunea e invalidă
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem("voob_user");
-      }
-      setUser(null);
-      return null;
-    }
   }, [api]);
 
   const updateProfile = useCallback(

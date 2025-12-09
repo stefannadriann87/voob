@@ -40,6 +40,7 @@ interface CreateBookingInput {
   courtId?: string;
   employeeId?: string;
   date: string;
+  duration?: number; // Duration in minutes (for SPORT_OUTDOOR bookings)
   paid?: boolean;
   paymentMethod?: string;
   paymentReused?: boolean;

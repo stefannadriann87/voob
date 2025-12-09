@@ -32,7 +32,9 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY_PRODUCTION }}" > ~/.ssh/deploy_key
+          # Try to decode as base64 first, if that fails, use the secret as-is
+          echo "${{ secrets.EC2_SSH_KEY_PRODUCTION }}" | base64 -d > ~/.ssh/deploy_key 2>/dev/null || \
+            echo "${{ secrets.EC2_SSH_KEY_PRODUCTION }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.EC2_HOST_PRODUCTION }} >> ~/.ssh/known_hosts
 

@@ -522,6 +522,12 @@ export default function ClientDashboardPage() {
       return;
     }
 
+    // Validare: durata trebuie să fie multiplu de 30 minute
+    if (duration % 30 !== 0) {
+      setServiceFeedback({ type: "error", message: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)" });
+      return;
+    }
+
     try {
       if (editingServiceId) {
         // Update existing service
@@ -1128,29 +1134,92 @@ export default function ClientDashboardPage() {
                     className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
                   />
                 </label>
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-white/70">Durată (minute) *</span>
-                  <input
-                    type="number"
-                    min={5}
-                    step={5}
-                    value={serviceDuration}
-                    onChange={(event) => setServiceDuration(event.target.value)}
-                    required
-                    className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                  />
-                </label>
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span className="text-white/70">Durată (minute) *</span>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={1}
+                        value={serviceDuration}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setServiceDuration(value);
+                        }}
+                        required
+                        placeholder="30, 60, 90, 120..."
+                        className="w-full rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 pr-12 text-white outline-none transition focus:border-[#6366F1] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = Number(serviceDuration) || 30;
+                            setServiceDuration(String(Math.max(1, current + 30)));
+                          }}
+                          className="flex h-4 w-6 items-center justify-center rounded-t border border-white/20 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+                        >
+                          <i className="fas fa-chevron-up text-[10px]" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = Number(serviceDuration) || 30;
+                            setServiceDuration(String(Math.max(1, current - 30)));
+                          }}
+                          className="flex h-4 w-6 items-center justify-center rounded-b border border-white/20 border-t-0 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+                        >
+                          <i className="fas fa-chevron-down text-[10px]" />
+                        </button>
+                      </div>
+                    </div>
+                    {serviceDuration && Number(serviceDuration) > 0 && Number(serviceDuration) % 30 !== 0 && (
+                      <span className="text-xs text-red-400">
+                        Durata trebuie să fie un multiplu de 30 minute (30, 60, 90, 120, etc.)
+                      </span>
+                    )}
+                    {serviceDuration && Number(serviceDuration) > 0 && Number(serviceDuration) % 30 === 0 && (
+                      <span className="text-xs text-green-400">✓ Durată validă</span>
+                    )}
+                    {(!serviceDuration || Number(serviceDuration) <= 0) && (
+                      <span className="text-xs text-white/50">Doar multipli de 30 minute (30, 60, 90, 120, etc.)</span>
+                    )}
+                  </label>
                 <label className="flex flex-col gap-2 text-sm">
                   <span className="text-white/70">Preț (RON) *</span>
-                  <input
-                    type="number"
-                    min={1}
-                    step="0.01"
-                    value={servicePrice}
-                    onChange={(event) => setServicePrice(event.target.value)}
-                    required
-                    className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                  />
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={servicePrice}
+                      onChange={(event) => setServicePrice(event.target.value)}
+                      required
+                      placeholder="150.00"
+                      className="w-full rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 pr-12 text-white outline-none transition focus:border-[#6366F1] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const current = Number(servicePrice) || 0;
+                          setServicePrice((current + 10).toFixed(2));
+                        }}
+                        className="flex h-4 w-6 items-center justify-center rounded-t border border-white/20 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+                      >
+                        <i className="fas fa-chevron-up text-[10px]" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const current = Number(servicePrice) || 0;
+                          setServicePrice(Math.max(0, current - 10).toFixed(2));
+                        }}
+                        className="flex h-4 w-6 items-center justify-center rounded-b border border-white/20 border-t-0 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+                      >
+                        <i className="fas fa-chevron-down text-[10px]" />
+                      </button>
+                    </div>
+                  </div>
                 </label>
               </div>
               <label className="flex mt-6 flex-col gap-2 text-sm">

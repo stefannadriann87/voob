@@ -401,6 +401,11 @@ async function createService(
     throw new Error("name, duration și price sunt obligatorii.");
   }
 
+  // Validare: durata trebuie să fie multiplu de 30 minute
+  if (args.duration % 30 !== 0) {
+    throw new Error("Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)");
+  }
+
   const service = await prisma.service.create({
     data: {
       name: args.name.trim(),
@@ -444,6 +449,11 @@ async function updateService(
 
   if (!service) {
     throw new Error("Serviciul nu a fost găsit sau nu aparține acestui business.");
+  }
+
+  // Validare: durata trebuie să fie multiplu de 30 minute
+  if (args.duration !== undefined && args.duration % 30 !== 0) {
+    throw new Error("Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)");
   }
 
   const updateData: any = {};

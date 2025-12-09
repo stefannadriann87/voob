@@ -112,6 +112,9 @@ export default function ClientBookingsPage() {
   const [businessIdOverride, setBusinessIdOverride] = useState<string | null>(null);
   const [serviceSelections, setServiceSelections] = useState<Record<string, string>>({});
   const [courtSelections, setCourtSelections] = useState<Record<string, string>>({});
+  const [sportOutdoorDuration, setSportOutdoorDuration] = useState<number>(60); // Default 60 minute pentru SPORT_OUTDOOR
+  const [showDurationModal, setShowDurationModal] = useState(false);
+  const [pendingCourtId, setPendingCourtId] = useState<string | null>(null);
   const [employeeSelections, setEmployeeSelections] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState<string>("");
   const bookingTooSoon = useMemo(() => (selectedDate ? isBookingTooSoon(selectedDate) : false), [selectedDate]);
@@ -303,7 +306,7 @@ export default function ClientBookingsPage() {
   const isSportOutdoor = selectedBusiness?.businessType === "SPORT_OUTDOOR";
   
   // Get courts for SPORT_OUTDOOR businesses
-  const { courts, loading: courtsLoading } = useCourts(isSportOutdoor ? selectedBusinessId : null);
+  const { courts, loading: courtsLoading, error: courtsError } = useCourts(isSportOutdoor ? selectedBusinessId : null);
   
   const selectedServiceId =
     !isSportOutdoor && selectedBusinessId != null ? serviceSelections[selectedBusinessId] ?? null : null;
@@ -337,13 +340,15 @@ export default function ClientBookingsPage() {
       return selectedBusiness.slotDuration;
     }
     // Calculate from minimum service duration
+    // Slot duration trebuie să fie multiplu de 30 minute și nu mai mare decât durata minimă
     if (selectedBusiness.services && selectedBusiness.services.length > 0) {
       const minDuration = Math.min(...selectedBusiness.services.map((s) => s.duration));
-      // Round to nearest valid slot duration (15, 30, 45, 60)
-      const validDurations = [15, 30, 45, 60];
-      return validDurations.reduce((prev, curr) =>
-        Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
-      );
+      // Round to nearest valid slot duration (30, 60, 90, 120, etc.) - doar multipli de 30
+      const validDurations = [30, 60, 90, 120, 150, 180];
+      return validDurations.reduce((prev, curr) => {
+        if (curr > minDuration) return prev; // Nu folosim slot duration mai mare decât durata minimă
+        return Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev;
+      }, 30); // Default minim 30 minute
     }
     return 60; // Default
   }, [selectedBusiness, isSportOutdoor]);
@@ -523,7 +528,10 @@ export default function ClientBookingsPage() {
     };
   }, [cancelledPaidBooking, selectedService]);
 
-  const serviceDurationMinutes = selectedService?.duration ?? 60;
+  // Pentru SPORT_OUTDOOR, folosește sportOutdoorDuration; pentru altele, durata serviciului
+  const serviceDurationMinutes = isSportOutdoor 
+    ? sportOutdoorDuration 
+    : (selectedService?.duration ?? 60);
   const serviceDurationMs = serviceDurationMinutes * 60 * 1000;
 
   const focusedDate = useMemo(() => (calendarDate ? new Date(calendarDate) : null), [calendarDate]);
@@ -967,6 +975,7 @@ const handleConsentSubmit = async () => {
             courtId: isSportOutdoor ? (selectedCourtId || undefined) : undefined,
             employeeId: isSportOutdoor ? undefined : (selectedEmployeeId || undefined),
             date: isoDate,
+            duration: isSportOutdoor ? sportOutdoorDuration : undefined,
             paid: paymentAlreadyMade,
             paymentMethod: "OFFLINE",
             paymentReused: paymentAlreadyMade,
@@ -1009,6 +1018,7 @@ const handleConsentSubmit = async () => {
           courtId: isSportOutdoor ? selectedCourtId : undefined,
           employeeId: isSportOutdoor ? undefined : (selectedEmployeeId || undefined),
           date: isoDate,
+          duration: isSportOutdoor ? sportOutdoorDuration : undefined,
           paymentMethod: selectedPayment,
         });
 
@@ -1052,6 +1062,7 @@ const handleConsentSubmit = async () => {
     serviceDurationMinutes,
     slotDurationMinutes,
     slotsMatrix,
+    sportOutdoorDuration,
     weekDays,
     user,
   ]);
@@ -1171,7 +1182,6 @@ const handleConsentSubmit = async () => {
                         </div>
                       ) : courts.length > 0 ? (
                         courts
-                          .filter((court) => court.isActive)
                           .map((court) => (
                             <CourtCard
                               key={court.id}
@@ -1182,17 +1192,29 @@ const handleConsentSubmit = async () => {
                               selected={court.id === selectedCourtId}
                               onSelect={(courtId) => {
                                 if (selectedBusinessId != null) {
-                                  setCourtSelections((prev) => ({
-                                    ...prev,
-                                    [selectedBusinessId]: courtId,
-                                  }));
+                                  // Deschide modală pentru selectarea duratei
+                                  setPendingCourtId(courtId);
+                                  setShowDurationModal(true);
                                 }
                               }}
                             />
                           ))
                       ) : (
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
-                          Businessul selectat nu are terenuri configurate încă.
+                          {courtsError ? (
+                            <div className="text-red-400 mb-2">Eroare: {courtsError}</div>
+                          ) : selectedBusinessId ? (
+                            <>
+                              Businessul selectat nu are terenuri configurate încă.
+                              {process.env.NODE_ENV === "development" && (
+                                <div className="mt-2 text-xs text-yellow-500">
+                                  Debug: businessId={selectedBusinessId}, isSportOutdoor={isSportOutdoor ? "true" : "false"}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            "Selectează un business pentru a vedea terenurile."
+                          )}
                         </div>
                       )}
                     </>
@@ -2164,6 +2186,68 @@ const handleConsentSubmit = async () => {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duration Selection Modal for SPORT_OUTDOOR */}
+      {showDurationModal && pendingCourtId && selectedBusinessId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={() => {
+          setShowDurationModal(false);
+          setPendingCourtId(null);
+        }}>
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-semibold text-white">Selectează durata rezervării</h3>
+                <p className="mt-2 text-sm text-white/60">
+                  Câte ore vrei să rezervi terenul?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDurationModal(false);
+                  setPendingCourtId(null);
+                }}
+                className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+              >
+                <i className="fas fa-times" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((hours) => {
+                const durationMinutes = hours * 60;
+                return (
+                  <button
+                    key={hours}
+                    type="button"
+                    onClick={() => {
+                      // Set court selection
+                      setCourtSelections((prev) => ({
+                        ...prev,
+                        [selectedBusinessId]: pendingCourtId,
+                      }));
+                      // Set duration
+                      setSportOutdoorDuration(durationMinutes);
+                      // Close modal
+                      setShowDurationModal(false);
+                      setPendingCourtId(null);
+                    }}
+                    className={`rounded-xl border px-4 py-3 text-sm font-medium transition ${
+                      sportOutdoorDuration === durationMinutes
+                        ? "border-[#6366F1] bg-[#6366F1]/20 text-white"
+                        : "border-white/10 bg-white/5 text-white/60 hover:border-white/20 hover:text-white"
+                    }`}
+                  >
+                    {hours === 1 ? "1 oră" : `${hours} ore`}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-4 text-xs text-white/50 text-center">
+              Minim 1 oră, maxim 10 ore
+            </p>
           </div>
         </div>
       )}

@@ -22,6 +22,7 @@ const router = express.Router();
 const { validateEnv, getEnv, getEnvNumber, getEnvBool } = require("../lib/envValidator");
 const { logger } = require("../lib/logger");
 
+console.log("\n\n🔥🔥🔥 AUTH.TS LOADED AT:", new Date().toISOString(), "🔥🔥🔥\n\n");
 const JWT_SECRET = validateEnv("JWT_SECRET", { required: true, minLength: 32 });
 const FRONTEND_URL = getEnv("FRONTEND_URL", "http://localhost:3000");
 const RESET_TOKEN_EXPIRATION_MINUTES = getEnvNumber("RESET_TOKEN_EXP_MINUTES", 60);
@@ -97,6 +98,20 @@ type TokenPayload = {
 const extractTokenFromRequest = (req: express.Request): string | null => {
   // 1. Prioritate: HttpOnly Cookie
   const cookieReq = req as express.Request & { cookies?: { [key: string]: string } };
+  
+  // Debug: Log cookies pentru debugging
+  if (process.env.NODE_ENV === "development") {
+    const cookieKeys = cookieReq.cookies ? Object.keys(cookieReq.cookies) : [];
+    if (req.url?.includes("/me") || req.url?.includes("/insights")) {
+      logger.info("Cookie extraction debug", {
+        url: req.url,
+        hasCookies: !!cookieReq.cookies,
+        cookieKeys,
+        hasJwtCookie: !!(cookieReq.cookies && cookieReq.cookies[JWT_COOKIE_NAME]),
+      });
+    }
+  }
+  
   if (cookieReq.cookies && cookieReq.cookies[JWT_COOKIE_NAME]) {
     return cookieReq.cookies[JWT_COOKIE_NAME];
   }
@@ -315,25 +330,58 @@ router.post("/register", rateLimitRegistration, async (req, res) => {
 });
 
 router.post("/login", rateLimitLogin, async (req, res) => {
+  // TIMESTAMP pentru a verifica că codul nou rulează
+  console.log("\n\n🚨🚨🚨 LOGIN CALLED AT:", new Date().toISOString(), "🚨🚨🚨");
+  console.log("=== LOGIN REQUEST RECEIVED ===");
+  console.log("Email:", req.body?.email);
+  console.log("Role:", req.body?.role);
+  
   const { email, password, role }: { email?: string; password?: string; role?: RoleType | string } = req.body;
 
   if (!email || !password) {
+    console.log("❌ Missing email or password");
     return res.status(400).json({ error: "Email și parolă sunt obligatorii." });
   }
 
   try {
+    console.log("🔍 Looking up user in database...");
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
-        business: true,
+        business: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            email: true,
+            businessType: true,
+          },
+        },
+        ownedBusinesses: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            email: true,
+            businessType: true,
+          },
+          take: 1, // Take first business (most users have only one)
+        },
       },
     });
+    console.log("✅ User found:", user ? `ID: ${user.id}, Role: ${user.role}` : "NOT FOUND");
+    
     if (!user) {
+      console.log("❌ User not found");
       return res.status(401).json({ error: "Date de autentificare invalide." });
     }
 
+    console.log("🔐 Validating password...");
     const validPassword = await bcrypt.compare(password, user.password);
+    console.log("Password valid:", validPassword);
+    
     if (!validPassword) {
+      console.log("❌ Invalid password");
       return res.status(401).json({ error: "Date de autentificare invalide." });
     }
 
@@ -341,21 +389,99 @@ router.post("/login", rateLimitLogin, async (req, res) => {
     // Otherwise, use the role from the database automatically
     const expectedRole = typeof role === "string" ? (role.toUpperCase() as RoleType) : undefined;
     if (expectedRole && user.role !== expectedRole) {
+      console.log("❌ Role mismatch:", { expected: expectedRole, actual: user.role });
       return res.status(401).json({ error: "Rolul selectat nu corespunde contului." });
     }
 
+    console.log("🎫 Generating JWT token...");
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
       expiresIn: "7d",
     });
+    console.log("✅ Token generated");
 
-    const { password: _password, ...userResponse } = user;
+    // For BUSINESS role, use ownedBusinesses[0] as business; for EMPLOYEE, use business relation
+    console.log("🔍 DEBUG: user.role =", user.role);
+    console.log("🔍 DEBUG: user.ownedBusinesses =", JSON.stringify(user.ownedBusinesses));
+    console.log("🔍 DEBUG: user.ownedBusinesses?.[0] =", JSON.stringify(user.ownedBusinesses?.[0]));
+    console.log("🔍 DEBUG: user.business =", JSON.stringify(user.business));
+    
+    const businessData = user.role === "BUSINESS" && user.ownedBusinesses?.[0] 
+      ? user.ownedBusinesses[0] 
+      : user.business;
+    
+    console.log("🔍 DEBUG: businessData (after calculation) =", JSON.stringify(businessData));
+
+    // Remove password and ownedBusinesses, but keep business field to override it
+    const { password: _password, ownedBusinesses, business: _oldBusiness, ...userResponse } = user;
+    
+    // Create response object with explicit business field
+    const userResponseWithBusiness = {
+      ...userResponse,
+      business: businessData, // Explicitly set business field
+    };
+    
+    // FORCE LOG - use both console.log and process.stdout.write
+    const debugMsg = `\n\n🔴🔴🔴 FINAL DEBUG - businessData: ${JSON.stringify(businessData)}\n🔴🔴🔴 userResponseWithBusiness.business: ${JSON.stringify(userResponseWithBusiness.business)}\n🔴🔴🔴\n\n`;
+    console.log(debugMsg);
+    process.stdout.write(debugMsg);
+    process.stderr.write(debugMsg);
+
+    // Debug: Log business data pentru debugging (ALWAYS log, not just in development)
+    console.log("=== LOGIN RESPONSE DEBUG ===");
+    console.log("User ID:", user.id);
+    console.log("User Role:", user.role);
+    console.log("Owned Businesses:", JSON.stringify(user.ownedBusinesses, null, 2));
+    console.log("Business Data (to return):", JSON.stringify(businessData, null, 2));
+    console.log("User Response With Business:", JSON.stringify(userResponseWithBusiness.business, null, 2));
+    console.log("===========================");
+    
+    if (process.env.NODE_ENV === "development") {
+      logger.info("Login response user data", {
+        userId: user.id,
+        role: user.role,
+        hasOwnedBusinesses: !!user.ownedBusinesses?.length,
+        ownedBusinessesCount: user.ownedBusinesses?.length || 0,
+        businessData: businessData ? {
+          id: businessData.id,
+          name: businessData.name,
+          businessType: businessData.businessType,
+        } : null,
+      });
+    }
 
     // Setează JWT în HttpOnly cookie (nu poate fi accesat din JavaScript)
-    res.cookie(JWT_COOKIE_NAME, token, getJwtCookieOptions());
+    const cookieOptions = getJwtCookieOptions();
+    res.cookie(JWT_COOKIE_NAME, token, cookieOptions);
+
+    // Debug: Log cookie set pentru debugging
+    if (process.env.NODE_ENV === "development") {
+      logger.info("JWT cookie set", {
+        cookieName: JWT_COOKIE_NAME,
+        cookieOptions: {
+          httpOnly: cookieOptions.httpOnly,
+          secure: cookieOptions.secure,
+          sameSite: cookieOptions.sameSite,
+          path: cookieOptions.path,
+        },
+        userId: user.id,
+        role: user.role,
+      });
+    }
 
     // Returnează user fără token (token-ul este în cookie)
+    // FORCE LOG TO STDOUT
+    process.stdout.write(`\n\n🔴 FINAL RESPONSE - business: ${JSON.stringify(userResponseWithBusiness.business)}\n\n`);
+    console.error(`\n\n🔴 FINAL RESPONSE - business: ${JSON.stringify(userResponseWithBusiness.business)}\n\n`);
+    
+    // TEST: Return businessData separately to verify it's calculated correctly
     return res.json({
-      user: userResponse,
+      user: userResponseWithBusiness,
+      _debug: {
+        businessData_calculated: businessData,
+        business_in_response: userResponseWithBusiness.business,
+        user_role: user.role,
+        ownedBusinesses_count: user.ownedBusinesses?.length || 0,
+      },
     });
   } catch (error) {
     logger.error("Login failed", { error, email, stack: error instanceof Error ? error.stack : undefined });
@@ -457,16 +583,26 @@ router.get("/me", authenticate, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: authReq.user!.userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        specialization: true,
-        avatar: true,
-        role: true,
-        business: true,
-        createdAt: true,
+      include: {
+        business: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            email: true,
+            businessType: true,
+          },
+        },
+        ownedBusinesses: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            email: true,
+            businessType: true,
+          },
+          take: 1, // Take first business (most users have only one)
+        },
       },
     });
 
@@ -474,7 +610,41 @@ router.get("/me", authenticate, async (req, res) => {
       return res.status(404).json({ error: "Utilizatorul nu există." });
     }
 
-    return res.json({ user });
+    // For BUSINESS role, use ownedBusinesses[0] as business; for EMPLOYEE, use business relation
+    const businessData = user.role === "BUSINESS" && user.ownedBusinesses?.[0] 
+      ? user.ownedBusinesses[0] 
+      : user.business;
+
+    const { ownedBusinesses, ...userResponse } = user;
+    const userResponseWithBusiness = {
+      ...userResponse,
+      business: businessData,
+    };
+
+    // Debug: Log business data pentru debugging (ALWAYS log, not just in development)
+    console.log("=== /auth/me RESPONSE DEBUG ===");
+    console.log("User ID:", user.id);
+    console.log("User Role:", user.role);
+    console.log("Owned Businesses:", JSON.stringify(user.ownedBusinesses, null, 2));
+    console.log("Business Data (to return):", JSON.stringify(businessData, null, 2));
+    console.log("User Response With Business:", JSON.stringify(userResponseWithBusiness.business, null, 2));
+    console.log("===============================");
+    
+    if (process.env.NODE_ENV === "development") {
+      logger.info("/auth/me response user data", {
+        userId: user.id,
+        role: user.role,
+        hasOwnedBusinesses: !!user.ownedBusinesses?.length,
+        ownedBusinessesCount: user.ownedBusinesses?.length || 0,
+        businessData: businessData ? {
+          id: businessData.id,
+          name: businessData.name,
+          businessType: businessData.businessType,
+        } : null,
+      });
+    }
+
+    return res.json({ user: userResponseWithBusiness });
   } catch (error) {
     logger.error("Get user info failed", error);
     return res.status(500).json({ error: "Eroare la obținerea datelor utilizatorului." });
@@ -503,20 +673,41 @@ router.put("/me", authenticate, async (req, res) => {
     const user = await prisma.user.update({
       where: { id: authReq.user!.userId },
       data: updateData,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        specialization: true,
-        avatar: true,
-        role: true,
-        business: true,
-        createdAt: true,
+      include: {
+        business: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            email: true,
+            businessType: true,
+          },
+        },
+        ownedBusinesses: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            email: true,
+            businessType: true,
+          },
+          take: 1, // Take first business (most users have only one)
+        },
       },
     });
 
-    return res.json({ user });
+    // For BUSINESS role, use ownedBusinesses[0] as business; for EMPLOYEE, use business relation
+    const businessData = user.role === "BUSINESS" && user.ownedBusinesses?.[0] 
+      ? user.ownedBusinesses[0] 
+      : user.business;
+
+    const { ownedBusinesses, ...userResponse } = user;
+    const userResponseWithBusiness = {
+      ...userResponse,
+      business: businessData,
+    };
+
+    return res.json({ user: userResponseWithBusiness });
   } catch (error) {
     logger.error("Update user failed", error);
     return res.status(500).json({ error: "Eroare la actualizarea utilizatorului." });
@@ -641,6 +832,51 @@ router.post("/logout", (req, res) => {
   });
   
   return res.json({ ok: true, message: "Deconectare reușită." });
+});
+
+// TEST ENDPOINT - Remove after debugging
+router.get("/test-business", async (req, res) => {
+  try {
+    const email = "sport@voob.io";
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: {
+        business: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            email: true,
+            businessType: true,
+          },
+        },
+        ownedBusinesses: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            email: true,
+            businessType: true,
+          },
+          take: 1,
+        },
+      },
+    });
+    
+    const businessData = user?.role === "BUSINESS" && user?.ownedBusinesses?.[0] 
+      ? user.ownedBusinesses[0] 
+      : user?.business;
+    
+    return res.json({
+      user_role: user?.role,
+      ownedBusinesses: user?.ownedBusinesses,
+      ownedBusinesses_0: user?.ownedBusinesses?.[0],
+      business_relation: user?.business,
+      businessData_calculated: businessData,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: String(error) });
+  }
 });
 
 export = router;

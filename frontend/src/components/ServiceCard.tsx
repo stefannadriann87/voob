@@ -7,6 +7,17 @@ interface ServiceCardProps {
   selected?: boolean;
 }
 
+function formatDuration(duration: number): string {
+  const hours = duration / 60;
+  if (hours % 1 === 0) {
+    // Ore întregi: 60min (1h), 120min (2h), etc.
+    return `${duration}min (${hours}h)`;
+  } else {
+    // Ore cu zecimale: 90min (1.5h), 150min (2.5h), etc.
+    return `${duration}min (${hours}h)`;
+  }
+}
+
 export default function ServiceCard({
   id,
   name,
@@ -33,7 +44,7 @@ export default function ServiceCard({
       </div>
       <div className="mt-2 flex items-center gap-2 text-sm text-white/70">
         <i className="fas fa-clock" />
-        <span>{duration} min</span>
+        <span>{formatDuration(duration)}</span>
       </div>
     </button>
   );

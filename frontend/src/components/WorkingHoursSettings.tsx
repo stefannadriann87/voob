@@ -109,11 +109,24 @@ export default function WorkingHoursSettings() {
   }, []);
 
   const handleTimeChange = useCallback((dayKey: DayKey, slotIndex: number, field: "start" | "end", value: string) => {
+    // Force time to be a multiple of 30 minutes (00 or 30)
+    const [hours, minutes] = value.split(":").map(Number);
+    const roundedMinutes = Math.round(minutes / 30) * 30;
+    let finalHours = hours;
+    let finalMinutes = roundedMinutes;
+    
+    if (roundedMinutes >= 60) {
+      finalHours = Math.min(hours + 1, 23); // Cap at 23:00
+      finalMinutes = 0;
+    }
+
+    const finalTime = `${String(finalHours).padStart(2, "0")}:${String(finalMinutes).padStart(2, "0")}`;
+
     setWorkingHours((prev) => {
       const newSlots = [...prev[dayKey].slots];
       newSlots[slotIndex] = {
         ...newSlots[slotIndex],
-        [field]: value,
+        [field]: finalTime,
       };
       return {
         ...prev,

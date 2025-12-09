@@ -135,21 +135,34 @@ export default function useWorkingHours({
       // Breaks will be marked as blocked using isBreakTime function
       const allHours: Set<string> = new Set();
       
+      // For normal businesses, ALWAYS use 30-minute intervals for slot generation
+      // This ensures consistent slot intervals (8:00, 8:30, 9:00, 9:30, etc.) regardless of service duration
+      // Service duration only affects how many consecutive slots are needed for a booking
+      const roundedSlotDuration = 30; // Always 30 minutes for slot generation
+
       // Generate hours for each slot individually
       sortedSlots.forEach((slot) => {
         const [startH, startM] = slot.start.split(":").map(Number);
         const [endH, endM] = slot.end.split(":").map(Number);
 
+        // Round start time to nearest multiple of 30 minutes
         let currentH = startH;
-        let currentM = startM;
+        let currentM = Math.round(startM / 30) * 30;
+        if (currentM >= 60) {
+          currentM = 0;
+          currentH += 1;
+        }
 
-        // Generate hours for this slot
-        while (currentH < endH || (currentH === endH && currentM < endM)) {
+        // Calculate end time in total minutes for comparison
+        const endTimeInMinutes = endH * 60 + endM;
+
+        // Generate slots only in 30-minute intervals, stopping before the end time
+        while (currentH * 60 + currentM < endTimeInMinutes) {
           const hourStr = `${String(currentH).padStart(2, "0")}:${String(currentM).padStart(2, "0")}`;
           allHours.add(hourStr);
 
-          // Move to next hour based on slot duration
-          currentM += slotDurationMinutes;
+          // Move to next slot (always 30 minutes)
+          currentM += roundedSlotDuration;
           if (currentM >= 60) {
             currentM = 0;
             currentH += 1;
@@ -165,17 +178,24 @@ export default function useWorkingHours({
         const [currentEndH, currentEndM] = currentSlot.end.split(":").map(Number);
         const [nextStartH, nextStartM] = nextSlot.start.split(":").map(Number);
         
-        // Generate hours for the gap between slots
+        // Round gap start time to nearest multiple of 30 minutes
         let gapH = currentEndH;
-        let gapM = currentEndM;
+        let gapM = Math.round(currentEndM / 30) * 30;
+        if (gapM >= 60) {
+          gapM = 0;
+          gapH += 1;
+        }
+        
+        // Calculate gap end time in total minutes for comparison
         const gapEnd = nextStartH * 60 + nextStartM;
         
+        // Generate slots only in 30-minute intervals, stopping before the next slot starts
         while (gapH * 60 + gapM < gapEnd) {
           const hourStr = `${String(gapH).padStart(2, "0")}:${String(gapM).padStart(2, "0")}`;
           allHours.add(hourStr);
 
-          // Move to next hour based on slot duration
-          gapM += slotDurationMinutes;
+          // Move to next slot (always 30 minutes)
+          gapM += roundedSlotDuration;
           if (gapM >= 60) {
             gapM = 0;
             gapH += 1;

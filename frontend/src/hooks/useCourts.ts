@@ -39,7 +39,13 @@ export default function useCourts(businessId: string | null) {
         const response = await api.get(`/business/${businessId}/courts`);
         setCourts(response.data.courts || []);
       } catch (err: any) {
-        setError(err.response?.data?.error || "Eroare la încărcarea terenurilor.");
+        const errorMessage = 
+          err?.response?.data?.error || 
+          err?.response?.data?.message ||
+          err?.message || 
+          "Eroare la încărcarea terenurilor.";
+        
+        setError(errorMessage);
         setCourts([]);
       } finally {
         setLoading(false);

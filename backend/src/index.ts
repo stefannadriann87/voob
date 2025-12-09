@@ -25,7 +25,10 @@ const billingRouter = require("./modules/billing/billing.routes");
 const { billingWebhookHandler } = require("./modules/billing/billing.webhooks");
 const healthRouter = require("./routes/health");
 
-dotenv.config();
+const dotenvResult = dotenv.config();
+console.log("📦 dotenv.config() result:", dotenvResult.error ? `ERROR: ${dotenvResult.error}` : `Loaded ${Object.keys(dotenvResult.parsed || {}).length} vars`);
+console.log("📦 DATABASE_URL set:", !!process.env.DATABASE_URL);
+console.log("📦 JWT_SECRET set:", !!process.env.JWT_SECRET);
 
 // Validează variabilele de mediu necesare la startup
 try {

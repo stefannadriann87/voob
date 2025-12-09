@@ -88,20 +88,27 @@ export default function EmployeeCalendarPage() {
     };
   }, [user?.id, businesses]);
 
+  // Detect if business is SPORT_OUTDOOR
+  const isSportOutdoor = business?.businessType === "SPORT_OUTDOOR";
+
   // Get slot duration from business, or calculate from minimum service duration, or default to 60
+  // For SPORT_OUTDOOR, always use 60 minutes (1 hour)
   const slotDurationMinutes = useMemo(() => {
     if (!business) return 60;
+    if (business.businessType === "SPORT_OUTDOOR") return 60; // SPORT_OUTDOOR always uses 1 hour slots
     if (business.slotDuration !== null && business.slotDuration !== undefined) {
       return business.slotDuration;
     }
     // Calculate from minimum service duration
+    // Slot duration trebuie să fie multiplu de 30 minute și nu mai mare decât durata minimă
     if (business.services && business.services.length > 0) {
       const minDuration = Math.min(...business.services.map((s) => s.duration));
-      // Round to nearest valid slot duration (15, 30, 45, 60)
-      const validDurations = [15, 30, 45, 60];
-      return validDurations.reduce((prev, curr) =>
-        Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
-      );
+      // Round to nearest valid slot duration (30, 60, 90, 120, etc.) - doar multipli de 30
+      const validDurations = [30, 60, 90, 120, 150, 180];
+      return validDurations.reduce((prev, curr) => {
+        if (curr > minDuration) return prev; // Nu folosim slot duration mai mare decât durata minimă
+        return Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev;
+      }, 30); // Default minim 30 minute
     }
     return 60; // Default
   }, [business]);
@@ -1053,41 +1060,49 @@ export default function EmployeeCalendarPage() {
               </button>
             </div>
 
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!selectedClientId || !selectedServiceId || !selectedSlotDate || !businessId) {
-                  return;
-                }
-                if (selectedSlotTooSoon) {
-                  return;
-                }
+            {isSportOutdoor ? (
+              <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+                <p className="text-sm text-yellow-200">
+                  <i className="fas fa-info-circle mr-2" />
+                  Pentru business-uri de tip SPORT_OUTDOOR, employee-ii nu pot crea rezervări. Clienții trebuie să facă rezervările direct prin aplicație.
+                </p>
+              </div>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!selectedClientId || !selectedServiceId || !selectedSlotDate || !businessId) {
+                    return;
+                  }
+                  if (selectedSlotTooSoon) {
+                    return;
+                  }
 
-                setCreatingBooking(true);
-                try {
-                  await createBooking({
-                    clientId: selectedClientId,
-                    businessId,
-                    serviceId: selectedServiceId,
-                    employeeId: user?.id || "", // Always set to current employee
-                    date: selectedSlotDate,
-                    paid,
-                  });
-                  await fetchBookings();
-                  setCreateBookingModalOpen(false);
-                  setSelectedClientId("");
-                  setSelectedServiceId("");
-                  setPaid(false);
-                  setClientSearchQuery("");
-                  setSelectedSlotDate(null);
-                } catch (error) {
-                  // Failed to create booking - error handled by UI
-                } finally {
-                  setCreatingBooking(false);
-                }
-              }}
-              className="flex flex-col gap-6"
-            >
+                  setCreatingBooking(true);
+                  try {
+                    await createBooking({
+                      clientId: selectedClientId,
+                      businessId,
+                      serviceId: selectedServiceId,
+                      employeeId: user?.id || "", // Always set to current employee
+                      date: selectedSlotDate,
+                      paid,
+                    });
+                    await fetchBookings();
+                    setCreateBookingModalOpen(false);
+                    setSelectedClientId("");
+                    setSelectedServiceId("");
+                    setPaid(false);
+                    setClientSearchQuery("");
+                    setSelectedSlotDate(null);
+                  } catch (error) {
+                    // Failed to create booking - error handled by UI
+                  } finally {
+                    setCreatingBooking(false);
+                  }
+                }}
+                className="flex flex-col gap-6"
+              >
               {/* Client Selection */}
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
@@ -1331,7 +1346,8 @@ export default function EmployeeCalendarPage() {
                 </button>
               </div>
               {selectedSlotTooSoon && <p className="text-sm text-red-300">{MIN_LEAD_MESSAGE}</p>}
-            </form>
+              </form>
+            )}
           </div>
         </div>
       )}

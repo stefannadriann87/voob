@@ -9,6 +9,7 @@ import useBookings, { Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import useApi from "../../../hooks/useApi";
 import useWorkingHours from "../../../hooks/useWorkingHours";
+import useCourts from "../../../hooks/useCourts";
 import {
   getBookingCancellationStatus,
   isBookingTooSoon,
@@ -39,6 +40,7 @@ export default function BusinessBookingsPage() {
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
   const [hoveredAvailableSlot, setHoveredAvailableSlot] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
   const [tooltipBooking, setTooltipBooking] = useState<Booking | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number; showAbove: boolean } | null>(null);
   const tooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -106,28 +108,39 @@ export default function BusinessBookingsPage() {
     return businesses.find((b) => b.id === businessId);
   }, [businesses, businessId]);
 
+  // Detect if business is SPORT_OUTDOOR
+  const isSportOutdoor = business?.businessType === "SPORT_OUTDOOR";
+
+  // Get courts for SPORT_OUTDOOR businesses
+  const { courts, loading: courtsLoading } = useCourts(isSportOutdoor ? businessId || null : null);
+
   // Get slot duration from business, or calculate from minimum service duration, or default to 60
+  // For SPORT_OUTDOOR, always use 60 minutes (1 hour)
   const slotDurationMinutes = useMemo(() => {
     if (!business) return 60;
+    if (isSportOutdoor) return 60; // SPORT_OUTDOOR always uses 1 hour slots
     if (business.slotDuration !== null && business.slotDuration !== undefined) {
       return business.slotDuration;
     }
     // Calculate from minimum service duration
+    // Slot duration trebuie să fie multiplu de 30 minute și nu mai mare decât durata minimă
     if (business.services && business.services.length > 0) {
       const minDuration = Math.min(...business.services.map((s) => s.duration));
-      // Round to nearest valid slot duration (15, 30, 45, 60)
-      const validDurations = [15, 30, 45, 60];
-      return validDurations.reduce((prev, curr) =>
-        Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
-      );
+      // Round to nearest valid slot duration (30, 60, 90, 120, etc.) - doar multipli de 30
+      const validDurations = [30, 60, 90, 120, 150, 180];
+      return validDurations.reduce((prev, curr) => {
+        if (curr > minDuration) return prev; // Nu folosim slot duration mai mare decât durata minimă
+        return Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev;
+      }, 30); // Default minim 30 minute
     }
     return 60; // Default
   }, [business]);
 
   // Use working hours hook
+  // For SPORT_OUTDOOR, don't use employeeId (no employees for SPORT_OUTDOOR)
   const { workingHours, getAvailableHoursForDay: getAvailableHoursForDayFromHook, isBreakTime } = useWorkingHours({
     businessId: businessId || null,
-    employeeId: selectedEmployeeId,
+    employeeId: isSportOutdoor ? null : selectedEmployeeId,
     slotDurationMinutes,
   });
 
@@ -229,12 +242,19 @@ export default function BusinessBookingsPage() {
     let filtered = bookings.filter((booking) => booking.businessId === businessId);
     
     // Filter by selected employee if one is selected (for employee tabs)
-    if (selectedEmployeeId) {
+    // Skip for SPORT_OUTDOOR (no employees)
+    if (!isSportOutdoor && selectedEmployeeId) {
       filtered = filtered.filter((booking) => booking.employeeId === selectedEmployeeId);
     }
     
+    // Filter by selected court if one is selected (for court tabs) - SPORT_OUTDOOR only
+    if (isSportOutdoor && selectedCourtId) {
+      filtered = filtered.filter((booking) => booking.courtId === selectedCourtId);
+    }
+    
     // Apply additional filters
-    if (filterEmployeeId) {
+    // Skip for SPORT_OUTDOOR (no employees)
+    if (!isSportOutdoor && filterEmployeeId) {
       filtered = filtered.filter((booking) => booking.employeeId === filterEmployeeId);
     }
     
@@ -266,7 +286,7 @@ export default function BusinessBookingsPage() {
     }
     
     return filtered;
-  }, [bookings, businessId, selectedEmployeeId, filterEmployeeId, filterServiceId, filterStatus, searchQuery]);
+  }, [bookings, businessId, selectedEmployeeId, selectedCourtId, filterEmployeeId, filterServiceId, filterStatus, searchQuery, isSportOutdoor]);
 
   // Get all employees from business, sorted by name
   const employees = useMemo(() => {
@@ -502,8 +522,8 @@ export default function BusinessBookingsPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-medium text-white/60 hidden sm:inline">Filtre:</span>
                 
-                {/* Employee Filter */}
-                {employees.length > 0 && (
+                {/* Employee Filter - Hidden for SPORT_OUTDOOR */}
+                {!isSportOutdoor && employees.length > 0 && (
                   <CustomSelect
                     value={filterEmployeeId || ""}
                     onChange={(value) => setFilterEmployeeId(value || null)}
@@ -570,8 +590,8 @@ export default function BusinessBookingsPage() {
             </div>
           </div>
 
-          {/* Employee Tabs - Mobile optimized */}
-          {employees.length > 0 && (
+          {/* Employee Tabs - Mobile optimized - Hidden for SPORT_OUTDOOR */}
+          {!isSportOutdoor && employees.length > 0 && (
             <div className="flex flex-wrap gap-2 border-b border-white/10 pb-4 overflow-x-auto">
               <button
                 type="button"
@@ -596,6 +616,37 @@ export default function BusinessBookingsPage() {
                   }`}
                 >
                   {employee.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Court Tabs - Mobile optimized - Only for SPORT_OUTDOOR */}
+          {isSportOutdoor && courts.length > 0 && (
+            <div className="flex flex-wrap gap-2 border-b border-white/10 pb-4 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setSelectedCourtId(null)}
+                className={`rounded-lg px-3 sm:px-4 py-2 text-sm font-semibold transition whitespace-nowrap touch-manipulation min-h-[44px] ${
+                  selectedCourtId === null
+                    ? "bg-[#6366F1] text-white"
+                    : "bg-white/5 text-white/70 hover:bg-white/10 active:bg-white/15"
+                }`}
+              >
+                Toate
+              </button>
+              {courts.map((court) => (
+                <button
+                  key={court.id}
+                  type="button"
+                  onClick={() => setSelectedCourtId(court.id)}
+                  className={`rounded-lg px-3 sm:px-4 py-2 text-sm font-semibold transition whitespace-nowrap touch-manipulation min-h-[44px] ${
+                    selectedCourtId === court.id
+                      ? "bg-[#6366F1] text-white"
+                      : "bg-white/5 text-white/70 hover:bg-white/10 active:bg-white/15"
+                  }`}
+                >
+                  {court.name}
                 </button>
               ))}
             </div>
@@ -1718,8 +1769,8 @@ export default function BusinessBookingsPage() {
                 />
               </div>
 
-              {/* Employee Selection (optional) */}
-              {employees.length > 0 && (
+              {/* Employee Selection (optional) - Hidden for SPORT_OUTDOOR */}
+              {!isSportOutdoor && employees.length > 0 && (
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-semibold text-white">Specialist (opțional)</label>
                   <CustomSelect
