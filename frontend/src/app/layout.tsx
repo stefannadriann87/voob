@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import DeepLinkHandler from "../components/DeepLinkHandler";
 import CookieBanner from "../components/CookieBanner";
+import ErrorBoundary from "../components/ErrorBoundary";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,9 +31,11 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <DeepLinkHandler />
-        {children}
-        <CookieBanner />
+        <ErrorBoundary>
+          <DeepLinkHandler />
+          {children}
+          <CookieBanner />
+        </ErrorBoundary>
       </body>
     </html>
   );

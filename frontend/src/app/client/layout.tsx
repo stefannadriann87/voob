@@ -1,6 +1,7 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LayoutDashboard } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
@@ -9,8 +10,16 @@ import useAuth from "../../hooks/useAuth";
 
 export default function ClientLayout({ children }: { children: ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, loading } = useAuth();
   const homePath = user?.role === "CLIENT" ? "/client/dashboard" : "/";
+
+  // Redirect dacă user-ul nu are rolul corect
+  useEffect(() => {
+    if (!loading && user && user.role !== "CLIENT") {
+      router.push("/");
+    }
+  }, [user, loading, router]);
 
   return (
     <div className="min-h-screen bg-[#0B0E17] text-white">

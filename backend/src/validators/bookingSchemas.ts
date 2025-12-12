@@ -41,10 +41,13 @@ const createBookingSchema = z.object({
  * Schema pentru actualizare booking
  */
 const updateBookingSchema = z.object({
+  serviceId: z.string().regex(cuidRegex, "serviceId trebuie să fie un CUID valid").optional().nullable(),
+  employeeId: z.string().regex(cuidRegex, "employeeId trebuie să fie un CUID valid").optional().nullable(),
   date: z.string().datetime({ message: "Data trebuie să fie în format ISO 8601" }).optional(),
   clientNotes: z.string().max(1000, "Notele clientului nu pot depăși 1000 caractere").optional().nullable(),
   status: z.enum(["CONFIRMED", "PENDING_CONSENT", "CANCELLED", "COMPLETED"]).optional(),
   duration: z.number().int().positive().optional().nullable(),
+  paid: z.boolean().optional(),
 });
 
 /**
@@ -76,7 +79,17 @@ const listBookingsQuerySchema = z.object({
   offset: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().nonnegative()).optional(),
 });
 
+
+/**
+ * Schema pentru ștergere booking (body optional)
+ */
+const deleteBookingSchema = z.object({
+  refundPayment: z.boolean().optional(),
+}).optional();
+
+
 module.exports = {
+  deleteBookingSchema,
   createBookingSchema,
   updateBookingSchema,
   confirmBookingSchema,

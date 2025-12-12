@@ -10,6 +10,7 @@ const {
   checkLoginLimit,
   isIpBlacklisted,
 } = require("../services/rateLimitService");
+const { logger } = require("../lib/logger");
 
 /**
  * Middleware pentru rate limiting la înregistrare
@@ -49,15 +50,12 @@ async function rateLimitLogin(
   res: express.Response,
   next: express.NextFunction
 ) {
-  console.log("🔒 Rate limit login middleware - START");
   const ip = getClientIp(req);
-  console.log("🔒 IP:", ip);
 
   try {
     // Verifică blacklist
     const blacklisted = await isIpBlacklisted(ip);
     if (blacklisted) {
-      console.log("❌ IP blacklisted:", ip);
       return res.status(403).json({
         error: "Accesul de la această adresă IP este blocat temporar. Te rugăm să contactezi suportul.",
       });
@@ -66,20 +64,17 @@ async function rateLimitLogin(
     // Verifică rate limit
     const limit = await checkLoginLimit(ip);
     if (!limit.allowed) {
-      console.log("❌ Rate limit exceeded:", { ip, remaining: limit.remaining });
       return res.status(429).json({
         error: `Prea multe încercări de login. Te rugăm să aștepți 15 minute. (${limit.remaining} încercări rămase)`,
         remaining: limit.remaining,
       });
     }
 
-    console.log("✅ Rate limit login middleware - PASSED");
     next();
   } catch (error) {
-    console.error("❌ Rate limit login error:", error);
+    logger.error("❌ Rate limit login error:", error);
     // Fail open în development pentru a nu bloca debugging
     if (process.env.NODE_ENV === "development") {
-      console.log("⚠️ Development mode: allowing request despite rate limit error");
       return next();
     }
     // În production, blochează request-ul dacă există erori

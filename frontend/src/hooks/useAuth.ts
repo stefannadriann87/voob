@@ -319,35 +319,57 @@ export default function useAuth() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    let isMounted = true; // Flag pentru a preveni state updates după unmount
+
     const initialize = async () => {
       // Încercăm să luăm user-ul din localStorage (cache)
       const stored = getStoredUser();
-      if (stored) {
+      if (stored && isMounted) {
         setUser(stored);
         setHydrated(true);
         // Verificăm în background dacă sesiunea e încă validă
-        fetchCurrentUser().catch(() => {
-          // Ignorăm eroarea - deja am setat user-ul din cache
-        });
-      } else {
+        fetchCurrentUser()
+          .then(() => {
+            if (isMounted) {
+              // User validat
+            }
+          })
+          .catch(() => {
+            // Ignorăm eroarea - deja am setat user-ul din cache
+          });
+      } else if (isMounted) {
         // Nu avem cache, încercăm să luăm de pe server
         try {
           await fetchCurrentUser();
+          if (isMounted) {
+            setHydrated(true);
+          }
         } catch {
           // User nu e autentificat - normal
+          if (isMounted) {
+            setHydrated(true);
+          }
         }
-        setHydrated(true);
       }
     };
 
     void initialize();
 
+    // Cleanup: previne state updates după unmount
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchCurrentUser]);
+
+  // Separate useEffect for AUTH_EVENT listener
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const handle = () => syncFromStorage();
     window.addEventListener(AUTH_EVENT, handle);
     return () => {
       window.removeEventListener(AUTH_EVENT, handle);
     };
-  }, [fetchCurrentUser, syncFromStorage]);
+  }, [syncFromStorage]);
 
   return {
     user,

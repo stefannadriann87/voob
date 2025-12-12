@@ -1,6 +1,7 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LayoutDashboard } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
@@ -13,10 +14,18 @@ import useBusiness from "../../hooks/useBusiness";
 
 export default function BusinessLayout({ children }: { children: ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, loading } = useAuth();
   const { businesses } = useBusiness();
   const homePath = user?.role === "BUSINESS" ? "/business/dashboard" : "/";
   const currentBusinessId = businesses.length > 0 ? businesses[0].id : null;
+
+  // Redirect dacă user-ul nu are rolul corect
+  useEffect(() => {
+    if (!loading && user && user.role !== "BUSINESS" && user.role !== "SUPERADMIN") {
+      router.push("/");
+    }
+  }, [user, loading, router]);
 
   return (
     <div className="min-h-screen bg-[#0B0E17] text-white">

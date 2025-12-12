@@ -1,3 +1,5 @@
+const { logger } = require("../../lib/logger");
+
 /**
  * Billing Controller
  * Controllers pentru rutele de billing
@@ -14,6 +16,7 @@ interface AuthenticatedRequest extends express.Request {
 }
 
 /**
+const { logger } = require("../../lib/logger");
  * POST /billing/setup-intent
  * Creează SetupIntent pentru salvarea cardului
  */
@@ -43,12 +46,13 @@ async function createSetupIntentController(
     const clientSecret = await billingService.createSetupIntent(businessId);
     return res.json({ client_secret: clientSecret });
   } catch (error: any) {
-    console.error("Create setup intent error:", error);
+    logger.error("Create setup intent error:", error);
     return res.status(500).json({ error: error.message || "Eroare la crearea SetupIntent." });
   }
 }
 
 /**
+const { logger } = require("../../lib/logger");
  * POST /billing/subscribe
  * Activează subscription pentru un business
  */
@@ -89,12 +93,13 @@ async function subscribeController(req: express.Request, res: express.Response) 
       customerId: result.customerId,
     });
   } catch (error: any) {
-    console.error("Subscribe error:", error);
+    logger.error("Subscribe error:", error);
     return res.status(500).json({ error: error.message || "Eroare la activarea subscription-ului." });
   }
 }
 
 /**
+const { logger } = require("../../lib/logger");
  * POST /billing/cancel
  * Anulează subscription pentru un business
  */
@@ -121,12 +126,13 @@ async function cancelController(req: express.Request, res: express.Response) {
     await billingService.cancelSubscription(businessId);
     return res.json({ success: true, message: "Subscription anulat cu succes." });
   } catch (error: any) {
-    console.error("Cancel subscription error:", error);
+    logger.error("Cancel subscription error:", error);
     return res.status(500).json({ error: error.message || "Eroare la anularea subscription-ului." });
   }
 }
 
 /**
+const { logger } = require("../../lib/logger");
  * GET /billing/status/:businessId
  * Obține statusul subscription-ului pentru un business
  */
@@ -153,7 +159,7 @@ async function getStatusController(req: express.Request, res: express.Response) 
     const status = await billingService.getSubscriptionStatus(businessId);
     return res.json(status);
   } catch (error: any) {
-    console.error("Get status error:", error);
+    logger.error("Get status error:", error);
     return res.status(500).json({ error: error.message || "Eroare la obținerea statusului." });
   }
 }

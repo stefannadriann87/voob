@@ -7,6 +7,7 @@
  */
 
 const prisma = require("../lib/prisma");
+const { logger } = require("../lib/logger");
 
 interface PlanLimits {
   maxEmployees: number | null;
@@ -39,7 +40,7 @@ async function getBusinessPlanLimits(businessId: string): Promise<PlanLimits | n
       smsIncluded: business.currentPlan.smsIncluded,
     };
   } catch (error) {
-    console.error("Error getting business plan limits:", error);
+    logger.error("Error getting business plan limits:", error);
     return null;
   }
 }
@@ -119,7 +120,7 @@ async function checkEmployeeLimit(businessId: string): Promise<{
       maxAllowed: maxEmployees,
     };
   } catch (error) {
-    console.error("Error checking employee limit:", error);
+    logger.error("Error checking employee limit:", error);
     return {
       canAdd: false,
       currentCount: 0,
@@ -157,7 +158,7 @@ async function getCurrentSmsUsage(
 
     return count;
   } catch (error) {
-    console.error("Error getting current SMS usage:", error);
+    logger.error("Error getting current SMS usage:", error);
     return 0;
   }
 }
@@ -233,7 +234,7 @@ async function checkSmsLimit(businessId: string): Promise<{
       limit: smsLimit,
     };
   } catch (error) {
-    console.error("Error checking SMS limit:", error);
+    logger.error("Error checking SMS limit:", error);
     return {
       canSend: false,
       currentUsage: 0,
@@ -289,7 +290,7 @@ async function canChangePlan(
 
     return { canUpgrade: true };
   } catch (error) {
-    console.error("Error checking plan change:", error);
+    logger.error("Error checking plan change:", error);
     return {
       canUpgrade: false,
       error: "Eroare la verificarea schimbării planului.",

@@ -3,6 +3,9 @@
 import express = require("express");
 const prisma = require("../lib/prisma");
 const { verifyJWT } = require("../middleware/auth");
+const { validate } = require("../middleware/validate");
+const { linkClientSchema } = require("../validators/businessSchemas");
+const { logger } = require("../lib/logger");
 
 const router = express.Router();
 
@@ -24,16 +27,12 @@ const businessInclude = {
   // businessType is included by default when using include, but we ensure it's available
 };
 
-router.post("/link", verifyJWT, async (req, res) => {
+router.post("/link", verifyJWT, validate(linkClientSchema), async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const { businessId, method }: { businessId?: string; method?: string } = req.body ?? {};
+  const { businessId, method } = linkClientSchema.parse(req.body);
 
   if (!authReq.user || authReq.user.role !== "CLIENT") {
     return res.status(403).json({ error: "Doar clienții pot scana QR-ul unui business." });
-  }
-
-  if (!businessId) {
-    return res.status(400).json({ error: "businessId este obligatoriu." });
   }
 
   try {
@@ -44,6 +43,11 @@ router.post("/link", verifyJWT, async (req, res) => {
 
     if (!business) {
       return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    // Check if business is suspended
+    if (business.status === "SUSPENDED") {
+      return res.status(403).json({ error: "Business-ul este suspendat. Nu poți să te conectezi momentan." });
     }
 
     await prisma.clientBusinessLink.upsert({
@@ -63,9 +67,47 @@ router.post("/link", verifyJWT, async (req, res) => {
       },
     });
 
-    return res.status(201).json(business);
+    // Fetch updated business list (pentru compatibilitate cu /api/user/attach-business)
+    const links = await prisma.clientBusinessLink.findMany({
+      where: { 
+        clientId: authReq.user.userId,
+        business: {
+          status: { not: "SUSPENDED" },
+        },
+      },
+      include: {
+        business: {
+          include: businessInclude,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const businesses = links.map((link: { business: any }) => {
+      const b = link.business;
+      if (b.slotDuration !== null && b.slotDuration !== undefined) {
+        return b;
+      }
+      const services = b.services || [];
+      if (services.length === 0) {
+        return { ...b, slotDuration: 60 };
+      }
+      const minDuration = Math.min(...services.map((s: { duration: number }) => s.duration));
+      const validDurations = [15, 30, 45, 60];
+      const calculatedSlotDuration = validDurations.reduce((prev, curr) =>
+        Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev
+      );
+      return { ...b, slotDuration: calculatedSlotDuration };
+    });
+
+    return res.status(201).json({
+      success: true,
+      business,
+      businesses,
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
-    console.error("Client link error:", error);
+    logger.error("Client link error:", error);
     return res.status(500).json({ error: "Nu am putut conecta clientul la acest business." });
   }
 });
@@ -79,7 +121,12 @@ router.get("/businesses", verifyJWT, async (req, res) => {
 
   try {
     const links = await prisma.clientBusinessLink.findMany({
-      where: { clientId: authReq.user.userId },
+      where: { 
+        clientId: authReq.user.userId,
+        business: {
+          status: { not: "SUSPENDED" }, // Exclude suspended businesses
+        },
+      },
       include: {
         business: {
           include: businessInclude,
@@ -111,7 +158,7 @@ router.get("/businesses", verifyJWT, async (req, res) => {
     });
     return res.json(businesses);
   } catch (error) {
-    console.error("Client linked businesses error:", error);
+    logger.error("Client linked businesses error:", error);
     return res.status(500).json({ error: "Nu am putut încărca business-urile conectate." });
   }
 });

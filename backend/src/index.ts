@@ -26,9 +26,6 @@ const { billingWebhookHandler } = require("./modules/billing/billing.webhooks");
 const healthRouter = require("./routes/health");
 
 const dotenvResult = dotenv.config();
-console.log("📦 dotenv.config() result:", dotenvResult.error ? `ERROR: ${dotenvResult.error}` : `Loaded ${Object.keys(dotenvResult.parsed || {}).length} vars`);
-console.log("📦 DATABASE_URL set:", !!process.env.DATABASE_URL);
-console.log("📦 JWT_SECRET set:", !!process.env.JWT_SECRET);
 
 // Validează variabilele de mediu necesare la startup
 try {
@@ -72,15 +69,29 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Permite requests fără origin (mobile apps, Postman, etc.) în development
-    if (!origin && process.env.NODE_ENV === "development") {
+    // PRODUCTION: Nu permite requests fără origin (securitate)
+    if (!origin) {
+      // În development, permite doar dacă este explicit setat în env
+      if (process.env.NODE_ENV === "development" && process.env.ALLOW_NO_ORIGIN === "true") {
+        logger.warn("⚠️  CORS: Allowing request without origin in development (ALLOW_NO_ORIGIN=true)");
+        return callback(null, true);
+      }
+      // În production, respinge întotdeauna requests fără origin
+      logger.warn("🚫 CORS: Rejected request without origin", { 
+        env: process.env.NODE_ENV,
+        allowedOrigins: allowedOrigins 
+      });
+      return callback(new Error("Requests without origin are not allowed in production"));
+    }
+    
+    // Verifică dacă origin-ul este în whitelist
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
+    
+    // Origin necunoscut - respinge
+    logger.warn("🚫 CORS: Rejected request from unknown origin", { origin, allowedOrigins });
+    callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -155,6 +166,13 @@ app.use((req: express.Request, res: express.Response) => {
 });
 
 const PORT = getEnv("PORT", "4000");
+
+// Start background workers
+if (process.env.ENABLE_BACKGROUND_WORKERS !== "false") {
+  const { startSmsReminderWorker } = require("./workers/smsReminderWorker");
+  startSmsReminderWorker();
+  logger.info("✅ Background workers started");
+}
 app.listen(Number(PORT), () => {
   logger.info(`API server started on port ${PORT}`);
 });

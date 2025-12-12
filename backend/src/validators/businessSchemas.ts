@@ -42,6 +42,7 @@ const createServiceSchema = z.object({
     }),
   price: z.number().nonnegative("Prețul nu poate fi negativ"),
   description: z.string().max(2000).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
 });
 
 /**
@@ -87,13 +88,30 @@ const businessIdParamSchema = z.object({
   businessId: z.string().regex(cuidRegex).optional(), // Alternative param name
 });
 
-module.exports = {
-  createBusinessSchema,
-  updateBusinessSchema,
-  createServiceSchema,
-  updateServiceSchema,
-  createEmployeeSchema,
-  updateEmployeeSchema,
-  businessIdParamSchema,
-};
+/**
+ * Schema pentru link client la business (QR scan)
+ */
+const linkClientSchema = z.object({
+  businessId: z.string().regex(cuidRegex, "businessId trebuie să fie un CUID valid"),
+  method: z.enum(["QR", "MANUAL", "LINK"]).optional(),
+});
 
+module.exports = {
+
+  createBusinessSchema,
+
+  updateBusinessSchema,
+
+  createServiceSchema,
+
+  updateServiceSchema,
+
+  createEmployeeSchema,
+
+  updateEmployeeSchema,
+
+  businessIdParamSchema,
+
+  linkClientSchema,
+
+};

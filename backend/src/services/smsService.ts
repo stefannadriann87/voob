@@ -6,6 +6,8 @@
 const { SmsUsageType } = require("@prisma/client");
 const { recordSmsUsage } = require("./usageService");
 const { checkSmsLimit } = require("./subscriptionService");
+const { logger } = require("../lib/logger");
+const { addJob, QUEUE_NAMES } = require("./queueService");
 
 interface SmsAdvertResponse {
   success: boolean;
@@ -53,7 +55,7 @@ function formatPhoneNumber(phone: string | null | undefined): string | null {
   // Verifică dacă este format valid E.164 pentru România (+40XXXXXXXXX)
   const romaniaPhoneRegex = /^\+40[0-9]{9}$/;
   if (!romaniaPhoneRegex.test(cleaned)) {
-    console.warn(`Invalid phone number format: ${phone} -> ${cleaned}`);
+    logger.warn(`Invalid phone number format: ${phone} -> ${cleaned}`);
     return null;
   }
 
@@ -70,7 +72,7 @@ async function sendSms(options: SendSmsOptions): Promise<SmsAdvertResponse> {
 
   const apiToken = process.env.SMSADVERT_API_TOKEN;
   if (!apiToken) {
-    console.error("SMSADVERT_API_TOKEN nu este setat în .env");
+    logger.error("SMSADVERT_API_TOKEN nu este setat în .env");
     return {
       success: false,
       error: "SMS service nu este configurat. Token lipsă.",
@@ -81,7 +83,7 @@ async function sendSms(options: SendSmsOptions): Promise<SmsAdvertResponse> {
   if (businessId) {
     const smsLimitCheck = await checkSmsLimit(businessId);
     if (!smsLimitCheck.canSend) {
-      console.warn(`SMS limit reached for business ${businessId}: ${smsLimitCheck.currentUsage}/${smsLimitCheck.limit}`);
+      logger.warn(`SMS limit reached for business ${businessId}: ${smsLimitCheck.currentUsage}/${smsLimitCheck.limit}`);
       return {
         success: false,
         error: smsLimitCheck.error || "Ai atins limita de SMS pentru planul tău.",
@@ -142,9 +144,9 @@ async function sendSms(options: SendSmsOptions): Promise<SmsAdvertResponse> {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("SMSAdvert API error:", data);
+      logger.error("SMSAdvert API error:", data);
       const errorMessage = data.error || data.errorMessage || data.message || "Eroare la trimiterea SMS-ului";
-      console.error("SMS Error details:", {
+      logger.error("SMS Error details:", {
         status: response.status,
         error: errorMessage,
         fullResponse: data,
@@ -166,7 +168,7 @@ async function sendSms(options: SendSmsOptions): Promise<SmsAdvertResponse> {
       cost: costEstimate ?? undefined,
       metadata,
     }).catch((error: unknown) => {
-      console.error("Failed to record SMS usage:", error);
+      logger.error("Failed to record SMS usage:", error);
     });
 
     return {
@@ -175,7 +177,7 @@ async function sendSms(options: SendSmsOptions): Promise<SmsAdvertResponse> {
       messageId,
     };
   } catch (error) {
-    console.error("Error sending SMS:", error);
+    logger.error("Error sending SMS:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Eroare necunoscută la trimiterea SMS-ului",
@@ -230,7 +232,70 @@ async function sendBookingConfirmationSms(
 /**
  * Trimite SMS de reminder pentru o rezervare (ex: 24h înainte)
  */
+/**
+ * Trimite SMS de reminder pentru o rezervare (ex: 24h înainte)
+ * Acum folosește queue system pentru procesare în background
+ */
 async function sendBookingReminderSms(
+  clientName: string,
+  clientPhone: string,
+  businessName: string,
+  bookingDate: Date | string,
+  serviceName?: string | null,
+  businessId?: string | null,
+  reminderHours: number = 24
+): Promise<void> {
+  // Adaugă job în queue pentru procesare în background
+  const bookingDateObj = bookingDate instanceof Date ? bookingDate : new Date(bookingDate);
+  const reminderTime = new Date(bookingDateObj);
+  reminderTime.setHours(reminderTime.getHours() - reminderHours);
+  
+  const now = new Date();
+  const delay = Math.max(0, reminderTime.getTime() - now.getTime());
+  
+  // Generate unique job ID for idempotency
+  const jobId = `sms-reminder-${businessId}-${bookingDateObj.toISOString()}-${reminderHours}`;
+  
+  try {
+    await addJob(
+      QUEUE_NAMES.SMS_REMINDER,
+      {
+        clientName,
+        clientPhone,
+        businessName,
+        bookingDate: bookingDateObj.toISOString(),
+        serviceName,
+        businessId,
+        reminderHours,
+      },
+      {
+        delay,
+        priority: 10, // High priority pentru reminders
+        jobId,
+      }
+    );
+    
+    logger.info(`SMS reminder job added to queue for ${clientName} (delay: ${delay}ms)`);
+  } catch (error: any) {
+    logger.error("Failed to add SMS reminder job to queue:", error);
+    // Fallback: trimite direct dacă queue eșuează (pentru backwards compatibility)
+    logger.warn("Falling back to direct SMS send");
+    await sendBookingReminderSmsDirect(
+      clientName,
+      clientPhone,
+      businessName,
+      bookingDate,
+      serviceName,
+      businessId,
+      reminderHours
+    );
+  }
+}
+
+/**
+ * Trimite SMS de reminder direct (folosit de worker sau fallback)
+ */
+async function sendBookingReminderSmsDirect(
   clientName: string,
   clientPhone: string | null | undefined,
   businessName: string,
@@ -334,6 +399,7 @@ module.exports = {
   sendSms,
   sendBookingConfirmationSms,
   sendBookingReminderSms,
+  sendBookingReminderSmsDirect,
   sendBookingCancellationSms,
 };
 

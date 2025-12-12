@@ -4,6 +4,7 @@
  */
 
 const axios = require("axios");
+const { logger } = require("../lib/logger");
 
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
@@ -26,7 +27,7 @@ async function verifyCaptcha(
   ip?: string
 ): Promise<CaptchaVerificationResult> {
   if (!RECAPTCHA_SECRET_KEY) {
-    console.warn("RECAPTCHA_SECRET_KEY nu este configurat. CAPTCHA verificare va eșua.");
+    logger.warn("RECAPTCHA_SECRET_KEY nu este configurat. CAPTCHA verificare va eșua.");
     // În development, dacă nu e configurat, permitem (pentru testare)
     if (process.env.NODE_ENV === "development") {
       return {
@@ -83,7 +84,7 @@ async function verifyCaptcha(
       action: data.action || "unknown",
     };
   } catch (error: any) {
-    console.error("CAPTCHA verification error:", error);
+    logger.error("CAPTCHA verification error:", error);
     return {
       success: false,
       score: 0,

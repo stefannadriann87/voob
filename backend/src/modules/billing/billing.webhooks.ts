@@ -22,10 +22,15 @@ async function handleInvoicePaymentSucceeded(invoice: any) {
 
   if (!subscription) return;
 
-  // Actualizează next billing date și status
+  // IMPORTANT FIX: Verifică dacă subscription-ul este deja ACTIVE cu același nextBillingDate
   const nextBillingDate = invoice.period_end
     ? new Date(invoice.period_end * 1000)
     : null;
+
+  if (subscription.status === "ACTIVE" && subscription.nextBillingDate?.getTime() === nextBillingDate?.getTime()) {
+    logger.warn("Invoice payment already processed", { subscriptionId, invoiceId: invoice.id });
+    return; // Skip - deja procesat
+  }
 
   await prisma.subscription.update({
     where: { id: subscription.id },
@@ -150,6 +155,17 @@ async function billingWebhookHandler(
     }
 
   try {
+    // IMPORTANT FIX: Verifică dacă event-ul a fost deja procesat (idempotency)
+    const eventId = event.id;
+    const processedEvent = await prisma.webhookEvent.findUnique({
+      where: { eventId },
+    });
+
+    if (processedEvent && processedEvent.processed) {
+      logger.info("Billing webhook event already processed", { eventId, type: event.type });
+      return res.json({ received: true });
+    }
+
     switch (event.type) {
       case "invoice.payment_succeeded":
         await handleInvoicePaymentSucceeded(event.data.object);
@@ -171,9 +187,22 @@ async function billingWebhookHandler(
         logger.warn(`Unhandled webhook event type`, { eventType: event.type });
     }
 
+    // IMPORTANT FIX: Salvează event-ul ca procesat (idempotency)
+    await prisma.webhookEvent.upsert({
+      where: { eventId },
+      create: {
+        eventId,
+        type: event.type,
+        processed: true,
+      },
+      update: {
+        processed: true,
+      },
+    });
+
     return res.json({ received: true });
     } catch (error: any) {
-      console.error("Billing webhook handler error:", error);
+      logger.error("Billing webhook handler error:", error);
       return res.status(500).send("Webhook handler error");
     }
   });

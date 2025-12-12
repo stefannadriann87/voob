@@ -28,7 +28,6 @@ const createRateLimiter = (options: RateLimitOptions & { perPath?: boolean; meth
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     // Log pentru debugging (doar pentru /auth/login)
     if (req.path === "/auth/login" && req.method === "POST") {
-      console.log("🌐 Global rate limiter - /auth/login request");
     }
 
     // Skip rate limiting pentru webhooks (au propriul sistem de verificare)
@@ -48,7 +47,6 @@ const createRateLimiter = (options: RateLimitOptions & { perPath?: boolean; meth
 
     const ip = getClientIp(req);
     if (!ip) {
-      console.log("⚠️ No IP found, skipping rate limit");
       return next();
     }
 

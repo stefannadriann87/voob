@@ -31,6 +31,7 @@ function createAggregatedPayment(businessId: string, businessName: string): Aggr
 const prisma = require("../../lib/prisma");
 const { upsertSettings } = require("../../services/settingsService");
 const { logSystemAction } = require("../../services/auditService");
+const { logger } = require("../../lib/logger");
 
 async function listSubscriptions() {
   const subscriptions = await prisma.subscription.findMany({
@@ -108,10 +109,10 @@ async function getPlatformSettings() {
       updatedAt: setting.updatedAt.toISOString(),
     }));
   } catch (error: any) {
-    console.error("Error fetching platform settings:", error);
+    logger.error("Error fetching platform settings:", error);
     // If table doesn't exist or is empty, return empty array
     if (error.message?.includes("does not exist") || error.message?.includes("Unknown table")) {
-      console.warn("PlatformSettings table does not exist, returning empty array");
+      logger.warn("PlatformSettings table does not exist, returning empty array");
       return [];
     }
     throw error;

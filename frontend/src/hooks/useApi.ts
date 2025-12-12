@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import { useMemo } from "react";
+import { sanitizeObject } from "../lib/sanitize";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -18,6 +19,22 @@ export default function useApi(): AxiosInstance {
       withCredentials: true, // IMPORTANT: Trimite cookies automat (inclusiv JWT HttpOnly)
       timeout: 10000, // 10 second timeout
     });
+
+    // Request interceptor pentru sanitizare (previne XSS)
+    client.interceptors.request.use(
+      (config) => {
+        // Sanitize request data (skip FormData pentru file uploads)
+        if (config.data && typeof config.data === "object" && !(config.data instanceof FormData)) {
+          config.data = sanitizeObject(config.data);
+        }
+        // Sanitize query params
+        if (config.params && typeof config.params === "object") {
+          config.params = sanitizeObject(config.params);
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
 
     // Response interceptor pentru error handling
     client.interceptors.response.use(

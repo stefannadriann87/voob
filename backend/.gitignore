@@ -3,3 +3,10 @@ node_modules
 .env
 
 /generated/prisma
+
+# TypeScript generated files
+*.d.ts.map
+scripts/*.d.ts
+scripts/*.d.ts.map
+scripts/*.js.map
+dist/**/*.d.ts.map

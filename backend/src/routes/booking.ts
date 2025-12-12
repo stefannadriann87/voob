@@ -13,7 +13,9 @@ const {
 const { getStripeClient } = require("../services/stripeService");
 const { sendEmail } = require("../services/emailService");
 const { verifyJWT } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
+const { requireBookingAccess } = require("../middleware/requireOwnership");
+const { paginationQuerySchema, getPaginationParams, buildPaginationResponse } = require("../validators/paginationSchemas");
+const { validate, validateQuery } = require("../middleware/validate");
 const {
   createBookingSchema,
 } = require("../validators/bookingSchemas");
@@ -153,15 +155,22 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
       bookingEnd = new Date(bookingStart.getTime() + serviceDurationMinutes * 60 * 1000);
 
       // Verificare suprapunere pentru teren
+      // Optimizat: folosește range mai mic (2 ore buffer) și select specific pentru performanță
+      const overlapBufferMs = 2 * HOUR_IN_MS; // 2 ore buffer (suficient pentru verificare suprapunere)
       const overlappingBookings = await prisma.booking.findMany({
         where: {
           courtId,
           businessId,
           status: { not: "CANCELLED" },
           date: {
-            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
-            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+            gte: new Date(bookingStart.getTime() - overlapBufferMs),
+            lte: new Date(bookingEnd.getTime() + overlapBufferMs),
           },
+        },
+        select: {
+          id: true,
+          date: true,
+          duration: true,
         },
       });
 
@@ -199,19 +208,22 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
 
       // VALIDATION: Check for overlapping bookings with the same employee
       if (employeeId) {
+        // Optimizat: folosește range mai mic (2 ore buffer) și select specific
+        const overlapBufferMs = 2 * HOUR_IN_MS; // 2 ore buffer
         const overlappingBookings = await prisma.booking.findMany({
           where: {
             employeeId,
             businessId,
-            status: { not: "CANCELLED" }, // Exclude cancelled bookings
+            status: { not: "CANCELLED" },
             date: {
-              // Check for overlap: bookingStart < existingEnd && bookingEnd > existingStart
-              // We need to check bookings that overlap with our time range
-              gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS), // Start search from 24h before
-              lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS), // End search 24h after
+              gte: new Date(bookingStart.getTime() - overlapBufferMs),
+              lte: new Date(bookingEnd.getTime() + overlapBufferMs),
             },
           },
-          include: {
+          select: {
+            id: true,
+            date: true,
+            duration: true,
             service: { select: { duration: true } },
           },
         });
@@ -237,11 +249,14 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
             employeeId: null,
             status: { not: "CANCELLED" },
             date: {
-              gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
-              lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+              gte: new Date(bookingStart.getTime() - overlapBufferMs),
+              lte: new Date(bookingEnd.getTime() + overlapBufferMs),
             },
           },
-          include: {
+          select: {
+            id: true,
+            date: true,
+            duration: true,
             service: { select: { duration: true } },
           },
         });
@@ -525,9 +540,41 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
   }
 });
 
-router.get("/", async (_req, res) => {
+router.get("/", verifyJWT, validateQuery(paginationQuerySchema), async (req, res) => {
+  const authReq = req as express.Request & { user?: { userId: string; role: string; businessId?: string } };
+  const userRole = authReq.user?.role;
+  const userId = authReq.user?.userId;
+  const userBusinessId = authReq.user?.businessId;
+  
+  // Parse pagination parameters
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 20;
+  const { skip, take } = getPaginationParams(page, limit);
+
   try {
+    // Build where clause based on user role
+    const where: any = {};
+    
+    if (userRole === "CLIENT") {
+      where.clientId = userId;
+    } else if (userRole === "BUSINESS") {
+      where.businessId = userBusinessId || { in: await prisma.business.findMany({ where: { ownerId: userId }, select: { id: true } }).then((bs: any[]) => (bs as any[]).map((b: any) => b.id)) };
+    } else if (userRole === "EMPLOYEE") {
+      // Employees can see bookings for their business
+      const employee = await prisma.user.findUnique({ where: { id: userId }, select: { businessId: true } });
+      if (employee?.businessId) {
+        where.businessId = employee.businessId;
+      } else {
+        return res.status(403).json({ error: "Nu ai permisiunea de a vedea rezervările." });
+      }
+    } else if (userRole !== "SUPERADMIN") {
+      return res.status(403).json({ error: "Nu ai permisiunea de a vedea rezervările." });
+    }
+    // SUPERADMIN can see all bookings (no where clause)
     const bookings = await prisma.booking.findMany({
+      where: Object.keys(where).length > 0 ? where : undefined,
+      skip,
+      take,
       orderBy: { date: "desc" },
       include: {
         client: { select: { id: true, name: true, email: true, phone: true } },
@@ -538,42 +585,42 @@ router.get("/", async (_req, res) => {
       },
     });
 
-    return res.json(bookings);
+    // Get total count for pagination
+      const total = await prisma.booking.count({ 
+      where: Object.keys(where).length > 0 ? where : undefined 
+    });
+  
+  return res.json(buildPaginationResponse(bookings, total, page, limit));
   } catch (error) {
     logger.error("Failed to list bookings", error);
     return res.status(500).json({ error: "Eroare la listarea rezervărilor." });
   }
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", verifyJWT, requireBookingAccess("id"), validate(updateBookingSchema), async (req, res) => {
   const { id } = req.params;
-  const {
-    serviceId,
-    employeeId,
-    date,
-    paid,
-  }: {
-    serviceId?: string;
-    employeeId?: string | null;
-    date?: string;
-    paid?: boolean;
-  } = req.body;
-
-  if (!id) {
-    return res.status(400).json({ error: "ID rezervare lipsă." });
-  }
+  const { serviceId, employeeId, date, clientNotes, status, duration, paid } = updateBookingSchema.parse(req.body);
 
   try {
-    const existingBooking = await prisma.booking.findUnique({
+    // Fetch booking with business info for status check
+    const bookingWithBusiness = await prisma.booking.findUnique({
       where: { id },
       include: {
         service: { select: { id: true, duration: true } },
+        business: { select: { id: true, status: true } },
       },
     });
 
-    if (!existingBooking) {
+    if (!bookingWithBusiness) {
       return res.status(404).json({ error: "Rezervarea nu există." });
     }
+
+    // Check if business is suspended
+    if (bookingWithBusiness.business.status === "SUSPENDED") {
+      return res.status(403).json({ error: "Business-ul este suspendat. Modificările sunt oprite temporar." });
+    }
+
+    const existingBooking = bookingWithBusiness;
 
     // Determine the final values after update
     const finalServiceId = serviceId ?? existingBooking.serviceId;
@@ -605,8 +652,8 @@ router.put("/:id", async (req, res) => {
           id: { not: id }, // Exclude the current booking
           status: { not: "CANCELLED" },
           date: {
-            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
-            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+            gte: new Date(bookingStart.getTime() - overlapBufferMs),
+            lte: new Date(bookingEnd.getTime() + overlapBufferMs),
           },
         },
         include: {
@@ -634,8 +681,8 @@ router.put("/:id", async (req, res) => {
           id: { not: id },
           status: { not: "CANCELLED" },
           date: {
-            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
-            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+            gte: new Date(bookingStart.getTime() - overlapBufferMs),
+            lte: new Date(bookingEnd.getTime() + overlapBufferMs),
           },
         },
         include: {
@@ -723,26 +770,24 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-router.delete("/:id", verifyJWT, async (req, res) => {
-  const { id } = req.params;
-  const { refundPayment } = req.body || {}; // Optional: true = refund automat, false/undefined = credit pentru client
-
-  if (!id) {
-    return res.status(400).json({ error: "ID rezervare lipsă." });
-  }
+router.delete("/:id", verifyJWT, requireBookingAccess("id"), async (req, res) => {
+  // Validate params
+  const { id } = bookingIdParamSchema.parse({ id: req.params.id });
+  // Validate body if present
+  const body = req.body && Object.keys(req.body).length > 0 ? deleteBookingSchema.parse(req.body) : {};
+  const { refundPayment } = body;
 
   try {
     const authReq = req as express.Request & { user?: { userId: string; role: string; businessId?: string } };
     const userRole = authReq.user?.role;
     const userId = authReq.user?.userId;
-    const userBusinessId = authReq.user?.businessId;
 
     const booking = await prisma.booking.findUnique({
       where: { id },
       include: {
         consentForm: true,
         client: { select: { id: true, name: true, email: true, phone: true } },
-        business: { select: { id: true, name: true, ownerId: true, employees: { select: { id: true } } } },
+        business: { select: { id: true, name: true, ownerId: true, employees: { select: { id: true } }, status: true } },
         service: { select: { id: true, name: true, price: true } },
         employee: { select: { id: true, name: true } },
       },
@@ -758,18 +803,13 @@ router.delete("/:id", verifyJWT, async (req, res) => {
       return res.status(400).json({ error: "Rezervarea a fost deja anulată." });
     }
 
-    // Authorization check: only client, business owner, employee of the business, or superadmin can cancel
-    const isClient = userRole === "CLIENT" && booking.clientId === userId;
-    const isBusinessOwner = userRole === "BUSINESS" && booking.business.ownerId === userId;
-    const isEmployee = userRole === "EMPLOYEE" && booking.business.employees.some((emp: { id: string }) => emp.id === userId);
-    const isSuperAdmin = userRole === "SUPERADMIN";
-
-    if (!isClient && !isBusinessOwner && !isEmployee && !isSuperAdmin) {
-      return res.status(403).json({ error: "Nu ai permisiunea de a anula această rezervare." });
-    }
-
     // Time limits only apply to clients
     // Business, employee, and superadmin can cancel anytime
+    // Check user permissions
+    const isBusinessOwner = booking.business.ownerId === userId;
+    const isEmployee = booking.business.employees.some((emp: any) => emp.id === userId);
+    const isSuperAdmin = userRole === "SUPERADMIN";
+
     const bypassTimeLimits = isBusinessOwner || isEmployee || isSuperAdmin;
 
     if (!bypassTimeLimits) {
@@ -1237,8 +1277,8 @@ router.post("/confirm", verifyJWT, async (req, res) => {
           businessId: pending.businessId,
           status: { not: "CANCELLED" },
           date: {
-            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
-            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+            gte: new Date(bookingStart.getTime() - overlapBufferMs),
+            lte: new Date(bookingEnd.getTime() + overlapBufferMs),
           },
         },
         include: {
@@ -1265,8 +1305,8 @@ router.post("/confirm", verifyJWT, async (req, res) => {
           employeeId: null,
           status: { not: "CANCELLED" },
           date: {
-            gte: new Date(bookingStart.getTime() - 24 * HOUR_IN_MS),
-            lte: new Date(bookingEnd.getTime() + 24 * HOUR_IN_MS),
+            gte: new Date(bookingStart.getTime() - overlapBufferMs),
+            lte: new Date(bookingEnd.getTime() + overlapBufferMs),
           },
         },
         include: {

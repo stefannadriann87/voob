@@ -8,6 +8,10 @@ const { aiChatHandler } = require("../controllers/ai.controller");
 const { buildAIContext } = require("../ai/contextBuilder");
 const { runAIAgent } = require("../ai/agent");
 const { toolsByRole } = require("../ai/permissions");
+const { aiRateLimiter } = require("../middleware/aiRateLimit");
+const { sanitizeAiMessage, sanitizeConversationHistory, validateAiMessage } = require("../lib/aiSanitize");
+const { checkAllCostLimits } = require("../services/aiCostService");
+const { logger } = require("../lib/logger");
 
 const router = express.Router();
 
@@ -15,36 +19,53 @@ const router = express.Router();
  * POST /api/ai/chat
  * Endpoint pentru AI chat cu function calling (nou)
  */
-router.post("/chat", verifyJWT, aiChatHandler);
+router.post("/chat", verifyJWT, aiRateLimiter, aiChatHandler);
 
 /**
  * POST /api/ai/agent
  * Endpoint principal pentru AI Agent (compatibilitate cu vechiul sistem)
  */
-router.post("/agent", verifyJWT, async (req: any, res: any) => {
+router.post("/agent", verifyJWT, aiRateLimiter, async (req: any, res: any) => {
   try {
-    console.log("🔵 AI Agent request received");
     const authReq = req;
     const user = authReq.user;
 
     if (!user) {
-      console.error("❌ No user in request");
+      logger.error("❌ No user in request");
       return res.status(401).json({ error: "Utilizator neautentificat." });
     }
 
-    console.log("✅ User authenticated:", { userId: user.userId, role: user.role });
 
-    const { message, conversationHistory = [] }: { message?: string; conversationHistory?: any[] } = req.body;
+    const { message: rawMessage, conversationHistory: rawHistory = [] }: { message?: string; conversationHistory?: any[] } = req.body;
 
-    if (!message) {
-      return res.status(400).json({ error: "Mesajul este obligatoriu." });
+    // Validare și sanitizare input
+    const validation = validateAiMessage(rawMessage);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error || "Mesaj invalid." });
     }
 
-    console.log("📝 Processing message:", message.substring(0, 50) + "...");
+    const message = sanitizeAiMessage(rawMessage || "");
+    const conversationHistory = sanitizeConversationHistory(rawHistory);
+
+    // Verifică limitele de cost
+    const costCheck = await checkAllCostLimits(user.userId, user.businessId || null);
+    if (!costCheck.allowed) {
+      logger.warn(`❌ AI cost limit exceeded for user ${user.userId}: ${costCheck.reason}`);
+      return res.status(429).json({
+        error: "Limita de cost pentru AI a fost depășită. Te rugăm să încerci mai târziu.",
+        reason: costCheck.reason,
+      });
+    }
+
 
     // Construiește contextul AI
     const context = await buildAIContext(user);
-    console.log("🔧 Context built:", { userId: context.userId, role: context.role, businessId: context.businessId });
+
+    // Validează context-ul înainte de folosire
+    if (!context || !context.userId || !context.role) {
+      logger.error("❌ Invalid context built for user:", user.userId);
+      return res.status(500).json({ error: "Eroare la construirea contextului AI." });
+    }
 
     // Gestionează cererea AI folosind noul agent
     const result = await runAIAgent({
@@ -52,7 +73,6 @@ router.post("/agent", verifyJWT, async (req: any, res: any) => {
       context,
       conversationHistory,
     });
-    console.log("✅ AI response generated");
 
     return res.json({
       response: result.reply,
@@ -60,8 +80,8 @@ router.post("/agent", verifyJWT, async (req: any, res: any) => {
       toolCalls: result.toolCalls,
     });
   } catch (error: any) {
-    console.error("❌ AI Agent error:", error);
-    console.error("Error stack:", error.stack);
+    logger.error("❌ AI Agent error:", error);
+    logger.error("Error stack:", error.stack);
     return res.status(500).json({ error: error.message || "Eroare la procesarea cererii AI." });
   }
 });

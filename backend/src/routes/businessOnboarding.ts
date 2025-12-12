@@ -15,8 +15,24 @@ const {
   createOnboardingLink,
   getVerificationStatus,
 } = require("../services/stripeConnectService");
+const { logger } = require("../lib/logger");
+const { validate } = require("../middleware/validate");
+const { registerBusinessSchema, legalInfoSchema, representativeSchema, bankAccountSchema, submitKycSchema, businessIdParamSchema } = require("../validators/businessOnboardingSchemas");
 
 const router = express.Router();
+
+// Helper pentru verificare ownership business
+const requireBusinessOwnership = async (businessId: string, userId: string, role: string): Promise<boolean> => {
+  if (role === "SUPERADMIN") {
+    return true;
+  }
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { ownerId: true },
+  });
+  return business?.ownerId === userId;
+};
+
 
 interface AuthenticatedRequest extends express.Request {
   user?: {
@@ -29,17 +45,9 @@ interface AuthenticatedRequest extends express.Request {
  * POST /business-onboarding/register
  * Creează un business nou cu trial
  */
-router.post("/register", verifyJWT, async (req: express.Request, res: express.Response) => {
+router.post("/register", verifyJWT, validate(registerBusinessSchema), async (req: express.Request, res: express.Response) => {
   const authReq = req as AuthenticatedRequest;
-  const {
-    businessName,
-    businessEmail,
-    businessType,
-  }: {
-    businessName?: string;
-    businessEmail?: string;
-    businessType?: string;
-  } = req.body;
+  const { businessName, businessEmail, businessType } = registerBusinessSchema.parse(req.body);
 
   if (!businessName) {
     return res.status(400).json({ error: "Numele business-ului este obligatoriu." });
@@ -108,7 +116,7 @@ router.post("/register", verifyJWT, async (req: express.Request, res: express.Re
       },
     });
   } catch (error) {
-    console.error("Business onboarding register error:", error);
+    logger.error("Business onboarding register error:", error);
     return res.status(500).json({ error: "Eroare la crearea business-ului." });
   }
 });
@@ -117,7 +125,7 @@ router.post("/register", verifyJWT, async (req: express.Request, res: express.Re
  * POST /business-onboarding/legal-info
  * Salvează datele legale ale business-ului
  */
-router.post("/legal-info", verifyJWT, async (req: express.Request, res: express.Response) => {
+router.post("/legal-info", verifyJWT, validate(legalInfoSchema), async (req: express.Request, res: express.Response) => {
   const authReq = req as AuthenticatedRequest;
   const {
     businessId,
@@ -194,7 +202,7 @@ router.post("/legal-info", verifyJWT, async (req: express.Request, res: express.
 
     return res.json(legalInfo);
   } catch (error) {
-    console.error("Legal info save error:", error);
+    logger.error("Legal info save error:", error);
     return res.status(500).json({ error: "Eroare la salvarea datelor legale." });
   }
 });
@@ -203,7 +211,7 @@ router.post("/legal-info", verifyJWT, async (req: express.Request, res: express.
  * POST /business-onboarding/representative
  * Salvează datele reprezentantului legal
  */
-router.post("/representative", verifyJWT, async (req: express.Request, res: express.Response) => {
+router.post("/representative", verifyJWT, validate(representativeSchema), async (req: express.Request, res: express.Response) => {
   const authReq = req as AuthenticatedRequest;
   const {
     businessId,
@@ -268,7 +276,7 @@ router.post("/representative", verifyJWT, async (req: express.Request, res: expr
 
     return res.json(representative);
   } catch (error) {
-    console.error("Representative save error:", error);
+    logger.error("Representative save error:", error);
     return res.status(500).json({ error: "Eroare la salvarea datelor reprezentantului." });
   }
 });
@@ -277,7 +285,7 @@ router.post("/representative", verifyJWT, async (req: express.Request, res: expr
  * POST /business-onboarding/bank-account
  * Salvează și validează contul bancar
  */
-router.post("/bank-account", verifyJWT, async (req: express.Request, res: express.Response) => {
+router.post("/bank-account", verifyJWT, validate(bankAccountSchema), async (req: express.Request, res: express.Response) => {
   const authReq = req as AuthenticatedRequest;
   const { businessId, iban, bankName, accountHolder } = req.body;
 
@@ -330,7 +338,7 @@ router.post("/bank-account", verifyJWT, async (req: express.Request, res: expres
 
     return res.json(bankAccount);
   } catch (error) {
-    console.error("Bank account save error:", error);
+    logger.error("Bank account save error:", error);
     return res.status(500).json({ error: "Eroare la salvarea contului bancar." });
   }
 });
@@ -342,7 +350,7 @@ router.post("/bank-account", verifyJWT, async (req: express.Request, res: expres
  * POST /business-onboarding/submit-kyc
  * Trimite datele pentru verificare KYC prin Stripe Connect
  */
-router.post("/submit-kyc", verifyJWT, async (req: express.Request, res: express.Response) => {
+router.post("/submit-kyc", verifyJWT, validate(submitKycSchema), async (req: express.Request, res: express.Response) => {
   const authReq = req as AuthenticatedRequest;
   const { businessId } = req.body;
 
@@ -383,7 +391,7 @@ router.post("/submit-kyc", verifyJWT, async (req: express.Request, res: express.
       message: "Cont Stripe Connect creat. Completează onboarding-ul pentru verificare.",
     });
   } catch (error) {
-    console.error("KYC submit error:", error);
+    logger.error("KYC submit error:", error);
     return res.status(500).json({ error: "Eroare la crearea contului Stripe Connect." });
   }
 });
@@ -393,7 +401,7 @@ router.post("/submit-kyc", verifyJWT, async (req: express.Request, res: express.
  * Returnează statusul onboarding-ului
  */
 router.get("/status/:businessId", verifyJWT, async (req: express.Request, res: express.Response) => {
-  const { businessId } = req.params;
+    const { businessId } = businessIdParamSchema.parse({ businessId: req.params.businessId });
   const authReq = req as AuthenticatedRequest;
 
   // Verifică autorizarea
@@ -409,19 +417,19 @@ router.get("/status/:businessId", verifyJWT, async (req: express.Request, res: e
   try {
     const [legalInfo, representative, bankAccount, kycStatus] = await Promise.all([
       prisma.businessLegalInfo.findUnique({ where: { businessId } }).catch((err: any) => {
-        console.error("Error fetching legalInfo:", err);
+        logger.error("Error fetching legalInfo:", err);
         return null;
       }),
       prisma.businessRepresentative.findUnique({ where: { businessId } }).catch((err: any) => {
-        console.error("Error fetching representative:", err);
+        logger.error("Error fetching representative:", err);
         return null;
       }),
       prisma.businessBankAccount.findUnique({ where: { businessId } }).catch((err: any) => {
-        console.error("Error fetching bankAccount:", err);
+        logger.error("Error fetching bankAccount:", err);
         return null;
       }),
       prisma.businessKycStatus.findUnique({ where: { businessId } }).catch((err: any) => {
-        console.error("Error fetching kycStatus:", err);
+        logger.error("Error fetching kycStatus:", err);
         return null;
       }),
     ]);
@@ -431,7 +439,7 @@ router.get("/status/:businessId", verifyJWT, async (req: express.Request, res: e
       try {
         verificationStatus = await getVerificationStatus(kycStatus.stripeConnectAccountId);
       } catch (error) {
-        console.error("Error getting verification status:", error);
+        logger.error("Error getting verification status:", error);
         // Don't fail the whole request if verification status fails
       }
     }
@@ -445,7 +453,7 @@ router.get("/status/:businessId", verifyJWT, async (req: express.Request, res: e
       isComplete: !!(legalInfo && representative && bankAccount),
     });
   } catch (error: any) {
-    console.error("Onboarding status error:", error);
+    logger.error("Onboarding status error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     const isDevelopment = process.env.NODE_ENV !== "production";
     return res.status(500).json({ 

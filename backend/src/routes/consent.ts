@@ -4,6 +4,8 @@ const pdfLib = require("pdf-lib") as typeof import("pdf-lib");
 const { PDFDocument, StandardFonts } = pdfLib;
 const prisma = require("../lib/prisma");
 const { verifyJWT } = require("../middleware/auth");
+const { validate } = require("../middleware/validate");
+const { signConsentSchema, uploadConsentSchema, bookingIdParamSchema, clientIdParamSchema, documentIdParamSchema, consentListQuerySchema, consentClientQuerySchema } = require("../validators/consentSchemas");
 const { logger } = require("../lib/logger");
 
 interface AuthenticatedRequest extends express.Request {
@@ -123,21 +125,22 @@ router.get("/template", (_req, res) => {
   return res.json({ template: consentTemplate });
 });
 
-router.post("/sign", verifyJWT, async (req, res) => {
+router.post("/sign", verifyJWT, validate(signConsentSchema), async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const { bookingId, clientId, signature, formData } = req.body as {
-    bookingId?: string;
-    clientId?: string;
-    signature?: string;
-    formData?: Record<string, unknown>;
-  };
+  const { bookingId, clientId, signature, formData } = signConsentSchema.parse(req.body);
 
   if (!authReq.user) {
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 
-  if (!bookingId || !clientId || !formData) {
-    return res.status(400).json({ error: "bookingId, clientId și formData sunt obligatorii." });
+  // Verify role is CLIENT
+  if (authReq.user.role !== "CLIENT") {
+    return res.status(403).json({ error: "Doar clienții pot semna consimțământul." });
+  }
+
+  // Verify clientId matches authenticated user
+  if (authReq.user.userId !== clientId) {
+    return res.status(403).json({ error: "Nu poți semna pentru o programare care nu îți aparține." });
   }
 
   try {
@@ -317,16 +320,12 @@ router.post("/sign", verifyJWT, async (req, res) => {
   }
 });
 
-router.post("/upload", verifyJWT, async (req, res) => {
+router.post("/upload", verifyJWT, validate(uploadConsentSchema), async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const { bookingId, pdfDataUrl, fileName } = req.body as { bookingId?: string; pdfDataUrl?: string; fileName?: string };
+  const { bookingId, pdfDataUrl, fileName } = uploadConsentSchema.parse(req.body);
 
   if (!authReq.user) {
     return res.status(401).json({ error: "Autentificare necesară." });
-  }
-
-  if (!bookingId || !pdfDataUrl) {
-    return res.status(400).json({ error: "bookingId și pdfDataUrl sunt obligatorii." });
   }
 
   try {
@@ -411,15 +410,15 @@ router.post("/upload", verifyJWT, async (req, res) => {
 
 router.get("/client/:clientId", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const { clientId } = req.params;
-  const { businessId, employeeId } = req.query as { businessId?: string; employeeId?: string };
+  const { clientId } = clientIdParamSchema.parse({ clientId: req.params.clientId });
+  const queryParams = consentClientQuerySchema.parse({
+    businessId: req.query.businessId,
+    employeeId: req.query.employeeId,
+  });
+  const { businessId, employeeId } = queryParams;
 
   if (!authReq.user) {
     return res.status(401).json({ error: "Autentificare necesară." });
-  }
-
-  if (!clientId || !businessId) {
-    return res.status(400).json({ error: "clientId și businessId sunt obligatorii." });
   }
 
   try {
@@ -537,10 +536,10 @@ router.get("/client/:clientId", verifyJWT, async (req, res) => {
 
 router.get("/:bookingId", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const bookingId = req.params.bookingId;
+  const { bookingId } = bookingIdParamSchema.parse({ bookingId: req.params.bookingId });
 
-  if (!bookingId) {
-    return res.status(400).json({ error: "bookingId invalid." });
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
   }
 
   try {
@@ -553,7 +552,15 @@ router.get("/:bookingId", verifyJWT, async (req, res) => {
             date: true,
             status: true,
             service: { select: { id: true, name: true } },
-            business: { select: { id: true, name: true, businessType: true, ownerId: true } },
+            business: { 
+              select: { 
+                id: true, 
+                name: true, 
+                businessType: true, 
+                ownerId: true,
+                employees: { select: { id: true } },
+              } 
+            },
             client: { select: { id: true, name: true, email: true } },
           },
         },
@@ -564,11 +571,12 @@ router.get("/:bookingId", verifyJWT, async (req, res) => {
       return res.status(404).json({ error: "Consimțământ inexistent pentru această rezervare." });
     }
 
-    const isOwner = consent.booking.business.ownerId === authReq.user?.userId;
-    const isClient = consent.booking.client.id === authReq.user?.userId;
-    const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
+    const isOwner = consent.booking.business.ownerId === authReq.user.userId;
+    const isClient = consent.booking.client.id === authReq.user.userId;
+    const isEmployee = consent.booking.business.employees.some((employee: { id: string }) => employee.id === authReq.user.userId);
+    const isSuperAdmin = authReq.user.role === "SUPERADMIN";
 
-    if (!isOwner && !isClient && !isSuperAdmin) {
+    if (!isOwner && !isClient && !isEmployee && !isSuperAdmin) {
       return res.status(403).json({ error: "Nu ai permisiunea de a accesa acest consimțământ." });
     }
 
@@ -581,19 +589,16 @@ router.get("/:bookingId", verifyJWT, async (req, res) => {
 
 router.get("/", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const { businessId, employeeId, date, search } = req.query as { 
-    businessId?: string; 
-    employeeId?: string;
-    date?: string; 
-    search?: string;
-  };
+  const queryParams = consentListQuerySchema.parse({
+    businessId: req.query.businessId,
+    employeeId: req.query.employeeId,
+    date: req.query.date,
+    search: req.query.search,
+  });
+  const { businessId, employeeId, date, search } = queryParams;
 
   if (!authReq.user) {
     return res.status(401).json({ error: "Autentificare necesară." });
-  }
-
-  if (!businessId) {
-    return res.status(400).json({ error: "businessId este obligatoriu." });
   }
 
   try {
@@ -689,14 +694,10 @@ router.get("/", verifyJWT, async (req, res) => {
  */
 router.delete("/document/:documentId", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const { documentId } = req.params;
+  const { documentId } = documentIdParamSchema.parse({ documentId: req.params.documentId });
 
   if (!authReq.user) {
     return res.status(401).json({ error: "Autentificare necesară." });
-  }
-
-  if (!documentId) {
-    return res.status(400).json({ error: "documentId este obligatoriu." });
   }
 
   try {

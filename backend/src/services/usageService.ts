@@ -4,6 +4,7 @@ type SmsUsageTypeEnum = (typeof SmsUsageType)[keyof typeof SmsUsageType];
 type RoleEnum = (typeof Role)[keyof typeof Role];
 
 const prisma = require("../lib/prisma");
+const { logger } = require("../lib/logger");
 
 interface SmsUsagePayload {
   businessId?: string | null;
@@ -38,7 +39,7 @@ async function recordSmsUsage({
       },
     });
   } catch (error) {
-    console.error("Failed to record SMS usage:", error);
+    logger.error("Failed to record SMS usage:", error);
   }
 }
 
@@ -77,7 +78,7 @@ async function recordAiUsage({
       },
     });
   } catch (error) {
-    console.error("Failed to record AI usage:", error);
+    logger.error("Failed to record AI usage:", error);
   }
 }
 

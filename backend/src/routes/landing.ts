@@ -3,7 +3,13 @@ import type { Request, Response } from "express";
 const { randomBytes } = require("node:crypto");
 const prisma = require("../lib/prisma");
 const { sendSms } = require("../services/smsService");
+const { validate } = require("../middleware/validate");
+const { availableSlotsQuerySchema, demoBookingSchema } = require("../validators/landingSchemas");
+const { verifyCaptcha, isCaptchaScoreValid } = require("../services/captchaService");
+const { getClientIp } = require("../services/rateLimitService");
 const { sendEmail } = require("../services/emailService");
+const { logger } = require("../lib/logger");
+const { bookingRateLimiter } = require("../middleware/globalRateLimit");
 
 const router = express.Router();
 
@@ -86,11 +92,12 @@ const generateMeetLink = () => {
   return `https://meet.google.com/${code}`;
 };
 
-router.get("/available-slots", async (req: Request, res: Response) => {
+router.get("/available-slots", bookingRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { date } = req.query as { date?: string };
+    const queryParams = availableSlotsQuerySchema.parse({ date: req.query.date });
+    const { date } = queryParams;
 
-    const parsedDate = parseDateOnly(date || "");
+    const parsedDate = parseDateOnly(date);
     if (!parsedDate) {
       return res.status(400).json({ error: "Parametrul date este invalid. Folosește formatul YYYY-MM-DD." });
     }
@@ -129,26 +136,34 @@ router.get("/available-slots", async (req: Request, res: Response) => {
       slots,
     });
   } catch (error) {
-    console.error("Available slots error:", error);
+    logger.error("Available slots error:", error);
     return res.status(500).json({ error: "Nu am putut încărca intervalele disponibile." });
   }
 });
 
-router.post("/demo-booking", async (req: Request, res: Response) => {
+router.post("/demo-booking", bookingRateLimiter, validate(demoBookingSchema), async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName, email, phone, dateTime }: { firstName?: string; lastName?: string; email?: string; phone?: string; dateTime?: string } = req.body;
+    const { firstName, lastName, email, phone, dateTime, captchaToken } = demoBookingSchema.parse(req.body);
 
-    if (!firstName?.trim() || !lastName?.trim() || !email?.trim() || !phone?.trim() || !dateTime) {
-      return res.status(400).json({ error: "Toate câmpurile sunt obligatorii." });
+    // Verify CAPTCHA
+    const ip = getClientIp(req);
+    if (!captchaToken) {
+      return res.status(400).json({ error: "Verificare CAPTCHA necesară." });
     }
+    const captchaResult = await verifyCaptcha(captchaToken, ip || "unknown");
+    if (!captchaResult.success || !isCaptchaScoreValid(captchaResult.score)) {
+      return res.status(400).json({ error: "Verificare CAPTCHA eșuată. Te rugăm să reîmprospătezi pagina și să încerci din nou." });
+    }
+
+    // Sanitize input (escape HTML)
+    const sanitize = (str: string) => str.replace(/[<>]/g, "");
+    const sanitizedFirstName = sanitize(firstName.trim());
+    const sanitizedLastName = sanitize(lastName.trim());
+    const sanitizedEmail = email.trim().toLowerCase();
 
     const slotDate = new Date(dateTime);
     if (Number.isNaN(slotDate.getTime())) {
       return res.status(400).json({ error: "Data selectată este invalidă." });
-    }
-
-    if (slotDate.getTime() <= Date.now()) {
-      return res.status(400).json({ error: "Nu poți programa un demo în trecut." });
     }
 
     const minutes = slotDate.getMinutes();
@@ -183,9 +198,9 @@ router.post("/demo-booking", async (req: Request, res: Response) => {
 
     const demoBooking = await prisma.demoBooking.create({
       data: {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim(),
+        firstName: sanitizedFirstName,
+        lastName: sanitizedLastName,
+        email: sanitizedEmail,
         phone: phone.trim(),
         dateTime: slotDate,
         meetLink,
@@ -208,44 +223,44 @@ router.post("/demo-booking", async (req: Request, res: Response) => {
       start: slotDate,
       durationMinutes: WORKING_HOURS.slotLength,
       summary: "Demo VOOB",
-      description: `Demo VOOB cu ${firstName} ${lastName}`,
+      description: `Demo VOOB cu ${sanitizedFirstName} ${sanitizedLastName}`,
       meetLink,
     });
 
     // Fire-and-forget notifications
     sendSms({
       phone,
-      message: `Salut ${firstName}! Programarea ta pentru demo VOOB este confirmată pe ${formattedDate} la ${formattedTime}. Link Meet: ${meetLink}`,
-    }).catch((error: unknown) => console.error("Demo SMS error:", error));
+      message: `Salut ${sanitizedFirstName}! Programarea ta pentru demo VOOB este confirmată pe ${formattedDate} la ${formattedTime}. Link Meet: ${meetLink}`,
+    }).catch((error: unknown) => logger.error("Demo SMS error:", error));
 
     // Trimite email către utilizator
     sendEmail({
       to: email,
       subject: "Demo VOOB confirmat",
-      text: `Salut ${firstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nȚi-am atașat și un calendar invite.\n\nEchipa VOOB`,
+      text: `Salut ${sanitizedFirstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nȚi-am atașat și un calendar invite.\n\nEchipa VOOB`,
       icalEvent: {
         method: "REQUEST",
         content: icsContent,
       },
-    }).catch((error: unknown) => console.error("Demo client email error:", error));
+    }).catch((error: unknown) => logger.error("Demo client email error:", error));
 
     // Trimite copie la adresa de test pentru verificare
     sendEmail({
       to: TEST_EMAIL,
       subject: "Demo VOOB confirmat (copie test)",
-      text: `Salut ${firstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nEmail original: ${email}\nTelefon: ${phone}\n\nȚi-am atașat și un calendar invite.\n\nEchipa VOOB`,
+      text: `Salut ${sanitizedFirstName},\n\nDemo-ul tău este programat pe ${formattedDate} la ${formattedTime}.\nLink Google Meet: ${meetLink}\n\nEmail original: ${email}\nTelefon: ${phone}\n\nȚi-am atașat și un calendar invite.\n\nEchipa VOOB`,
       icalEvent: {
         method: "REQUEST",
         content: icsContent,
       },
-    }).catch((error: unknown) => console.error("Demo test email error:", error));
+    }).catch((error: unknown) => logger.error("Demo test email error:", error));
 
     if (ADMIN_EMAIL) {
       sendEmail({
         to: ADMIN_EMAIL,
         subject: "Nou demo VOOB programat",
-        text: `Detalii demo:\nNume: ${firstName} ${lastName}\nEmail: ${email}\nTelefon: ${phone}\nData: ${formattedDate}\nOra: ${formattedTime}\nMeet: ${meetLink}`,
-      }).catch((error: unknown) => console.error("Demo admin email error:", error));
+        text: `Detalii demo:\nNume: ${sanitizedFirstName} ${sanitizedLastName}\nEmail: ${email}\nTelefon: ${phone}\nData: ${formattedDate}\nOra: ${formattedTime}\nMeet: ${meetLink}`,
+      }).catch((error: unknown) => logger.error("Demo admin email error:", error));
     }
 
     return res.status(201).json({
@@ -257,7 +272,7 @@ router.post("/demo-booking", async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Demo booking error:", error);
+    logger.error("Demo booking error:", error);
     return res.status(500).json({ error: "Nu am putut crea rezervarea pentru demo." });
   }
 });

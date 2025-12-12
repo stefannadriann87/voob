@@ -1,4 +1,6 @@
 const prisma = require("../../lib/prisma");
+const { createBusinessBookingToolSchema } = require("./toolSchemas");
+const { logger } = require("../../lib/logger");
 
 const HOUR_IN_MS = 60 * 60 * 1000;
 const MIN_BOOKING_LEAD_MS = 2 * HOUR_IN_MS;
@@ -60,11 +62,28 @@ async function createBusinessBooking(
   },
   context: AIContext
 ) {
+  // Validare input cu Zod
+  const validatedArgs = createBusinessBookingToolSchema.parse(args);
+  
   if (!context.businessId) {
     throw new Error("Business ID required");
   }
 
-  const bookingDate = new Date(args.date);
+  // Verifică dacă business-ul este suspendat
+  const business = await prisma.business.findUnique({
+    where: { id: context.businessId },
+    select: { id: true, status: true },
+  });
+
+  if (!business) {
+    throw new Error("Business-ul nu a fost găsit.");
+  }
+
+  if (business.status === "SUSPENDED") {
+    throw new Error("Business-ul este suspendat. Rezervările sunt oprite temporar.");
+  }
+
+  const bookingDate = new Date(validatedArgs.date);
   if (Number.isNaN(bookingDate.getTime())) {
     throw new Error("Data rezervării este invalidă.");
   }
@@ -75,12 +94,12 @@ async function createBusinessBooking(
 
   const booking = await prisma.booking.create({
     data: {
-      clientId: args.clientId,
+      clientId: validatedArgs.clientId,
       businessId: context.businessId,
-      serviceId: args.serviceId,
-      employeeId: args.employeeId,
+      serviceId: validatedArgs.serviceId,
+      employeeId: validatedArgs.employeeId,
       date: bookingDate,
-      paid: args.paid || false,
+      paid: validatedArgs.paid || false,
     },
     include: {
       service: true,
@@ -278,7 +297,7 @@ async function updateEmployee(
 
   const employee = await prisma.user.findFirst({
     where: {
-      id: args.employeeId,
+      id: validatedArgs.employeeId,
       businessId: context.businessId,
       role: "EMPLOYEE",
     },
@@ -289,22 +308,22 @@ async function updateEmployee(
   }
 
   const updateData: any = {};
-  if (args.name) updateData.name = args.name.trim();
-  if (args.email) {
+  if (validatedArgs.name) updateData.name = validatedArgs.name.trim();
+  if (validatedArgs.email) {
     // Verifică dacă noul email există deja
     const existingUser = await prisma.user.findUnique({
-      where: { email: args.email.trim() },
+      where: { email: validatedArgs.email.trim() },
     });
-    if (existingUser && existingUser.id !== args.employeeId) {
+    if (existingUser && existingUser.id !== validatedArgs.employeeId) {
       throw new Error("Un utilizator cu acest email există deja.");
     }
-    updateData.email = args.email.trim();
+    updateData.email = validatedArgs.email.trim();
   }
-  if (args.phone !== undefined) updateData.phone = args.phone?.trim() || null;
-  if (args.specialization !== undefined) updateData.specialization = args.specialization?.trim() || null;
+  if (validatedArgs.phone !== undefined) updateData.phone = validatedArgs.phone?.trim() || null;
+  if (validatedArgs.specialization !== undefined) updateData.specialization = validatedArgs.specialization?.trim() || null;
 
   const updatedEmployee = await prisma.user.update({
-    where: { id: args.employeeId },
+    where: { id: validatedArgs.employeeId },
     data: updateData,
     select: {
       id: true,
@@ -335,7 +354,7 @@ async function deleteEmployee(
 
   const employee = await prisma.user.findFirst({
     where: {
-      id: args.employeeId,
+      id: validatedArgs.employeeId,
       businessId: context.businessId,
       role: "EMPLOYEE",
     },
@@ -346,7 +365,7 @@ async function deleteEmployee(
   }
 
   await prisma.user.delete({
-    where: { id: args.employeeId },
+    where: { id: validatedArgs.employeeId },
   });
 
   return {
@@ -442,7 +461,7 @@ async function updateService(
 
   const service = await prisma.service.findFirst({
     where: {
-      id: args.serviceId,
+      id: validatedArgs.serviceId,
       businessId: context.businessId,
     },
   });
@@ -463,7 +482,7 @@ async function updateService(
   if (args.notes !== undefined) updateData.notes = args.notes?.trim() || null;
 
   const updatedService = await prisma.service.update({
-    where: { id: args.serviceId },
+    where: { id: validatedArgs.serviceId },
     data: updateData,
   });
 
@@ -487,7 +506,7 @@ async function deleteService(
 
   const service = await prisma.service.findFirst({
     where: {
-      id: args.serviceId,
+      id: validatedArgs.serviceId,
       businessId: context.businessId,
     },
   });
@@ -497,7 +516,7 @@ async function deleteService(
   }
 
   await prisma.service.delete({
-    where: { id: args.serviceId },
+    where: { id: validatedArgs.serviceId },
   });
 
   return {

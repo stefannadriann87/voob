@@ -1,4 +1,6 @@
 const prisma = require("../lib/prisma");
+const { getCachedContext, setCachedContext } = require("../services/aiContextCache");
+const { logger } = require("../lib/logger");
 
 // Define AuthUser locally (matches middleware/auth.ts)
 interface AuthUser {
@@ -16,7 +18,46 @@ interface AIContext {
 /**
  * Construiește contextul pentru AI din informațiile utilizatorului
  */
+
+/**
+ * Validează context-ul AI
+ */
+function validateContext(context: any): boolean {
+  // Verifică că context-ul are câmpurile obligatorii
+  if (!context || typeof context !== "object") {
+    return false;
+  }
+
+  if (!context.userId || typeof context.userId !== "string") {
+    return false;
+  }
+
+  if (!context.role || typeof context.role !== "string") {
+    return false;
+  }
+
+  // Verifică că rolul este valid
+  const validRoles = ["CLIENT", "BUSINESS", "EMPLOYEE", "SUPERADMIN"];
+  if (!validRoles.includes(context.role)) {
+    return false;
+  }
+
+  // Pentru BUSINESS și EMPLOYEE, businessId ar trebui să existe
+  if ((context.role === "BUSINESS" || context.role === "EMPLOYEE") && !context.businessId) {
+    logger.warn(`⚠️  Business/Employee user ${context.userId} fără businessId`);
+    // Nu returnăm false - poate fi valid dacă nu are business încă
+  }
+
+  return true;
+}
+
 async function buildAIContext(user: AuthUser): Promise<any> {
+  // Verifică cache-ul înainte de a construi context-ul
+  const cached = getCachedContext(user.userId, user.role, user.businessId);
+  if (cached) {
+    return cached;
+  }
+
   const context: any = {
     userId: user.userId,
     role: user.role,
@@ -113,6 +154,15 @@ async function buildAIContext(user: AuthUser): Promise<any> {
       }
     }
   }
+
+  // Validează context-ul înainte de a-l salva în cache
+  if (!validateContext(context)) {
+    logger.error("❌ Invalid context built for user:", user.userId);
+    throw new Error("Context invalid construit pentru AI");
+  }
+
+  // Salvează în cache
+  setCachedContext(user.userId, user.role, user.businessId, context);
 
   return context;
 }

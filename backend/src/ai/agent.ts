@@ -8,12 +8,13 @@ const path = require("path");
 const { toolsByRole, allToolExecutors } = require("./tools/allTools");
 const { recordAiUsage } = require("../services/usageService");
 const { logSystemAction } = require("../services/auditService");
+const { logger } = require("../lib/logger");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_COST_PER_1K_TOKENS = Number(process.env.OPENAI_COST_PER_1K_TOKENS || "0.015");
 
 if (!OPENAI_API_KEY) {
-  console.warn("⚠️  OPENAI_API_KEY nu este setat. AI Agent nu va funcționa complet.");
+  logger.warn("⚠️  OPENAI_API_KEY nu este setat. AI Agent nu va funcționa complet.");
 }
 
 const client = OPENAI_API_KEY
@@ -30,7 +31,7 @@ function loadSystemPrompt(): string {
     const promptPath = path.join(__dirname, "prompts", "systemPrompt.txt");
     return fs.readFileSync(promptPath, "utf-8");
   } catch (error) {
-    console.warn("Nu s-a putut încărca system prompt, folosind default.");
+    logger.warn("Nu s-a putut încărca system prompt, folosind default.");
     return "Ești AI-ul platformei VOOB CRM. Răspunde în română, fii concis și util.";
   }
 }
@@ -50,10 +51,25 @@ async function executeTool(
   args: any,
   context: any
 ): Promise<any> {
+  // Verificare suplimentară pentru privilege escalation
+  const { isToolAllowed } = require("./permissions");
+  
+  // Verifică dacă tool-ul este permis pentru rolul din context
+  if (!isToolAllowed(context.role, toolName)) {
+    logger.error(`❌ Privilege escalation attempt: User ${context.userId} (${context.role}) tried to execute ${toolName}`);
+    throw new Error(`Tool ${toolName} nu este permis pentru rolul ${context.role}`);
+  }
+
   const executor = allToolExecutors[toolName];
 
   if (!executor) {
     throw new Error(`Tool necunoscut: ${toolName}`);
+  }
+
+  // Verificare suplimentară: verifică dacă context-ul este valid
+  if (!context.userId || !context.role) {
+    logger.error("❌ Invalid context in executeTool:", context);
+    throw new Error("Context invalid pentru executarea tool-ului");
   }
 
   return await executor(args, context);
@@ -179,7 +195,7 @@ Folosește aceste date EXACTE când cauți rezervări sau creezi rezervări noi.
       try {
         toolArgs = JSON.parse(toolCall.function.arguments || "{}");
       } catch (e) {
-        console.error("Failed to parse tool arguments:", e);
+        logger.error("Failed to parse tool arguments:", e);
         toolResults.push({
           tool_call_id: toolCall.id,
           role: "tool",
@@ -190,7 +206,6 @@ Folosește aceste date EXACTE când cauți rezervări sau creezi rezervări noi.
       }
 
       try {
-        console.log(`🔧 Executing tool: ${toolName}`, toolArgs);
         const result = await executeTool(toolName, toolArgs, context);
         
         // Audit logging pentru acțiuni AI
@@ -203,7 +218,7 @@ Folosește aceste date EXACTE când cauți rezervări sau creezi rezervări noi.
           before: null,
           after: { toolName, args: toolArgs, result },
         }).catch((error: unknown) => {
-          console.error("Failed to log AI action:", error);
+          logger.error("Failed to log AI action:", error);
         });
         
         toolResults.push({
@@ -212,9 +227,8 @@ Folosește aceste date EXACTE când cauți rezervări sau creezi rezervări noi.
           name: toolName,
           content: JSON.stringify({ success: true, result }),
         });
-        console.log(`✅ Tool ${toolName} executed successfully`);
       } catch (error: any) {
-        console.error(`❌ Tool ${toolName} failed:`, error);
+        logger.error(`❌ Tool ${toolName} failed:`, error);
         toolResults.push({
           tool_call_id: toolCall.id,
           role: "tool",
@@ -260,7 +274,7 @@ Folosește aceste date EXACTE când cauți rezervări sau creezi rezervări noi.
         toolCalls: toolCalls.length,
       },
     }).catch((error: unknown) => {
-      console.error("Failed to record AI usage:", error);
+      logger.error("Failed to record AI usage:", error);
     });
 
     return {
@@ -271,7 +285,7 @@ Folosește aceste date EXACTE când cauți rezervări sau creezi rezervări noi.
       })),
     };
   } catch (error: any) {
-    console.error("OpenAI API error:", error);
+    logger.error("OpenAI API error:", error);
     recordAiUsage({
       businessId: context.businessId ?? null,
       userId: context.userId ?? null,
@@ -282,7 +296,7 @@ Folosește aceste date EXACTE când cauți rezervări sau creezi rezervări noi.
         error: error?.message,
       },
     }).catch((logError: unknown) => {
-      console.error("Failed to record AI error usage:", logError);
+      logger.error("Failed to record AI error usage:", logError);
     });
     return {
       reply: `Eroare la comunicarea cu AI-ul: ${error.message || "Eroare necunoscută"}`,

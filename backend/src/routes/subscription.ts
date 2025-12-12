@@ -6,6 +6,7 @@
 import express = require("express");
 const { verifyJWT } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
+const { verifyStripeWebhook, getWebhookSecret } = require("../middleware/webhookSignature");
 const { checkTrialStatus, isTrialExpired } = require("../services/trialService");
 const { getStripeClient } = require("../services/stripeService");
 const { logger } = require("../lib/logger");
@@ -149,28 +150,34 @@ router.post("/create-checkout", verifyJWT, async (req: express.Request, res: exp
  * Webhook pentru evenimente Stripe subscription
  */
 router.post("/webhook", express.raw({ type: "application/json" }), async (req: express.Request, res: express.Response) => {
-  const stripe = getStripeClient();
-  const sig = req.headers["stripe-signature"];
-
-  if (!sig) {
-    return res.status(400).send("Missing stripe-signature header");
+  const webhookSecret = getWebhookSecret("billing") || process.env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    logger.error("STRIPE_SUBSCRIPTION_WEBHOOK_SECRET nu este setat");
+    return res.status(500).send("Webhook secret not configured");
   }
 
-  let event;
-  try {
-    const webhookSecret = process.env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      logger.error("STRIPE_SUBSCRIPTION_WEBHOOK_SECRET nu este setat");
-      return res.status(500).send("Webhook secret not configured");
+  // Verifică semnătura folosind middleware-ul unificat
+  const verifyMiddleware = verifyStripeWebhook(webhookSecret);
+  
+  // Aplică middleware-ul manual
+  return verifyMiddleware(req, res, async () => {
+    const event = (req as express.Request & { webhookEvent?: any }).webhookEvent;
+    if (!event) {
+      return res.status(400).send("Webhook event not found");
     }
 
-    event = stripe.webhooks.constructEvent((req as any).rawBody || req.body, sig, webhookSecret);
-  } catch (err: any) {
-    logger.error("Webhook signature verification failed", err);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
   try {
+    // IMPORTANT FIX: Verifică dacă event-ul a fost deja procesat (idempotency)
+    const eventId = event.id;
+    const processedEvent = await prisma.webhookEvent.findUnique({
+      where: { eventId },
+    });
+
+    if (processedEvent && processedEvent.processed) {
+      logger.info("Subscription webhook event already processed", { eventId, type: event.type });
+      return res.json({ received: true });
+    }
+
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as any;
@@ -188,6 +195,12 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req: e
             });
 
             if (existingSubscription) {
+              // IMPORTANT FIX: Verifică dacă subscription-ul este deja ACTIVE cu același plan
+              if (existingSubscription.status === "ACTIVE" && existingSubscription.planId === planId) {
+                logger.warn("Checkout session already processed", { businessId, planId, sessionId: session.id });
+                break; // Skip - deja procesat
+              }
+
               // Actualizează subscription existent
               await prisma.subscription.update({
                 where: { id: existingSubscription.id },
@@ -275,11 +288,25 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req: e
       }
     }
 
+    // IMPORTANT FIX: Salvează event-ul ca procesat (idempotency)
+    await prisma.webhookEvent.upsert({
+      where: { eventId },
+      create: {
+        eventId,
+        type: event.type,
+        processed: true,
+      },
+      update: {
+        processed: true,
+      },
+    });
+
     return res.json({ received: true });
   } catch (error) {
     logger.error("Webhook handler error", error);
     return res.status(500).json({ error: "Webhook handler failed" });
   }
+  });
 });
 
 /**

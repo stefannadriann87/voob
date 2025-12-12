@@ -186,7 +186,40 @@ async function getOrSet<T>(
   return data;
 }
 
+
+/**
+ * Get cached business (generic - can be used for business list too)
+ */
+async function getCachedBusiness(key: string): Promise<any | null> {
+  return await get(key);
+}
+
+/**
+ * Cache business profile or list
+ */
+async function cacheBusinessProfile(key: string, data: any, ttlSeconds: number = TTL.BUSINESS_PROFILE): Promise<void> {
+  await set(key, data, ttlSeconds);
+}
+
+/**
+ * Get cached services list
+ */
+async function getCachedServices(key: string): Promise<any | null> {
+  return await get(PREFIX.SERVICES + key);
+}
+
+/**
+ * Cache services list
+ */
+async function cacheServicesList(key: string, data: any, ttlSeconds: number = TTL.SERVICES_LIST): Promise<void> {
+  await set(PREFIX.SERVICES + key, data, ttlSeconds);
+}
+
 module.exports = {
+  getCachedBusiness,
+  cacheBusinessProfile,
+  getCachedServices,
+  cacheServicesList,
   TTL,
   PREFIX,
   get,

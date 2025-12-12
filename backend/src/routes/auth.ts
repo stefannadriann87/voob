@@ -9,36 +9,29 @@ import type { Role as RoleType, BusinessType as BusinessTypeType } from "@prisma
 import type { Prisma } from "@prisma/client";
 const { generateBusinessQrDataUrl } = require("../lib/qr");
 const { verifyCaptcha, isCaptchaScoreValid } = require("../services/captchaService");
+const { createRefreshToken, revokeAllUserRefreshTokens } = require("../services/refreshTokenService");
+const { loginSchema, forgotPasswordSchema, passwordSchema } = require("../validators/authSchemas");
 const {
   getClientIp,
   checkSuspiciousPattern,
   recordRegistrationAttempt,
 } = require("../services/rateLimitService");
 const { rateLimitRegistration, rateLimitLogin } = require("../middleware/rateLimit");
-const { JWT_COOKIE_NAME } = require("../middleware/auth");
+const { JWT_COOKIE_NAME, extractToken } = require("../middleware/auth");
 
 const router = express.Router();
 
 const { validateEnv, getEnv, getEnvNumber, getEnvBool } = require("../lib/envValidator");
 const { logger } = require("../lib/logger");
 
-console.log("\n\n🔥🔥🔥 AUTH.TS LOADED AT:", new Date().toISOString(), "🔥🔥🔥\n\n");
 const JWT_SECRET = validateEnv("JWT_SECRET", { required: true, minLength: 32 });
 const FRONTEND_URL = getEnv("FRONTEND_URL", "http://localhost:3000");
 const RESET_TOKEN_EXPIRATION_MINUTES = getEnvNumber("RESET_TOKEN_EXP_MINUTES", 60);
 
 // Cookie configuration pentru JWT
 const isProduction = process.env.NODE_ENV === "production";
-const JWT_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 zile în milisecunde
+const JWT_COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24h în milisecunde
 
-/**
- * Opțiuni pentru JWT HttpOnly cookie
- * - httpOnly: true = nu poate fi accesat din JavaScript (protecție XSS)
- * - secure: true în production = trimis doar pe HTTPS
- * - sameSite: 'lax' = protecție CSRF, permite navigare normală
- * - path: '/' = disponibil pe toate rutele
- * - maxAge: 7 zile = expiră automat
- */
 const getJwtCookieOptions = (): express.CookieOptions => ({
   httpOnly: true,
   secure: isProduction,
@@ -92,42 +85,9 @@ type TokenPayload = {
   role: RoleType;
 };
 
-/**
- * Extrage token din request (cookie sau Authorization header)
- */
-const extractTokenFromRequest = (req: express.Request): string | null => {
-  // 1. Prioritate: HttpOnly Cookie
-  const cookieReq = req as express.Request & { cookies?: { [key: string]: string } };
-  
-  // Debug: Log cookies pentru debugging
-  if (process.env.NODE_ENV === "development") {
-    const cookieKeys = cookieReq.cookies ? Object.keys(cookieReq.cookies) : [];
-    if (req.url?.includes("/me") || req.url?.includes("/insights")) {
-      logger.info("Cookie extraction debug", {
-        url: req.url,
-        hasCookies: !!cookieReq.cookies,
-        cookieKeys,
-        hasJwtCookie: !!(cookieReq.cookies && cookieReq.cookies[JWT_COOKIE_NAME]),
-      });
-    }
-  }
-  
-  if (cookieReq.cookies && cookieReq.cookies[JWT_COOKIE_NAME]) {
-    return cookieReq.cookies[JWT_COOKIE_NAME];
-  }
-  
-  // 2. Fallback: Authorization header (pentru backward compatibility și mobile apps)
-  const header = req.headers.authorization;
-  if (header?.startsWith("Bearer ")) {
-    return header.split(" ")[1] || null;
-  }
-  
-  return null;
-};
 
 const authenticate = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const token = extractTokenFromRequest(req);
-  
+  const token = extractToken(req);
   if (!token) {
     return res.status(401).json({ error: "Autentificare necesară." });
   }
@@ -330,21 +290,31 @@ router.post("/register", rateLimitRegistration, async (req, res) => {
 });
 
 router.post("/login", rateLimitLogin, async (req, res) => {
-  // TIMESTAMP pentru a verifica că codul nou rulează
-  console.log("\n\n🚨🚨🚨 LOGIN CALLED AT:", new Date().toISOString(), "🚨🚨🚨");
-  console.log("=== LOGIN REQUEST RECEIVED ===");
-  console.log("Email:", req.body?.email);
-  console.log("Role:", req.body?.role);
-  
-  const { email, password, role }: { email?: string; password?: string; role?: RoleType | string } = req.body;
+  const { email, password, role, captchaToken }: { email?: string; password?: string; role?: RoleType | string; captchaToken?: string } = req.body;
 
-  if (!email || !password) {
-    console.log("❌ Missing email or password");
-    return res.status(400).json({ error: "Email și parolă sunt obligatorii." });
+  // Validate input with Zod schema
+  try {
+    loginSchema.parse({ email, password, role, captchaToken });
+  } catch (error: any) {
+    return res.status(400).json({ error: error.errors?.[0]?.message || "Date invalide." });
+  }
+
+  const ip = getClientIp(req);
+  const userAgent = req.headers["user-agent"];
+
+  // Verify CAPTCHA
+  if (!captchaToken) {
+    return res.status(400).json({ error: "Verificare CAPTCHA necesară." });
+  }
+
+  const captchaResult = await verifyCaptcha(captchaToken, ip);
+  if (!captchaResult.success || !isCaptchaScoreValid(captchaResult.score)) {
+    return res.status(400).json({
+      error: "Verificare CAPTCHA eșuată. Te rugăm să reîmprospătezi pagina și să încerci din nou.",
+    });
   }
 
   try {
-    console.log("🔍 Looking up user in database...");
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
@@ -369,19 +339,12 @@ router.post("/login", rateLimitLogin, async (req, res) => {
         },
       },
     });
-    console.log("✅ User found:", user ? `ID: ${user.id}, Role: ${user.role}` : "NOT FOUND");
-    
     if (!user) {
-      console.log("❌ User not found");
       return res.status(401).json({ error: "Date de autentificare invalide." });
     }
 
-    console.log("🔐 Validating password...");
-    const validPassword = await bcrypt.compare(password, user.password);
-    console.log("Password valid:", validPassword);
-    
+    const validPassword = await bcrypt.compare(password as string, user.password);
     if (!validPassword) {
-      console.log("❌ Invalid password");
       return res.status(401).json({ error: "Date de autentificare invalide." });
     }
 
@@ -389,52 +352,31 @@ router.post("/login", rateLimitLogin, async (req, res) => {
     // Otherwise, use the role from the database automatically
     const expectedRole = typeof role === "string" ? (role.toUpperCase() as RoleType) : undefined;
     if (expectedRole && user.role !== expectedRole) {
-      console.log("❌ Role mismatch:", { expected: expectedRole, actual: user.role });
       return res.status(401).json({ error: "Rolul selectat nu corespunde contului." });
     }
 
-    console.log("🎫 Generating JWT token...");
+    // Access token: 24h (securitate mai bună)
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
-      expiresIn: "7d",
+      expiresIn: "24h",
     });
-    console.log("✅ Token generated");
+
+    // Refresh token: 30 zile (pentru re-autentificare automată)
+    const refreshToken = await createRefreshToken(user.id);
 
     // For BUSINESS role, use ownedBusinesses[0] as business; for EMPLOYEE, use business relation
-    console.log("🔍 DEBUG: user.role =", user.role);
-    console.log("🔍 DEBUG: user.ownedBusinesses =", JSON.stringify(user.ownedBusinesses));
-    console.log("🔍 DEBUG: user.ownedBusinesses?.[0] =", JSON.stringify(user.ownedBusinesses?.[0]));
-    console.log("🔍 DEBUG: user.business =", JSON.stringify(user.business));
-    
     const businessData = user.role === "BUSINESS" && user.ownedBusinesses?.[0] 
       ? user.ownedBusinesses[0] 
       : user.business;
-    
-    console.log("🔍 DEBUG: businessData (after calculation) =", JSON.stringify(businessData));
 
     // Remove password and ownedBusinesses, but keep business field to override it
     const { password: _password, ownedBusinesses, business: _oldBusiness, ...userResponse } = user;
-    
     // Create response object with explicit business field
     const userResponseWithBusiness = {
       ...userResponse,
       business: businessData, // Explicitly set business field
     };
-    
-    // FORCE LOG - use both console.log and process.stdout.write
-    const debugMsg = `\n\n🔴🔴🔴 FINAL DEBUG - businessData: ${JSON.stringify(businessData)}\n🔴🔴🔴 userResponseWithBusiness.business: ${JSON.stringify(userResponseWithBusiness.business)}\n🔴🔴🔴\n\n`;
-    console.log(debugMsg);
-    process.stdout.write(debugMsg);
-    process.stderr.write(debugMsg);
 
     // Debug: Log business data pentru debugging (ALWAYS log, not just in development)
-    console.log("=== LOGIN RESPONSE DEBUG ===");
-    console.log("User ID:", user.id);
-    console.log("User Role:", user.role);
-    console.log("Owned Businesses:", JSON.stringify(user.ownedBusinesses, null, 2));
-    console.log("Business Data (to return):", JSON.stringify(businessData, null, 2));
-    console.log("User Response With Business:", JSON.stringify(userResponseWithBusiness.business, null, 2));
-    console.log("===========================");
-    
     if (process.env.NODE_ENV === "development") {
       logger.info("Login response user data", {
         userId: user.id,
@@ -469,23 +411,13 @@ router.post("/login", rateLimitLogin, async (req, res) => {
     }
 
     // Returnează user fără token (token-ul este în cookie)
-    // FORCE LOG TO STDOUT
-    process.stdout.write(`\n\n🔴 FINAL RESPONSE - business: ${JSON.stringify(userResponseWithBusiness.business)}\n\n`);
-    console.error(`\n\n🔴 FINAL RESPONSE - business: ${JSON.stringify(userResponseWithBusiness.business)}\n\n`);
-    
     // TEST: Return businessData separately to verify it's calculated correctly
     return res.json({
       user: userResponseWithBusiness,
-      _debug: {
-        businessData_calculated: businessData,
-        business_in_response: userResponseWithBusiness.business,
-        user_role: user.role,
-        ownedBusinesses_count: user.ownedBusinesses?.length || 0,
-      },
+      refreshToken,
     });
   } catch (error) {
     logger.error("Login failed", { error, email, stack: error instanceof Error ? error.stack : undefined });
-    
     // Return more descriptive error messages
     if (error instanceof Error) {
       // Check for Prisma errors
@@ -494,14 +426,12 @@ router.post("/login", rateLimitLogin, async (req, res) => {
           error: "Eroare de conexiune la baza de date. Te rugăm să încerci din nou." 
         });
       }
-      
       // Check for JWT errors
       if (error.message.includes("jwt") || error.message.includes("token")) {
         return res.status(500).json({ 
           error: "Eroare la generarea token-ului de autentificare." 
         });
       }
-      
       // Return the actual error message in development, generic in production
       const isDevelopment = process.env.NODE_ENV !== "production";
       return res.status(500).json({ 
@@ -510,15 +440,39 @@ router.post("/login", rateLimitLogin, async (req, res) => {
           : "Eroare la autentificare. Te rugăm să încerci din nou." 
       });
     }
-    
     return res.status(500).json({ error: "Eroare la autentificare. Te rugăm să încerci din nou." });
   }
 });
 
-router.post("/forgot-password", async (req, res) => {
-  const { email }: { email?: string } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: "Email obligatoriu." });
+router.post("/forgot-password", rateLimitLogin, async (req, res) => {
+  const { email, captchaToken }: { email?: string; captchaToken?: string } = req.body;
+
+  // Validate input with Zod schema
+  try {
+    forgotPasswordSchema.parse({ email });
+  } catch (error: any) {
+    return res.status(400).json({ error: error.errors?.[0]?.message || "Email invalid." });
+  }
+
+  const ip = getClientIp(req);
+
+  // Verify CAPTCHA
+  if (!captchaToken) {
+    return res.status(400).json({ error: "Verificare CAPTCHA necesară." });
+  }
+
+  const captchaResult = await verifyCaptcha(captchaToken, ip);
+  if (!captchaResult.success || !isCaptchaScoreValid(captchaResult.score)) {
+    return res.status(400).json({
+      error: "Verificare CAPTCHA eșuată. Te rugăm să reîmprospătezi pagina și să încerci din nou.",
+    });
+  }
+
+  // Validate input with Zod schema
+  try {
+    forgotPasswordSchema.parse({ email, captchaToken });
+  } catch (error: any) {
+    return res.status(400).json({ error: error.errors?.[0]?.message || "Date invalide." });
   }
 
   try {
@@ -539,7 +493,7 @@ router.post("/forgot-password", async (req, res) => {
     });
 
     const resetLink = `${FRONTEND_URL}/auth/reset-password?token=${token}`;
-    await sendResetEmail(email, resetLink);
+    await sendResetEmail(email as string, resetLink);
 
     return res.json({ ok: true });
   } catch (error) {
@@ -548,11 +502,32 @@ router.post("/forgot-password", async (req, res) => {
   }
 });
 
-router.post("/reset-password", async (req, res) => {
-  const { token, password }: { token?: string; password?: string } = req.body;
+router.post("/reset-password", rateLimitLogin, async (req, res) => {
+  const { token, password, captchaToken }: { token?: string; password?: string; captchaToken?: string } = req.body;
 
   if (!token || !password) {
-    return res.status(400).json({ error: "Token și parolă sunt obligatorii." });
+    return res.status(400).json({ error: "Token și parola sunt obligatorii." });
+  }
+
+  const ip = getClientIp(req);
+
+  // Verify CAPTCHA
+  if (!captchaToken) {
+    return res.status(400).json({ error: "Verificare CAPTCHA necesară." });
+  }
+
+  const captchaResult = await verifyCaptcha(captchaToken, ip);
+  if (!captchaResult.success || !isCaptchaScoreValid(captchaResult.score)) {
+    return res.status(400).json({
+      error: "Verificare CAPTCHA eșuată. Te rugăm să reîmprospătezi pagina și să încerci din nou.",
+    });
+  }
+
+  // Validate password policy
+  try {
+    passwordSchema.parse(password);
+  } catch (error: any) {
+    return res.status(400).json({ error: error.errors?.[0]?.message || "Parola nu respectă politica de securitate." });
   }
 
   try {
@@ -561,7 +536,7 @@ router.post("/reset-password", async (req, res) => {
       return res.status(400).json({ error: "Token invalid sau expirat." });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password as string, 10);
 
     await prisma.$transaction([
       prisma.user.update({
@@ -569,11 +544,11 @@ router.post("/reset-password", async (req, res) => {
         data: { password: hashedPassword },
       }),
       prisma.passwordResetToken.delete({ where: { token } }),
+
     ]);
 
     return res.json({ ok: true });
-  } catch (error) {
-    logger.error("Password reset failed", error);
+  } catch (error) {    logger.error("Password reset failed", error);
     return res.status(500).json({ error: "Eroare la resetarea parolei." });
   }
 });
@@ -622,14 +597,6 @@ router.get("/me", authenticate, async (req, res) => {
     };
 
     // Debug: Log business data pentru debugging (ALWAYS log, not just in development)
-    console.log("=== /auth/me RESPONSE DEBUG ===");
-    console.log("User ID:", user.id);
-    console.log("User Role:", user.role);
-    console.log("Owned Businesses:", JSON.stringify(user.ownedBusinesses, null, 2));
-    console.log("Business Data (to return):", JSON.stringify(businessData, null, 2));
-    console.log("User Response With Business:", JSON.stringify(userResponseWithBusiness.business, null, 2));
-    console.log("===============================");
-    
     if (process.env.NODE_ENV === "development") {
       logger.info("/auth/me response user data", {
         userId: user.id,
@@ -784,7 +751,6 @@ router.post("/clients", authenticate, async (req, res) => {
 
     // Generate email if not provided
     const clientEmail = email?.trim() || `guest-${Date.now()}@voob.io`;
-    
     // Check if email already exists
     const existingUser = await prisma.user.findUnique({ where: { email: clientEmail } });
     if (existingUser) {
@@ -818,19 +784,31 @@ router.post("/clients", authenticate, async (req, res) => {
   }
 });
 
-/**
- * POST /auth/logout
- * Șterge JWT cookie pentru a deconecta utilizatorul
- */
 router.post("/logout", (req, res) => {
   // Șterge cookie-ul JWT
-  res.clearCookie(JWT_COOKIE_NAME, {
+  
+  // Extract user from token and revoke all refresh tokens
+  try {
+    const token = extractToken(req);
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_SECRET) as any;
+        if (payload?.userId) {
+          await revokeAllUserRefreshTokens(payload.userId);
+        }
+      } catch (error) {
+        // Token might be invalid/expired - ignore
+      }
+    }
+  } catch (error) {
+    // Ignore errors during token extraction
+  }
+res.clearCookie(JWT_COOKIE_NAME, {
     httpOnly: true,
     secure: isProduction,
     sameSite: isProduction ? "strict" : "lax",
     path: "/",
   });
-  
   return res.json({ ok: true, message: "Deconectare reușită." });
 });
 
@@ -862,11 +840,9 @@ router.get("/test-business", async (req, res) => {
         },
       },
     });
-    
     const businessData = user?.role === "BUSINESS" && user?.ownedBusinesses?.[0] 
       ? user.ownedBusinesses[0] 
       : user?.business;
-    
     return res.json({
       user_role: user?.role,
       ownedBusinesses: user?.ownedBusinesses,
@@ -878,6 +854,57 @@ router.get("/test-business", async (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
+/**
+ * POST /auth/refresh
+ * Refresh access token folosind refresh token
+ */
+router.post("/refresh", async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({ error: "Refresh token este obligatoriu." });
+    }
+
+    const { validateRefreshToken } = require("../services/refreshTokenService");
+    const validation = await validateRefreshToken(refreshToken);
+
+    if (!validation.valid) {
+      return res.status(401).json({ error: validation.error || "Refresh token invalid sau expirat." });
+    }
+
+    // Obține user-ul pentru a genera noul access token
+    const user = await prisma.user.findUnique({
+      where: { id: validation.userId },
+      select: { id: true, role: true },
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: "Utilizator nu a fost găsit." });
+    }
+
+    // Generează nou access token (24h)
+    const newAccessToken = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
+      expiresIn: "24h",
+    });
+
+    // Set cookie
+    res.cookie(JWT_COOKIE_NAME, newAccessToken, getJwtCookieOptions());
+
+    return res.json({
+      token: newAccessToken,
+      user: {
+        userId: user.id,
+        role: user.role,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Refresh token error:", error);
+    return res.status(500).json({ error: "Eroare la refresh token." });
+  }
+});
+
+
 
 export = router;
 

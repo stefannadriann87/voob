@@ -6,6 +6,7 @@
 import express = require("express");
 const { isTrialExpired } = require("../services/trialService");
 const prisma = require("../lib/prisma");
+const { logger } = require("../lib/logger");
 
 interface AuthenticatedRequest extends express.Request {
   user?: {
@@ -81,7 +82,7 @@ async function checkTrialForBusiness(
 
     next();
   } catch (error) {
-    console.error("Check trial middleware error:", error);
+    logger.error("Check trial middleware error:", error);
     // În caz de eroare, permitem accesul (fail open)
     next();
   }

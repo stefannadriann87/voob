@@ -1,7 +1,10 @@
-const prisma = require("../../lib/prisma");
 
 const HOUR_IN_MS = 60 * 60 * 1000;
 const MIN_BOOKING_LEAD_MS = 2 * HOUR_IN_MS;
+
+const prisma = require("../../lib/prisma");
+const { createBookingForClientToolSchema, getEmployeeAvailabilityToolSchema } = require("./toolSchemas");
+const { logger } = require("../../lib/logger");
 
 /**
  * Vizualizează rezervările employee-ului
@@ -68,15 +71,32 @@ async function createBookingForClient(
   },
   context: any
 ) {
+  // Validare input cu Zod
+  const validatedArgs = createBookingForClientToolSchema.parse(args);
+  
   const { userId, businessId } = context;
 
   if (!businessId) {
     throw new Error("Nu ai un business asociat.");
   }
 
+  // Verifică dacă business-ul este suspendat
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { id: true, status: true },
+  });
+
+  if (!business) {
+    throw new Error("Business-ul nu a fost găsit.");
+  }
+
+  if (business.status === "SUSPENDED") {
+    throw new Error("Business-ul este suspendat. Rezervările sunt oprite temporar.");
+  }
+
   // Verifică că serviciul aparține business-ului
   const service = await prisma.service.findFirst({
-    where: { id: args.serviceId, businessId },
+    where: { id: validatedArgs.serviceId, businessId },
   });
 
   if (!service) {
@@ -85,14 +105,14 @@ async function createBookingForClient(
 
   // Verifică că clientul există
   const client = await prisma.user.findUnique({
-    where: { id: args.clientId, role: "CLIENT" },
+    where: { id: validatedArgs.clientId, role: "CLIENT" },
   });
 
   if (!client) {
     throw new Error("Clientul nu a fost găsit.");
   }
 
-  const bookingDate = new Date(args.date);
+  const bookingDate = new Date(validatedArgs.date);
   if (Number.isNaN(bookingDate.getTime())) {
     throw new Error("Data rezervării este invalidă.");
   }
@@ -103,12 +123,12 @@ async function createBookingForClient(
 
   const booking = await prisma.booking.create({
     data: {
-      clientId: args.clientId,
+      clientId: validatedArgs.clientId,
       businessId,
-      serviceId: args.serviceId,
+      serviceId: validatedArgs.serviceId,
       employeeId: userId, // Automat employee-ul autentificat
       date: bookingDate,
-      paid: args.paid || false,
+      paid: validatedArgs.paid || false,
       status: "CONFIRMED",
     },
     include: {
@@ -129,7 +149,7 @@ async function createBookingForClient(
       booking.service?.name,
       booking.business.id
     ).catch((error: unknown) => {
-      console.error("Failed to send confirmation SMS:", error);
+      logger.error("Failed to send confirmation SMS:", error);
     });
   }
 
@@ -180,6 +200,7 @@ async function cancelEmployeeBooking(
   // Trimite SMS de anulare
   if (clientPhone && booking.business?.id) {
     const { sendBookingCancellationSms } = require("../../services/smsService");
+const { logger } = require("../../lib/logger");
     sendBookingCancellationSms(
       clientName,
       clientPhone,
@@ -187,7 +208,7 @@ async function cancelEmployeeBooking(
       bookingDate,
       booking.business.id
     ).catch((error: unknown) => {
-      console.error("Failed to send cancellation SMS:", error);
+      logger.error("Failed to send cancellation SMS:", error);
     });
   }
 
@@ -226,8 +247,8 @@ async function updateEmployeeBooking(
 
   const updateData: any = {};
 
-  if (args.date) {
-    const newDate = new Date(args.date);
+  if (validatedArgs.date) {
+    const newDate = new Date(validatedArgs.date);
     if (Number.isNaN(newDate.getTime())) {
       throw new Error("Data rezervării este invalidă.");
     }
@@ -237,18 +258,18 @@ async function updateEmployeeBooking(
     updateData.date = newDate;
   }
 
-  if (args.serviceId) {
+  if (validatedArgs.serviceId) {
     const service = await prisma.service.findFirst({
-      where: { id: args.serviceId, businessId },
+      where: { id: validatedArgs.serviceId, businessId },
     });
     if (!service) {
       throw new Error("Serviciul nu a fost găsit sau nu aparține acestui business.");
     }
-    updateData.serviceId = args.serviceId;
+    updateData.serviceId = validatedArgs.serviceId;
   }
 
-  if (args.paid !== undefined) {
-    updateData.paid = args.paid;
+  if (validatedArgs.paid !== undefined) {
+    updateData.paid = validatedArgs.paid;
   }
 
   if (Object.keys(updateData).length === 0) {
@@ -276,7 +297,8 @@ async function getEmployeeAvailability(
     throw new Error("Nu ai un business asociat.");
   }
 
-  const targetDate = args.date ? new Date(args.date) : new Date();
+  const validatedArgs = getEmployeeAvailabilityToolSchema.parse(args);
+  const targetDate = validatedArgs.date ? new Date(validatedArgs.date) : new Date();
   const dayStart = new Date(targetDate);
   dayStart.setHours(0, 0, 0, 0);
   const dayEnd = new Date(targetDate);

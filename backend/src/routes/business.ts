@@ -4,7 +4,11 @@ const prisma = require("../lib/prisma");
 import type { Prisma } from "@prisma/client";
 const { BusinessType } = require("@prisma/client");
 const { verifyJWT } = require("../middleware/auth");
+const { requireBusinessAccess } = require("../middleware/requireOwnership");
+const { cacheBusinessProfile, getCachedBusiness, cacheServicesList, getCachedServices } = require("../services/cacheService");
 const { logger } = require("../lib/logger");
+const { validate, validateParams } = require("../middleware/validate");
+const { createBusinessRouteSchema, updateBusinessSchema, createServiceSchema, updateServiceSchema, createEmployeeSchema, updateEmployeeSchema, businessIdParamSchema, serviceIdParamSchema, employeeIdParamSchema } = require("../validators/businessSchemas");
 const {
   generateBusinessQrDataUrl,
   generateBusinessQrBuffer,
@@ -31,25 +35,22 @@ interface AuthenticatedRequest extends express.Request {
   };
 }
 
-router.post("/", async (req, res) => {
-  const {
-    name,
-    domain,
-    ownerId,
-    services,
-    employeeIds,
-    businessType,
-  }: {
-    name?: string;
-    domain?: string;
-    ownerId?: string;
-    services?: { name: string; duration: number; price: number }[];
-    employeeIds?: string[];
-    businessType?: string;
-  } = req.body;
+router.post("/", verifyJWT, validate(createBusinessRouteSchema), async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const { name, domain, ownerId, services, employeeIds, businessType } = createBusinessRouteSchema.parse(req.body);
 
-  if (!name || !domain || !ownerId) {
-    return res.status(400).json({ error: "name, domain și ownerId sunt obligatorii." });
+  // RBAC: Verify that ownerId matches authenticated user (unless SUPERADMIN)
+  if (authReq.user?.role !== "SUPERADMIN" && ownerId !== authReq.user?.userId) {
+    return res.status(403).json({ error: "Nu poți crea un business pentru alt utilizator." });
+  }
+
+  // RBAC: Verify that user doesn't already have a business
+  const existingBusiness = await prisma.business.findFirst({
+    where: { ownerId: ownerId },
+  });
+
+  if (existingBusiness) {
+    return res.status(409).json({ error: "Utilizatorul are deja un business creat." });
   }
 
   const normalizedBusinessType =
@@ -97,7 +98,7 @@ router.post("/", async (req, res) => {
         data: { qrCodeUrl: dataUrl },
       });
     } catch (qrError) {
-      console.error("Business QR generation error:", qrError);
+      logger.error("Business QR generation error:", qrError);
     }
 
     const business = await prisma.business.findUnique({
@@ -107,20 +108,32 @@ router.post("/", async (req, res) => {
 
     return res.status(201).json(business);
   } catch (error) {
-    console.error("Business create error:", error);
+    logger.error("Business create error:", error);
     return res.status(500).json({ error: "Eroare la crearea business-ului." });
   }
 });
 
-router.get("/", async (_req, res) => {
+router.get("/", verifyJWT, async (req, res) => {
   try {
+    // Check cache first
+    const cacheKey = "business_list_all";
+    const cached = await getCachedBusiness(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    // Fetch businesses with services in a single query (avoid N+1)
     const businesses = await prisma.business.findMany({
-      include: defaultBusinessInclude,
+      include: {
+        ...defaultBusinessInclude,
+        services: {
+          select: { duration: true },
+        },
+      },
     });
 
-    // Calculate slotDuration for each business if not set
-    const businessesWithSlotDuration = await Promise.all(
-      businesses.map(async (business: any) => {
+    // Calculate slotDuration for each business if not set (in-memory, no additional queries)
+    const businessesWithSlotDuration = businesses.map((business: any) => {
         if (business.slotDuration !== null && business.slotDuration !== undefined) {
           return business;
         }
@@ -141,9 +154,11 @@ router.get("/", async (_req, res) => {
         }, 30); // Default minim 30 minute
 
         return { ...business, slotDuration: calculatedSlotDuration };
-      })
-    );
+      });
 
+    // Cache the result
+    await cacheBusinessProfile(cacheKey, businessesWithSlotDuration, 300); // 5 minutes
+    
     return res.json(businessesWithSlotDuration);
   } catch (error) {
     logger.error("Failed to list businesses", error);
@@ -373,25 +388,9 @@ router.get("/:businessId/qr", async (req, res) => {
   }
 });
 
-router.post("/:businessId/services", async (req, res) => {
-  const { businessId } = req.params;
-  const { name, duration, price, notes }: { name?: string; duration?: number; price?: number; notes?: string } = req.body;
-
-  if (!businessId) {
-    return res.status(400).json({ error: "businessId este obligatoriu." });
-  }
-  if (!name || typeof duration !== "number" || typeof price !== "number") {
-    return res
-      .status(400)
-      .json({ error: "name, duration și price sunt obligatorii pentru creare serviciu." });
-  }
-
-  // Validare: durata trebuie să fie multiplu de 30 minute
-  if (duration % 30 !== 0) {
-    return res.status(400).json({ 
-      error: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)" 
-    });
-  }
+router.post("/:businessId/services", verifyJWT, validateParams(businessIdParamSchema), validate(createServiceSchema), async (req, res) => {
+  const { businessId } = businessIdParamSchema.parse({ businessId: req.params.businessId });
+  const { name, duration, price, description, notes } = createServiceSchema.parse(req.body);
 
   try {
     const service = await prisma.service.create({
@@ -411,7 +410,7 @@ router.post("/:businessId/services", async (req, res) => {
   }
 });
 
-router.put("/:businessId/services/:serviceId", async (req, res) => {
+router.put("/:businessId/services/:serviceId", verifyJWT, validate(updateServiceSchema), async (req, res) => {
   const { businessId, serviceId } = req.params;
   const { name, duration, price, notes }: { name?: string; duration?: number; price?: number; notes?: string } = req.body;
 
@@ -461,7 +460,7 @@ router.put("/:businessId/services/:serviceId", async (req, res) => {
   }
 });
 
-router.delete("/:businessId/services/:serviceId", async (req, res) => {
+router.delete("/:businessId/services/:serviceId", verifyJWT, async (req, res) => {
   const { businessId, serviceId } = req.params;
 
   if (!businessId || !serviceId) {
@@ -492,8 +491,9 @@ router.delete("/:businessId/services/:serviceId", async (req, res) => {
   }
 });
 
-router.post("/:businessId/employees", async (req, res) => {
+router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("businessId"), validate(createEmployeeSchema), async (req, res) => {
   const { businessId } = req.params;
+  const { email, name, phone } = createEmployeeSchema.parse(req.body);
   const {
     name,
     email,
@@ -580,7 +580,7 @@ router.post("/:businessId/employees", async (req, res) => {
 });
 
 // Update an employee
-router.put("/:businessId/employees/:employeeId", async (req, res) => {
+router.put("/:businessId/employees/:employeeId", verifyJWT, validate(updateEmployeeSchema), async (req, res) => {
   const { businessId, employeeId } = req.params;
   const {
     name,
@@ -655,7 +655,7 @@ router.put("/:businessId/employees/:employeeId", async (req, res) => {
 });
 
 // Delete an employee from a business
-router.delete("/:businessId/employees/:employeeId", async (req, res) => {
+router.delete("/:businessId/employees/:employeeId", verifyJWT, async (req, res) => {
   const { businessId, employeeId } = req.params;
 
   if (!businessId || !employeeId) {
@@ -703,7 +703,7 @@ router.delete("/:businessId/employees/:employeeId", async (req, res) => {
 });
 
 // Get working hours for a business
-router.get("/:businessId/working-hours", async (req, res) => {
+router.get("/:businessId/working-hours", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const { employeeId } = req.query as { employeeId?: string };
 
@@ -776,7 +776,7 @@ router.get("/:businessId/working-hours", async (req, res) => {
 });
 
 // Update working hours for a business
-router.put("/:businessId/working-hours", async (req, res) => {
+router.put("/:businessId/working-hours", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const { workingHours }: { workingHours?: any } = req.body;
 
@@ -814,14 +814,10 @@ router.put("/:businessId/working-hours", async (req, res) => {
  * PUT /business/:businessId
  * Actualizează informațiile unui business
  */
-router.put("/:businessId", verifyJWT, async (req, res) => {
-  const { businessId } = req.params;
+router.put("/:businessId", verifyJWT, requireBusinessAccess("businessId"), validateParams(businessIdParamSchema), validate(updateBusinessSchema), async (req, res) => {
+  const { businessId } = businessIdParamSchema.parse({ businessId: req.params.businessId });
   const authReq = req as AuthenticatedRequest;
-  const { name, email, address, phone, latitude, longitude, businessType } = req.body;
-
-  if (!businessId) {
-    return res.status(400).json({ error: "businessId este obligatoriu." });
-  }
+  const { name, email, businessType } = updateBusinessSchema.parse(req.body);
 
   try {
     // Verifică autorizarea
@@ -913,7 +909,7 @@ router.put("/:businessId", verifyJWT, async (req, res) => {
     return res.json(updated);
   } catch (error: any) {
     logger.error("Business update failed", error);
-    console.error("Business update error details:", error);
+    logger.error("Business update error details:", error);
     // Returnează mesajul de eroare mai detaliat pentru debugging
     const errorMessage = error?.message || "Eroare la actualizarea business-ului.";
     return res.status(500).json({ error: errorMessage });
@@ -988,7 +984,7 @@ router.put("/:businessId/slot-duration", verifyJWT, async (req, res) => {
 });
 
 // Get holidays for a business
-router.get("/:businessId/holidays", async (req, res) => {
+router.get("/:businessId/holidays", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
 
   if (!businessId) {
@@ -1018,7 +1014,7 @@ router.get("/:businessId/holidays", async (req, res) => {
 });
 
 // Create a holiday period
-router.post("/:businessId/holidays", async (req, res) => {
+router.post("/:businessId/holidays", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const { startDate, endDate, reason }: { startDate?: string; endDate?: string; reason?: string } = req.body;
 
@@ -1079,7 +1075,7 @@ router.post("/:businessId/holidays", async (req, res) => {
 });
 
 // Delete a holiday period
-router.delete("/:businessId/holidays/:holidayId", async (req, res) => {
+router.delete("/:businessId/holidays/:holidayId", verifyJWT, async (req, res) => {
   const { businessId, holidayId } = req.params;
 
   if (!businessId || !holidayId) {

@@ -1,5 +1,6 @@
 const prisma = require("../../lib/prisma");
 const { sendBookingCancellationSms } = require("../../services/smsService");
+const { logger } = require("../../lib/logger");
 
 const HOUR_IN_MS = 60 * 60 * 1000;
 const MIN_BOOKING_LEAD_MS = 2 * HOUR_IN_MS;
@@ -101,7 +102,7 @@ async function cancelOwnBooking(
       bookingDateValue,
       booking.business.id
     ).catch((error: unknown) => {
-      console.error("Failed to send cancellation SMS:", error);
+      logger.error("Failed to send cancellation SMS:", error);
     });
   }
 

@@ -231,7 +231,7 @@ async function getAiUsageOverview() {
         orderBy: { _count: { _all: "desc" } },
         take: 5,
       }).catch((err: any) => {
-        console.error("Error grouping AI usage by business:", err);
+        logger.error("Error grouping AI usage by business:", err);
         return [];
       }),
       prisma.aiUsageLog.groupBy({
@@ -241,7 +241,7 @@ async function getAiUsageOverview() {
           statusCode: { not: 200 },
         },
       }).catch((err: any) => {
-        console.error("Error grouping AI usage by status code:", err);
+        logger.error("Error grouping AI usage by status code:", err);
         return [];
       }),
     ]);

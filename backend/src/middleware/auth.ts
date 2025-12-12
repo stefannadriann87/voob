@@ -71,11 +71,21 @@ const verifyJWT = (req: express.Request, res: express.Response, next: express.Ne
     };
     
     next();
-  } catch (error) {
+  } catch (error: any) {
+    // Check if token is expired
+    if (error.name === "TokenExpiredError") {
+      logger.debug("JWT token expired", { tokenPrefix: token.substring(0, 10) + "..." });
+      return res.status(401).json({ 
+        error: "Token expirat. Te rugăm să folosești refresh token pentru a obține un token nou.",
+        code: "TOKEN_EXPIRED",
+        requiresRefresh: true,
+      });
+    }
+    
     logger.error("JWT verification failed", error, { tokenPrefix: token.substring(0, 10) + "..." });
     return res.status(401).json({ error: "Token invalid sau expirat." });
   }
 };
 
-module.exports = { verifyJWT, JWT_COOKIE_NAME };
+module.exports = { verifyJWT, JWT_COOKIE_NAME, extractToken };
 

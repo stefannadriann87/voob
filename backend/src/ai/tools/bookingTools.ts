@@ -4,6 +4,8 @@
  */
 
 const prisma = require("../../lib/prisma");
+const { createBookingToolSchema, cancelBookingToolSchema } = require("./toolSchemas");
+const { logger } = require("../../lib/logger");
 const { sendBookingCancellationSms } = require("../../services/smsService");
 
 const HOUR_IN_MS = 60 * 60 * 1000;
@@ -19,9 +21,11 @@ const REMINDER_LIMIT_MESSAGE = "Timpul de anulare după reminder a expirat.";
  * Anulează o rezervare cu verificare RBAC
  */
 async function cancelBooking(
-  { bookingId }: { bookingId: string },
+  args: { bookingId: string },
   context: any
 ): Promise<string> {
+  // Validare input cu Zod
+  const { bookingId } = cancelBookingToolSchema.parse(args);
   const { userId, role, businessId } = context;
 
   const booking = await prisma.booking.findUnique({
@@ -83,7 +87,7 @@ async function cancelBooking(
       booking.business?.id
     ).catch(
       (error: unknown) => {
-        console.error("Failed to send cancellation SMS:", error);
+        logger.error("Failed to send cancellation SMS:", error);
       }
     );
   }
@@ -96,17 +100,7 @@ async function cancelBooking(
  * Acceptă fie ID-uri, fie nume pentru business, service, employee
  */
 async function createBooking(
-  {
-    clientId,
-    businessId,
-    businessName,
-    serviceId,
-    serviceName,
-    employeeId,
-    employeeName,
-    date,
-    paid = false,
-  }: {
+  args: {
     clientId?: string;
     businessId?: string;
     businessName?: string;
@@ -119,6 +113,10 @@ async function createBooking(
   },
   context: any
 ): Promise<string> {
+  // Validare input cu Zod
+  const validatedArgs = createBookingToolSchema.parse(args);
+  
+  const { clientId, businessId, businessName, serviceId, serviceName, employeeId, employeeName, date, paid = false } = validatedArgs;
   const { userId, role, businessId: userBusinessId, linkedBusinesses, businessServices, businessEmployees } = context;
 
   // Pentru CLIENT: folosește userId ca clientId și caută business-ul din lista sa
@@ -139,6 +137,10 @@ async function createBooking(
         (b: any) => b.name.toLowerCase().includes(businessName.toLowerCase())
       );
       if (business) {
+        // Verifică dacă business-ul este suspendat
+        if (business.status === "SUSPENDED") {
+          throw new Error("Business-ul este suspendat. Rezervările sunt oprite temporar.");
+        }
         finalBusinessId = business.id;
       } else {
         throw new Error(`Business-ul "${businessName}" nu a fost găsit în lista ta de business-uri conectate.`);
@@ -280,7 +282,7 @@ async function createBooking(
       booking.service?.name,
       booking.business.id
     ).catch((error: unknown) => {
-      console.error("Failed to send confirmation SMS:", error);
+      logger.error("Failed to send confirmation SMS:", error);
     });
   }
 
@@ -494,6 +496,7 @@ async function sendSMSNotification(
   }
 
   const { sendSms } = require("../../services/smsService");
+const { logger } = require("../../lib/logger");
 
   const smsMessage =
     message ||

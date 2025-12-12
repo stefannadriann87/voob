@@ -66,7 +66,7 @@ async function createClients() {
   });
 
   // Linkează toți clienții cu toate business-urile
-  const links = [];
+  const links: Array<{ clientId: string; businessId: string }> = [];
   for (const business of businesses) {
     // Client 1 - linkat cu toate
     links.push({

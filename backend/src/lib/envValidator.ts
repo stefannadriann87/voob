@@ -1,3 +1,4 @@
+const { logger } = require("./logger");
 /**
  * Environment Variables Validator
  * Validează și asigură că toate variabilele de mediu necesare sunt setate
@@ -110,9 +111,9 @@ function validateRequiredEnv(): void {
   }
 
   if (errors.length > 0) {
-    console.error("❌ Environment validation failed:");
-    errors.forEach((error) => console.error(`  - ${error}`));
-    console.error("\nPlease set the required environment variables and restart the server.");
+    logger.error("❌ Environment validation failed:");
+    errors.forEach((error) => logger.error(`  - ${error}`));
+    logger.error("\nPlease set the required environment variables and restart the server.");
     process.exit(1);
   }
 }
