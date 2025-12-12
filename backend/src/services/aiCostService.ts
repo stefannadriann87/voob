@@ -162,7 +162,7 @@ async function checkAllCostLimits(userId: string, businessId: string | null): Pr
 
   return {
     allowed,
-    reason,
+    ...(reason !== undefined ? { reason } : {}),
     limits: {
       userDaily,
       businessDaily,

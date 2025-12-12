@@ -784,7 +784,7 @@ router.post("/clients", authenticate, async (req, res) => {
   }
 });
 
-router.post("/logout", (req, res) => {
+router.post("/logout", async (req, res) => {
   // Șterge cookie-ul JWT
   
   // Extract user from token and revoke all refresh tokens

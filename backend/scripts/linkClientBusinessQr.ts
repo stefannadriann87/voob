@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
-import prismaClient = require("@prisma/client");
-import qrLib = require("../src/lib/qr");
+import * as prismaClient from "@prisma/client";
+import * as qrLib from "../src/lib/qr";
 
 const { PrismaClient } = prismaClient;
 const prisma = new PrismaClient();

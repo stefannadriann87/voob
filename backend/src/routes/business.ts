@@ -60,13 +60,13 @@ router.post("/", verifyJWT, validate(createBusinessRouteSchema), async (req, res
 
   try {
     const servicePayload =
-      services?.map((service) => ({
+      services?.map((service: { name: string; duration: number; price: number }) => ({
         name: service.name,
         duration: service.duration,
         price: service.price,
       })) ?? [];
 
-    const employeeConnect = employeeIds?.map((id) => ({ id })) ?? [];
+    const employeeConnect = employeeIds?.map((id: string) => ({ id })) ?? [];
 
     const createdBusiness = await prisma.business.create({
       data: {
@@ -494,17 +494,7 @@ router.delete("/:businessId/services/:serviceId", verifyJWT, async (req, res) =>
 router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("businessId"), validate(createEmployeeSchema), async (req, res) => {
   const { businessId } = req.params;
   const { email, name, phone } = createEmployeeSchema.parse(req.body);
-  const {
-    name,
-    email,
-    phone,
-    specialization,
-  }: {
-    name?: string;
-    email?: string;
-    phone?: string;
-    specialization?: string;
-  } = req.body;
+  const { specialization } = req.body as { specialization?: string };
 
   if (!businessId) {
     return res.status(400).json({ error: "businessId este obligatoriu." });
@@ -818,6 +808,11 @@ router.put("/:businessId", verifyJWT, requireBusinessAccess("businessId"), valid
   const { businessId } = businessIdParamSchema.parse({ businessId: req.params.businessId });
   const authReq = req as AuthenticatedRequest;
   const { name, email, businessType } = updateBusinessSchema.parse(req.body);
+  const body = req.body as { address?: string; phone?: string; latitude?: string | number; longitude?: string | number };
+  const address: string | undefined = body.address;
+  const phone: string | undefined = body.phone;
+  const latitude: string | number | undefined = body.latitude;
+  const longitude: string | number | undefined = body.longitude;
 
   try {
     // Verifică autorizarea
@@ -872,10 +867,10 @@ router.put("/:businessId", verifyJWT, requireBusinessAccess("businessId"), valid
       updateData.phone = phone && phone.trim() ? phone.trim() : null;
     }
     if (latitude !== undefined) {
-      updateData.latitude = latitude !== null && latitude !== undefined ? parseFloat(latitude) : null;
+      updateData.latitude = latitude !== null && latitude !== undefined ? (typeof latitude === 'string' ? parseFloat(latitude) : latitude) : null;
     }
     if (longitude !== undefined) {
-      updateData.longitude = longitude !== null && longitude !== undefined ? parseFloat(longitude) : null;
+      updateData.longitude = longitude !== null && longitude !== undefined ? (typeof longitude === 'string' ? parseFloat(longitude) : longitude) : null;
     }
     if (businessType !== undefined) {
       // Validare businessType

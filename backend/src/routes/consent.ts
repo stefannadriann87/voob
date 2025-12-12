@@ -542,6 +542,8 @@ router.get("/:bookingId", verifyJWT, async (req, res) => {
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 
+  const user = authReq.user; // TypeScript now knows user is defined
+
   try {
     const consent = await prisma.consentForm.findUnique({
       where: { bookingId },
@@ -571,10 +573,10 @@ router.get("/:bookingId", verifyJWT, async (req, res) => {
       return res.status(404).json({ error: "Consimțământ inexistent pentru această rezervare." });
     }
 
-    const isOwner = consent.booking.business.ownerId === authReq.user.userId;
-    const isClient = consent.booking.client.id === authReq.user.userId;
-    const isEmployee = consent.booking.business.employees.some((employee: { id: string }) => employee.id === authReq.user.userId);
-    const isSuperAdmin = authReq.user.role === "SUPERADMIN";
+    const isOwner = consent.booking.business.ownerId === user.userId;
+    const isClient = consent.booking.client.id === user.userId;
+    const isEmployee = consent.booking.business.employees.some((employee: { id: string }) => employee.id === user.userId);
+    const isSuperAdmin = user.role === "SUPERADMIN";
 
     if (!isOwner && !isClient && !isEmployee && !isSuperAdmin) {
       return res.status(403).json({ error: "Nu ai permisiunea de a accesa acest consimțământ." });

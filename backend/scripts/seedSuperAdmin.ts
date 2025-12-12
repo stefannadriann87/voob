@@ -1,7 +1,6 @@
-import bcrypt = require("bcryptjs");
-import prismaClient = require("@prisma/client");
+import * as bcrypt from "bcryptjs";
+import { PrismaClient, Role } from "@prisma/client";
 
-const { PrismaClient, Role } = prismaClient;
 const prisma = new PrismaClient();
 
 async function seed() {

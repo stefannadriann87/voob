@@ -1,5 +1,7 @@
-import bcrypt = require("bcryptjs");
-import prismaClient = require("@prisma/client");
+/// <reference types="node" />
+
+import bcrypt from "bcryptjs";
+import * as prismaClient from "@prisma/client";
 
 const { PrismaClient, Role } = prismaClient;
 const prisma = new PrismaClient();
@@ -63,7 +65,12 @@ async function linkClientToAllBusinesses() {
   const existingBusinessIds = new Set(existingLinks.map((link) => link.businessId));
 
   // Create links for all businesses
-  const results = [];
+  const results: Array<{
+    name: string;
+    email: string | null;
+    domain: string;
+    status: string;
+  }> = [];
   for (const business of allBusinesses) {
     const alreadyLinked = existingBusinessIds.has(business.id);
     

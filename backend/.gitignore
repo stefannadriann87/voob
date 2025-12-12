@@ -10,3 +10,8 @@ scripts/*.d.ts
 scripts/*.d.ts.map
 scripts/*.js.map
 dist/**/*.d.ts.map
+
+# Compiled JavaScript from TypeScript source
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts.map

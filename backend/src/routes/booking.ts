@@ -18,6 +18,9 @@ const { paginationQuerySchema, getPaginationParams, buildPaginationResponse } = 
 const { validate, validateQuery } = require("../middleware/validate");
 const {
   createBookingSchema,
+  updateBookingSchema,
+  bookingIdParamSchema,
+  deleteBookingSchema,
 } = require("../validators/bookingSchemas");
 const { logger } = require("../lib/logger");
 
@@ -207,9 +210,9 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
       bookingEnd = new Date(bookingStart.getTime() + serviceDurationMinutes * 60 * 1000);
 
       // VALIDATION: Check for overlapping bookings with the same employee
+      // Optimizat: folosește range mai mic (2 ore buffer) și select specific
+      const overlapBufferMs = 2 * HOUR_IN_MS; // 2 ore buffer
       if (employeeId) {
-        // Optimizat: folosește range mai mic (2 ore buffer) și select specific
-        const overlapBufferMs = 2 * HOUR_IN_MS; // 2 ore buffer
         const overlappingBookings = await prisma.booking.findMany({
           where: {
             employeeId,
@@ -644,6 +647,7 @@ router.put("/:id", verifyJWT, requireBookingAccess("id"), validate(updateBooking
     const bookingEnd = new Date(bookingStart.getTime() + serviceDuration * 60 * 1000);
 
     // VALIDATION: Check for overlapping bookings (excluding the current booking being updated)
+    const overlapBufferMs = 2 * HOUR_IN_MS; // 2 ore buffer
     if (finalEmployeeId) {
       const overlappingBookings = await prisma.booking.findMany({
         where: {
@@ -809,6 +813,7 @@ router.delete("/:id", verifyJWT, requireBookingAccess("id"), async (req, res) =>
     const isBusinessOwner = booking.business.ownerId === userId;
     const isEmployee = booking.business.employees.some((emp: any) => emp.id === userId);
     const isSuperAdmin = userRole === "SUPERADMIN";
+    const isClient = userRole === "CLIENT";
 
     const bypassTimeLimits = isBusinessOwner || isEmployee || isSuperAdmin;
 
@@ -1270,6 +1275,7 @@ router.post("/confirm", verifyJWT, async (req, res) => {
     const bookingEnd = new Date(bookingStart.getTime() + serviceDuration * 60 * 1000);
 
     // VALIDATION: Check for overlapping bookings with the same employee
+    const overlapBufferMs = 2 * HOUR_IN_MS; // 2 ore buffer
     if (pending.employeeId) {
       const overlappingBookings = await prisma.booking.findMany({
         where: {

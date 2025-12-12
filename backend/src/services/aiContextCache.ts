@@ -67,8 +67,8 @@ function invalidateContext(userId: string, role: string, businessId?: string | n
  */
 function invalidateUserContexts(userId: string): void {
   const keys = contextCache.keys();
-  const userKeys = keys.filter((key) => key.startsWith(`ai_context:${userId}:`));
-  userKeys.forEach((key) => contextCache.del(key));
+  const userKeys = keys.filter((key: string) => key.startsWith(`ai_context:${userId}:`));
+  userKeys.forEach((key: string) => contextCache.del(key));
   logger.debug(`🗑️  All AI context caches invalidated for user ${userId}`);
 }
 
@@ -77,8 +77,8 @@ function invalidateUserContexts(userId: string): void {
  */
 function invalidateBusinessContexts(businessId: string): void {
   const keys = contextCache.keys();
-  const businessKeys = keys.filter((key) => key.includes(`:${businessId}`));
-  businessKeys.forEach((key) => contextCache.del(key));
+  const businessKeys = keys.filter((key: string) => key.includes(`:${businessId}`));
+  businessKeys.forEach((key: string) => contextCache.del(key));
   logger.debug(`🗑️  All AI context caches invalidated for business ${businessId}`);
 }
 

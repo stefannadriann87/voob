@@ -1,5 +1,7 @@
-import bcrypt = require("bcryptjs");
-const prismaClient = require("@prisma/client") as any;
+/// <reference types="node" />
+
+import bcrypt from "bcryptjs";
+import * as prismaClient from "@prisma/client";
 
 const {
   PrismaClient,
@@ -14,6 +16,21 @@ const {
 const prisma = new PrismaClient();
 
 async function seed() {
+  // Prevent running in production
+  const nodeEnv = process.env.NODE_ENV || process.env.ENVIRONMENT;
+  if (nodeEnv === "production" || nodeEnv === "prod") {
+    console.error("❌ ERROR: This seed script cannot run in production environment!");
+    console.error("   Set NODE_ENV=development to run this script.");
+    process.exit(1);
+  }
+
+  // Warn if not explicitly in development
+  if (!nodeEnv || (nodeEnv !== "development" && nodeEnv !== "dev" && nodeEnv !== "test")) {
+    console.warn("⚠️  WARNING: NODE_ENV is not set to 'development' or 'test'");
+    console.warn("   This script is intended for development/testing only.");
+    console.warn("   Continuing anyway, but please verify you're not in production...\n");
+  }
+
   const defaultPasswordPlain = "Password123!";
   const superAdminEmail = "stefann.adriann@gmail.com";
   const superAdminPasswordPlain = "Develop13#";
@@ -197,8 +214,10 @@ async function seed() {
   });
 
   const firstService = barberBusiness.services?.[0];
-  let barberBooking = null;
+  let barberBooking: Awaited<ReturnType<typeof prisma.booking.create>> | null = null;
+  let barberServicePrice = 0;
   if (firstService) {
+    barberServicePrice = firstService.price;
     barberBooking = await prisma.booking.create({
       data: {
         client: { connect: { id: client.id } },
@@ -211,8 +230,10 @@ async function seed() {
   }
 
   const dentistService = dentistBusiness.services?.[0];
-  let dentistBooking = null;
+  let dentistBooking: Awaited<ReturnType<typeof prisma.booking.create>> | null = null;
+  let dentistServicePrice = 0;
   if (dentistService) {
+    dentistServicePrice = dentistService.price;
     dentistBooking = await prisma.booking.create({
       data: {
         client: { connect: { id: client.id } },
@@ -281,17 +302,17 @@ async function seed() {
         ? {
             businessId: barberBusiness.id,
             bookingId: barberBooking.id,
-            amount: firstService?.price ?? 0,
+            amount: barberServicePrice,
             method: PaymentMethod.CARD,
             status: PaymentStatus.SUCCEEDED,
-            applicationFee: (firstService?.price ?? 0) * 0.08,
+            applicationFee: barberServicePrice * 0.08,
           }
         : undefined,
       dentistBooking
         ? {
             businessId: dentistBusiness.id,
             bookingId: dentistBooking.id,
-            amount: dentistService?.price ?? 0,
+            amount: dentistServicePrice,
             method: PaymentMethod.OFFLINE,
             status: PaymentStatus.SUCCEEDED,
             isCashSelfReported: true,
@@ -347,19 +368,19 @@ async function seed() {
     ],
   });
 
-  await prisma.platformSetting.upsert({
+  await prisma.platformSettings.upsert({
     where: { key: "sms_cost_per_message" },
     update: { value: "0.25" },
     create: { key: "sms_cost_per_message", value: "0.25", description: "Cost intern per SMS trimis" },
   });
 
-  await prisma.platformSetting.upsert({
+  await prisma.platformSettings.upsert({
     where: { key: "openai_cost_per_1k_tokens" },
     update: { value: "0.015" },
     create: { key: "openai_cost_per_1k_tokens", value: "0.015", description: "Estimare cost OpenAI per 1k tokens" },
   });
 
-  await prisma.platformSetting.upsert({
+  await prisma.platformSettings.upsert({
     where: { key: "platform_sla_percent" },
     update: { value: "99.92" },
     create: { key: "platform_sla_percent", value: "99.92", description: "SLA lunar raportat" },

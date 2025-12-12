@@ -284,10 +284,10 @@ async function sendBookingReminderSms(
       clientName,
       clientPhone,
       businessName,
-      bookingDate,
-      serviceName,
-      businessId,
-      reminderHours
+      bookingDateObj,
+      serviceName ?? undefined,
+      reminderHours,
+      businessId ?? undefined
     );
   }
 }

@@ -9,7 +9,7 @@
 const dotenv = require("dotenv");
 dotenv.config();
 
-import prismaClient = require("@prisma/client");
+import * as prismaClient from "@prisma/client";
 const { PrismaClient } = prismaClient;
 const prisma = new PrismaClient();
 const { sendBookingReminderSms } = require("../src/services/smsService");
