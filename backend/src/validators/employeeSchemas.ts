@@ -28,7 +28,7 @@ const createHolidaySchema = z.object({
   startDate: z.string().datetime({ message: "startDate trebuie să fie o dată validă (ISO 8601)" }),
   endDate: z.string().datetime({ message: "endDate trebuie să fie o dată validă (ISO 8601)" }),
   reason: z.string().max(500, "Motivul nu poate depăși 500 caractere").optional().nullable(),
-}).refine((data) => {
+}).refine((data: { startDate: string; endDate: string; reason?: string | null }) => {
   const start = new Date(data.startDate);
   const end = new Date(data.endDate);
   return start < end;

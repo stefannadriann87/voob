@@ -12,7 +12,7 @@ const paginationQuerySchema = z.object({
   page: z.string().regex(/^\d+$/).transform(Number).optional().default("1"),
   limit: z.string().regex(/^\d+$/).transform(Number).optional().default("20"),
   cursor: z.string().optional(), // Pentru cursor-based pagination
-}).refine((data) => {
+}).refine((data: { page?: number; limit?: number; cursor?: string }) => {
   const page = Number(data.page) || 1;
   const limit = Number(data.limit) || 20;
   return page > 0 && limit > 0 && limit <= 100; // Max 100 per page

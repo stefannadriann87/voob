@@ -1,4 +1,4 @@
-import { toZonedTime, fromZonedTime } from "date-fns-tz";
+const { toZonedTime, fromZonedTime } = require("date-fns-tz");
 
 /**
  * Converts a date from business timezone to UTC
@@ -6,7 +6,7 @@ import { toZonedTime, fromZonedTime } from "date-fns-tz";
  * @param timezone - Business timezone (e.g., "Europe/Bucharest")
  * @returns Date in UTC
  */
-export function toUTC(date: Date, timezone: string = "Europe/Bucharest"): Date {
+function toUTC(date: Date, timezone: string = "Europe/Bucharest"): Date {
   return fromZonedTime(date, timezone);
 }
 
@@ -16,7 +16,7 @@ export function toUTC(date: Date, timezone: string = "Europe/Bucharest"): Date {
  * @param timezone - Business timezone (e.g., "Europe/Bucharest")
  * @returns Date in business timezone
  */
-export function fromUTC(utcDate: Date | string, timezone: string = "Europe/Bucharest"): Date {
+function fromUTC(utcDate: Date | string, timezone: string = "Europe/Bucharest"): Date {
   const date = typeof utcDate === "string" ? new Date(utcDate) : utcDate;
   return toZonedTime(date, timezone);
 }
@@ -26,7 +26,7 @@ export function fromUTC(utcDate: Date | string, timezone: string = "Europe/Bucha
  * @param timezone - Business timezone (e.g., "Europe/Bucharest")
  * @returns Current date in business timezone
  */
-export function getCurrentTimeInTimezone(timezone: string = "Europe/Bucharest"): Date {
+function getCurrentTimeInTimezone(timezone: string = "Europe/Bucharest"): Date {
   return toZonedTime(new Date(), timezone);
 }
 
@@ -36,7 +36,7 @@ export function getCurrentTimeInTimezone(timezone: string = "Europe/Bucharest"):
  * @param timezone - Business timezone (e.g., "Europe/Bucharest")
  * @returns true if date is in the past
  */
-export function isPastInTimezone(date: Date | string, timezone: string = "Europe/Bucharest"): boolean {
+function isPastInTimezone(date: Date | string, timezone: string = "Europe/Bucharest"): boolean {
   const zonedDate = fromUTC(date, timezone);
   const now = getCurrentTimeInTimezone(timezone);
   return zonedDate < now;
@@ -49,14 +49,22 @@ export function isPastInTimezone(date: Date | string, timezone: string = "Europe
  * @param timezone - Business timezone (e.g., "Europe/Bucharest")
  * @returns Date in UTC
  */
-export function createDateInTimezone(
+function createDateInTimezone(
   dateStr: string,
   timeStr: string,
   timezone: string = "Europe/Bucharest"
 ): Date {
   const [hours, minutes] = timeStr.split(":").map(Number);
   const date = new Date(dateStr);
-  date.setHours(hours, minutes, 0, 0);
+  date.setHours(hours ?? 0, minutes ?? 0, 0, 0);
   return toUTC(date, timezone);
 }
+
+module.exports = {
+  toUTC,
+  fromUTC,
+  getCurrentTimeInTimezone,
+  isPastInTimezone,
+  createDateInTimezone,
+};
 

@@ -27,7 +27,7 @@ const platformKeySchema = z.string()
   .min(1, "Key-ul este obligatoriu")
   .max(100, "Key-ul nu poate depăși 100 caractere")
   .regex(/^[a-zA-Z0-9_]+$/, "Key-ul poate conține doar litere, cifre și underscore")
-  .refine((key) => {
+  .refine((key: string) => {
     // Dacă există whitelist, verifică
     if (ALLOWED_KEYS.length > 0) {
       return ALLOWED_KEYS.includes(key);

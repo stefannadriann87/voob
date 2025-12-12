@@ -11,7 +11,17 @@ const { logger } = require("../lib/logger");
  * Worker pentru procesarea SMS reminders
  */
 function startSmsReminderWorker() {
-  return createWorker(QUEUE_NAMES.SMS_REMINDER, async (job) => {
+  return createWorker(QUEUE_NAMES.SMS_REMINDER, async (job: {
+    data: {
+      clientName: string;
+      clientPhone: string;
+      businessName: string;
+      bookingDate: string;
+      serviceName?: string | null;
+      businessId?: string | null;
+      reminderHours: number;
+    };
+  }) => {
     const { clientName, clientPhone, businessName, bookingDate, serviceName, businessId, reminderHours } = job.data;
 
     logger.info(`Sending SMS reminder for ${clientName} (booking: ${bookingDate})`);

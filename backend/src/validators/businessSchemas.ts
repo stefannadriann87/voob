@@ -37,7 +37,7 @@ const createServiceSchema = z.object({
   duration: z.number()
     .int("Durata trebuie să fie un număr întreg")
     .positive("Durata trebuie să fie un număr pozitiv")
-    .refine((val) => val % 30 === 0, {
+    .refine((val: number) => val % 30 === 0, {
       message: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)",
     }),
   price: z.number().nonnegative("Prețul nu poate fi negativ"),
@@ -54,7 +54,7 @@ const updateServiceSchema = z.object({
   duration: z.number()
     .int("Durata trebuie să fie un număr întreg")
     .positive("Durata trebuie să fie un număr pozitiv")
-    .refine((val) => val % 30 === 0, {
+    .refine((val: number) => val % 30 === 0, {
       message: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)",
     })
     .optional(),

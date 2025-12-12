@@ -192,10 +192,10 @@ export default function NotificationBell() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-white truncate">
-                            {booking.client.name}
+                            {booking.client?.name}
                           </p>
                           <p className="mt-1 text-sm text-white/70 truncate">
-                            {booking.service.name}
+                            {booking.service?.name}
                           </p>
                           <div className="mt-2 flex items-center gap-2 text-xs text-white/60">
                             <i className="fas fa-calendar" />

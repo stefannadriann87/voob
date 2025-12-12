@@ -17,10 +17,9 @@ import { requiresConsentForBusiness } from "../../../constants/consentTemplates"
 import useApi from "../../../hooks/useApi";
 import useWorkingHours from "../../../hooks/useWorkingHours";
 import useCourts from "../../../hooks/useCourts";
-import useCalendarUpdates from "../../../hooks/useCalendarUpdates";
 import { isBookingTooSoon, MIN_LEAD_MESSAGE, MIN_BOOKING_LEAD_MS } from "../../../utils/bookingRules";
 import { getWeekStart, formatDayLabel, getDefaultHours } from "../../../utils/calendarUtils";
-import { formatInTimezone, getCurrentTimeInTimezone, isPastInTimezone, toUTC } from "../../../utils/timezoneUtils";
+import { formatInTimezone, isPastInTimezone, toUTC } from "../../../utils/timezoneUtils";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 

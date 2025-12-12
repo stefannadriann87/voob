@@ -38,7 +38,7 @@ const formDataSchema = z.object({
   treatmentDetails: z.string().min(1, "Detaliile tratamentului sunt obligatorii").max(2000),
   risks: z.string().min(1, "Riscurile sunt obligatorii").max(2000),
   medicalNotes: z.string().max(2000).optional().nullable(),
-  patientAgreement: z.boolean().refine((val) => val === true, {
+  patientAgreement: z.boolean().refine((val: boolean) => val === true, {
     message: "Consimțământul pacientului este obligatoriu",
   }),
 }).passthrough(); // Allow additional fields
@@ -49,7 +49,7 @@ const formDataSchema = z.object({
  */
 const signatureSchema = z.string()
   .startsWith("data:image/", "Semnătura trebuie să fie în format base64 image data URL")
-  .refine((val) => {
+  .refine((val: string) => {
     try {
       const [, base64] = val.split(",");
       if (!base64) return false;
@@ -80,7 +80,7 @@ const uploadConsentSchema = z.object({
   bookingId: z.string().regex(cuidRegex, "bookingId trebuie să fie un CUID valid"),
   pdfDataUrl: z.string()
     .startsWith("data:", "pdfDataUrl trebuie să fie în format base64 data URL")
-    .refine((val) => {
+    .refine((val: string) => {
       try {
         const [, base64] = val.split(",");
         if (!base64) return false;

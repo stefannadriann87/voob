@@ -15,7 +15,7 @@ import {
   MIN_LEAD_MESSAGE,
   MIN_BOOKING_LEAD_MS,
 } from "../../../utils/bookingRules";
-import { getWeekStart, formatDayLabel, CLIENT_COLORS, getClientColor, getDefaultHours } from "../../../utils/calendarUtils";
+import { getWeekStart, formatDayLabel, getClientColor } from "../../../utils/calendarUtils";
 
 // Calendar utilities importate din utils/calendarUtils
 

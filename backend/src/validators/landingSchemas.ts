@@ -38,7 +38,7 @@ const demoBookingSchema = z.object({
   phone: phoneSchema,
   dateTime: z.string().datetime({ message: "Data și ora trebuie să fie în format ISO 8601" }),
   captchaToken: z.string().optional(), // CAPTCHA token pentru verificare
-}).refine((data) => {
+}).refine((data: { firstName: string; lastName: string; email: string; phone: string; dateTime: string; captchaToken?: string }) => {
   const slotDate = new Date(data.dateTime);
   const now = Date.now();
   const threeMonthsFromNow = new Date(now);

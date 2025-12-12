@@ -16,7 +16,7 @@ export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps
   const { trialStatus, loading } = useTrialStatus(businessId);
   const { createCheckout, loading: checkoutLoading } = useSubscription();
   const { user } = useAuth();
-  const { businesses, loading: businessesLoading } = useBusiness();
+  const { loading: businessesLoading } = useBusiness();
   const router = useRouter();
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
 
@@ -35,7 +35,6 @@ export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps
     return null;
   }
 
-  const currentBusiness = businesses.find((b) => b.id === businessId);
   const availablePlans = [
     { id: "pro", name: "VOOB PRO", price: 149, features: ["1 utilizator", "150 SMS/lună", "Suport 24-48h"] },
     {
