@@ -533,7 +533,6 @@ export default function ClientBookingsPage() {
     : (selectedService?.duration ?? 60);
   const serviceDurationMs = serviceDurationMinutes * 60 * 1000;
 
-  const focusedDate = useMemo(() => (calendarDate ? new Date(calendarDate) : null), [calendarDate]);
 
   // Use getAvailableHoursForDay from hook
   const getAvailableHoursForDay = getAvailableHoursForDayFromHook;
@@ -1227,6 +1226,7 @@ const handleConsentSubmit = async () => {
                           name={service.name}
                           duration={service.duration}
                           price={service.price}
+                          notes={service.notes}
                           selected={service.id === selectedServiceId}
                           onSelect={(serviceId) => {
                             if (selectedBusinessId != null) {
@@ -1405,13 +1405,10 @@ const handleConsentSubmit = async () => {
                         }}
                       >
                         {weekDays.map((day, index) => {
-                          const isFocused = focusedDate && day.toDateString() === focusedDate.toDateString();
                           return (
                             <div
                               key={`head-${index}`}
-                              className={`rounded-xl px-2 py-1 text-center text-sm font-semibold ${
-                                isFocused ? "bg-[#6366F1]/30 text-white" : "text-white/70"
-                              }`}
+                              className="rounded-xl px-2 py-1 text-center text-sm font-semibold text-white/70"
                             >
                               <div>{formatDayLabel(day)}</div>
                               <div className="mt-1 text-xs text-white/40">
@@ -1440,8 +1437,6 @@ const handleConsentSubmit = async () => {
                                 const hoveredDayString = hoveredSlot ? new Date(hoveredSlot).toDateString() : null;
                                 const hoveredEndMs =
                                   hoveredStartMs !== null ? hoveredStartMs + serviceDurationMs : null;
-                                const isFocusedDay =
-                                  focusedDate && slotDate.toDateString() === focusedDate.toDateString();
 
                                 let stateClasses =
                                   "bg-[#0B0E17]/60 text-white/70 hover:bg-white/10 hover:scale-[1.01] border border-white/10 transition-all duration-300 ease-in-out";
@@ -1509,11 +1504,7 @@ const handleConsentSubmit = async () => {
                                     onMouseLeave={() => {
                                       setHoveredSlot((prev) => (prev === slot.iso ? null : prev));
                                     }}
-                                    className={`flex h-[44px] w-full items-center justify-center rounded-2xl px-3 text-xs font-semibold transition ${
-                                      isFocusedDay && slot.status === "available"
-                                        ? `${stateClasses} border-[#6366F1]/40 bg-[#6366F1]/10`
-                                        : stateClasses
-                                    }`}
+                                    className={`flex h-[44px] w-full items-center justify-center rounded-2xl px-3 text-xs font-semibold transition ${stateClasses}`}
                                     style={{
                                       cursor:
                                         slot.status === "booked" || slot.status === "past" || slot.status === "blocked"
@@ -1902,7 +1893,9 @@ const handleConsentSubmit = async () => {
                       <div className="flex items-center justify-between border-t border-white/10 pt-3">
                         <span className="flex items-center gap-2 text-white/60">
                           <i className="fas fa-receipt w-4 text-center" />
-                          Total plătit
+                          {recentBooking.paymentMethod === "OFFLINE" || !recentBooking.paid
+                            ? "Total de plată la locație"
+                            : "Total plătit"}
                         </span>
                         <span className="text-lg font-bold text-emerald-400">
                           {recentBooking.service?.price?.toLocaleString("ro-RO", {

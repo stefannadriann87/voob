@@ -9,6 +9,8 @@
     "build": "tsc",
     "seed:auth": "ts-node scripts/seedAuth.ts",
     "seed:superadmin": "ts-node scripts/seedSuperAdmin.ts",
+    "seed:services-employees": "ts-node scripts/addServicesAndEmployees.ts",
+    "seed:complete": "ts-node scripts/seedComplete.ts",
     "reminder:sms": "ts-node scripts/sendBookingReminders.ts",
     "test:sms": "ts-node scripts/testSms.ts"
   },

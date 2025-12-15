@@ -9,7 +9,7 @@ const { z } = require("zod");
 const cuidRegex = /^c[a-z0-9]{24}$/;
 
 // PaymentMethod enum values
-const PaymentMethodEnum = z.enum(["CARD", "APPLEPAY", "GOOGLEPAY", "KLARNA", "OFFLINE", "CASH"]);
+const PaymentMethodEnum = z.enum(["CARD", "OFFLINE", "CASH"]);
 
 
 /**

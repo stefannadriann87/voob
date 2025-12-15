@@ -568,9 +568,6 @@ enum ConsentDocumentSource {
 
 enum PaymentMethod {
   CARD
-  APPLE_PAY
-  GOOGLE_PAY
-  KLARNA
   CASH
   OFFLINE
 }

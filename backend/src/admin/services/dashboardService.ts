@@ -179,11 +179,17 @@ async function getAnalyticsOverview() {
     const cancelled =
       cancellations.find((item: typeof cancellations[number]) => item.status === "CANCELLED")?._count._all ?? 0;
 
+    // Group by date string to ensure uniqueness (in case of timezone issues)
+    const dailyMap = new Map<string, number>();
+    dailyBookings.forEach((entry: typeof dailyBookings[number]) => {
+      const dateStr = entry.date.toISOString().split("T")[0];
+      dailyMap.set(dateStr, (dailyMap.get(dateStr) || 0) + entry._count._all);
+    });
+
     return {
-      bookingsDaily: dailyBookings.map((entry: typeof dailyBookings[number]) => ({
-        date: entry.date.toISOString().split("T")[0],
-        count: entry._count._all,
-      })),
+      bookingsDaily: Array.from(dailyMap.entries())
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
       serviceMix: await Promise.all(
         serviceMix.map(async (entry: typeof serviceMix[number]) => {
           const service = await prisma.service.findUnique({

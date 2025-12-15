@@ -211,8 +211,8 @@ export default function AdminDashboardPage() {
             <div className="space-y-3 text-sm text-white/80">
               <p className="text-xs uppercase tracking-wide text-white/50">Rezervări / zi</p>
               <div className="rounded-2xl border border-white/5 bg-[#0F172A]/60 p-4 max-h-64 overflow-y-auto">
-                {analytics?.bookingsDaily.map((entry) => (
-                  <div key={entry.date} className="flex items-center justify-between py-1 text-xs">
+                {analytics?.bookingsDaily.map((entry, index) => (
+                  <div key={`${entry.date}-${index}`} className="flex items-center justify-between py-1 text-xs">
                     <span className="text-white/60">{entry.date}</span>
                     <span className="font-semibold text-white">{entry.count}</span>
                   </div>

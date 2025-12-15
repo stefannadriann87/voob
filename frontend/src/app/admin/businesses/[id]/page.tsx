@@ -184,7 +184,7 @@ export default function AdminBusinessDetailsPage() {
             </section>
 
             <section className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 mt-6">
                 <h2 className="text-lg font-semibold text-white">Abonament & Facturare</h2>
                 {data.subscription ? (
                   <div className="mt-4 space-y-2 text-sm text-white/70">
@@ -228,7 +228,7 @@ export default function AdminBusinessDetailsPage() {
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 mt-6">
                 <h2 className="text-lg font-semibold text-white">Plăți procesate</h2>
                 <div className="mt-4 space-y-2 text-sm text-white/70">
                   <p>
@@ -257,7 +257,7 @@ export default function AdminBusinessDetailsPage() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <section className="rounded-3xl border border-white/10 bg-white/5 p-6 mt-6">
               <h2 className="text-lg font-semibold text-white">Configurări business</h2>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-[#0F172A]/70 p-4 text-sm text-white/70">

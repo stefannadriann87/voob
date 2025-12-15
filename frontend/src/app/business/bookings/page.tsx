@@ -1789,20 +1789,6 @@ export default function BusinessBookingsPage() {
                 </div>
               )}
 
-              {/* Paid Status */}
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="paid"
-                  checked={paid}
-                  onChange={(e) => setPaid(e.target.checked)}
-                  className="h-5 w-5 rounded border-white/20 bg-[#0B0E17]/60 text-[#6366F1] focus:ring-[#6366F1]"
-                />
-                <label htmlFor="paid" className="text-sm font-medium text-white">
-                  Rezervare plătită
-                </label>
-              </div>
-
               {/* Error Message */}
               {createBookingError && (
                 <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">

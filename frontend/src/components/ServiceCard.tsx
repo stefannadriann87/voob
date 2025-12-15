@@ -3,6 +3,7 @@ interface ServiceCardProps {
   name: string;
   duration: number;
   price: number;
+  notes?: string | null;
   onSelect?: (id: string) => void;
   selected?: boolean;
 }
@@ -23,6 +24,7 @@ export default function ServiceCard({
   name,
   duration,
   price,
+  notes,
   onSelect,
   selected = false,
 }: ServiceCardProps) {
@@ -46,6 +48,11 @@ export default function ServiceCard({
         <i className="fas fa-clock" />
         <span>{formatDuration(duration)}</span>
       </div>
+      {notes && (
+        <div className="mt-3 text-sm text-pink-400 whitespace-pre-wrap">
+          {notes}
+        </div>
+      )}
     </button>
   );
 }

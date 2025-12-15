@@ -15,8 +15,8 @@ const createPaymentIntentSchema = z.object({
   serviceId: z.string().regex(cuidRegex, "serviceId trebuie să fie un CUID valid"),
   employeeId: z.string().regex(cuidRegex, "employeeId trebuie să fie un CUID valid").nullable().optional(),
   date: z.string().datetime({ message: "Data trebuie să fie în format ISO 8601" }),
-  paymentMethod: z.enum(["card", "offline", "klarna"], {
-    errorMap: () => ({ message: "Metoda de plată trebuie să fie: card, offline sau klarna" }),
+  paymentMethod: z.enum(["card", "offline"], {
+    errorMap: () => ({ message: "Metoda de plată trebuie să fie: card sau offline" }),
   }),
   clientNotes: z.string().max(1000, "Notele clientului nu pot depăși 1000 caractere").optional().nullable(),
   duration: z.number().int().positive().optional().nullable(),

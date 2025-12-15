@@ -77,9 +77,9 @@ export default function AdminAnalyticsPage() {
             </span>
           </div>
           <div className="mt-4 max-h-72 overflow-y-auto">
-            {analytics?.bookingsDaily.map((entry) => (
+            {analytics?.bookingsDaily.map((entry, index) => (
               <div
-                key={entry.date}
+                key={`${entry.date}-${index}`}
                 className="flex items-center justify-between border-b border-white/5 py-2 text-sm text-white/70"
               >
                 <span>{entry.date}</span>
