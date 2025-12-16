@@ -24,6 +24,12 @@ type ConsentBooking = {
   } | null;
 };
 
+type ClientGroup = {
+  client: { id: string; name: string; email: string; phone?: string | null };
+  latestBooking: ConsentBooking;
+  hasSignedConsent: boolean;
+};
+
 type ConsentDocumentSource = "DIGITAL_SIGNATURE" | "BUSINESS_UPLOAD";
 
 type ClientDocument = {
@@ -51,7 +57,7 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
   const { user, hydrated } = useAuth();
   const api = useApi();
 
-  const [bookings, setBookings] = useState<ConsentBooking[]>([]);
+  const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
@@ -67,7 +73,6 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
   const [clientDocumentsLoading, setClientDocumentsLoading] = useState(false);
   const [clientDocumentsError, setClientDocumentsError] = useState<string | null>(null);
   const [fileSearchQuery, setFileSearchQuery] = useState("");
-  const [fileDateFilter, setFileDateFilter] = useState("");
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{ documentId: string; clientId: string; fileName: string } | null>(null);
 
   const businessId = user?.business?.id ?? user?.businessId ?? null;
@@ -88,8 +93,11 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
       try {
         const params: Record<string, string> = {
           businessId,
-          date: selectedDate,
         };
+        // Only include date if it's set
+        if (selectedDate) {
+          params.date = selectedDate;
+        }
         if (employeeId) {
           params.employeeId = employeeId;
         }
@@ -97,9 +105,9 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
           params.search = appliedSearch;
         }
 
-        const { data } = await api.get<{ bookings: ConsentBooking[] }>("/consent", { params });
+        const { data } = await api.get<{ clientGroups: ClientGroup[] }>("/consent", { params });
         if (isMounted) {
-          setBookings(data.bookings ?? []);
+          setClientGroups(data.clientGroups ?? []);
         }
       } catch (err) {
         if (isMounted) {
@@ -118,15 +126,15 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
     };
   }, [api, appliedSearch, businessId, employeeId, hydrated, mode, refreshToken, selectedDate]);
 
-  const filteredBookings = useMemo(() => {
+  const filteredClientGroups = useMemo(() => {
     const query = appliedSearch.trim().toLowerCase();
-    if (!query) return bookings;
-    return bookings.filter((booking) => {
-      const name = booking.client.name?.toLowerCase() ?? "";
-      const email = booking.client.email?.toLowerCase() ?? "";
+    if (!query) return clientGroups;
+    return clientGroups.filter((group) => {
+      const name = group.client.name?.toLowerCase() ?? "";
+      const email = group.client.email?.toLowerCase() ?? "";
       return name.includes(query) || email.includes(query);
     });
-  }, [appliedSearch, bookings]);
+  }, [appliedSearch, clientGroups]);
 
   const fetchClientDocuments = useCallback(
     async (clientId: string) => {
@@ -158,11 +166,13 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
   );
 
   const signedCount = useMemo(
-    () => filteredBookings.filter((booking) => Boolean(booking.consentForm)).length,
-    [filteredBookings]
+    () => filteredClientGroups.filter((group) => group.hasSignedConsent).length,
+    [filteredClientGroups]
   );
 
-  const groupedDocuments = useMemo(() => {
+  const totalBookingsCount = filteredClientGroups.length;
+
+  const filteredDocuments = useMemo(() => {
     let filtered = clientDocuments.filter((doc) => doc.pdfUrl);
 
     if (fileSearchQuery.trim()) {
@@ -174,52 +184,11 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
       });
     }
 
-    if (fileDateFilter) {
-      const [month, day] = fileDateFilter.split("-").map(Number);
-      filtered = filtered.filter((doc) => {
-        const date = new Date(doc.createdAt);
-        return date.getMonth() + 1 === month && date.getDate() === day;
-      });
-    }
-
-    const grouped = new Map<string, ClientDocument[]>();
-
-    filtered.forEach((doc) => {
-      const date = new Date(doc.createdAt);
-      const dateKey = date.toISOString().split("T")[0];
-      
-      if (!grouped.has(dateKey)) {
-        grouped.set(dateKey, []);
-      }
-      grouped.get(dateKey)!.push(doc);
-    });
-
-    // Pentru fiecare grup de dată, păstrează doar cel mai recent document pentru fiecare serviciu
-    return Array.from(grouped.entries())
-      .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
-      .map(([dateKey, docs]) => {
-        // Grupează documentele după serviciu
-        const byService = new Map<string, ClientDocument>();
-        
-        docs.forEach((doc) => {
-          const serviceId = doc.booking.service?.id ?? doc.booking.service?.name ?? "unknown";
-          const existing = byService.get(serviceId);
-          
-          // Păstrează doar cel mai recent document pentru fiecare serviciu
-          if (!existing || new Date(doc.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
-            byService.set(serviceId, doc);
-          }
-        });
-        
-        return {
-          dateKey,
-          date: new Date(dateKey),
-          documents: Array.from(byService.values()).sort((a, b) => 
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          ),
-        };
-      });
-  }, [clientDocuments, fileSearchQuery, fileDateFilter]);
+    // Sort by creation date (most recent first)
+    return filtered.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [clientDocuments, fileSearchQuery]);
 
   const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -288,12 +257,20 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
 
     try {
       await api.delete(`/consent/document/${documentId}`);
-      void fetchClientDocuments(clientId);
+      
+      // Remove document from local state immediately for better UX
+      setClientDocuments((prev) => prev.filter((doc) => doc.id !== documentId));
+      
+      // Refresh both the client documents modal and the main list
+      await fetchClientDocuments(clientId);
+      setRefreshToken((prev) => prev + 1);
       setDeleteConfirmModal(null);
     } catch (err) {
-      const axiosError = err as AxiosError<{ error?: string }>;
+      console.error("Delete error:", err);
+      const axiosError = err as AxiosError<{ error?: string; details?: string }>;
       const message =
         axiosError.response?.data?.error ??
+        axiosError.response?.data?.details ??
         axiosError.message ??
         (err instanceof Error ? err.message : "Nu am putut șterge documentul. Încearcă din nou.");
       alert(message);
@@ -330,7 +307,6 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
     setClientDocuments([]);
     setClientDocumentsError(null);
     setFileSearchQuery("");
-    setFileDateFilter("");
   };
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -354,7 +330,19 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
+        reader.onload = () => {
+          const result = reader.result;
+          if (typeof result === "string") {
+            // Verify the data URL format
+            if (!result.startsWith("data:")) {
+              reject(new Error("Format fișier invalid. Te rog încearcă din nou."));
+              return;
+            }
+            resolve(result);
+          } else {
+            reject(new Error("Nu am putut citi fișierul."));
+          }
+        };
         reader.onerror = () => reject(new Error("Nu am putut citi fișierul."));
         reader.readAsDataURL(file);
       });
@@ -367,7 +355,9 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
 
       setUploadError(null);
       setRefreshToken((prev) => prev + 1);
-      const bookingForUpload = bookings.find((booking) => booking.id === uploadTarget);
+      // Find booking in client groups
+      const bookingForUpload = clientGroups
+        .find((group) => group.latestBooking.id === uploadTarget);
       if (bookingForUpload && filesModalClient?.id === bookingForUpload.client.id) {
         void fetchClientDocuments(bookingForUpload.client.id);
       }
@@ -487,7 +477,7 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
               <p className="text-xs uppercase tracking-wide text-white/40">Rezumat ziua curentă</p>
               <p className="mt-1 text-lg font-semibold text-white">
-                {signedCount}/{filteredBookings.length} consimțăminte semnate
+                {signedCount}/{totalBookingsCount} consimțăminte semnate
               </p>
             </div>
           </header>
@@ -514,7 +504,7 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
 
               <div className="flex flex-col gap-2 text-sm">
                 <span className="text-white/70">Data</span>
-                <DatePicker value={selectedDate} onChange={setSelectedDate} placeholder="Alege data" />
+                <DatePicker value={selectedDate} onChange={setSelectedDate} placeholder="Alege data" viewType="day" />
               </div>
 
               <div className="flex items-end justify-start gap-3">
@@ -560,50 +550,62 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
               {loading && <p className="text-xs text-white/60">Se încarcă...</p>}
             </div>
 
-            {filteredBookings.length === 0 ? (
+            {filteredClientGroups.length === 0 ? (
               <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-[#0B0E17]/40 px-4 py-6 text-sm text-white/60">
                 {emptyMessage}
               </div>
             ) : (
               <div className="mt-6 space-y-4">
-                {filteredBookings.map((booking) => {
-                  const consentSigned = Boolean(booking.consentForm?.pdfUrl);
+                {filteredClientGroups.map((group) => {
+                  const booking = group.latestBooking;
+                  const consentSigned = group.hasSignedConsent && Boolean(booking.consentForm?.pdfUrl);
                   const timeLabel = new Date(booking.date).toLocaleTimeString("ro-RO", {
                     hour: "2-digit",
                     minute: "2-digit",
                   });
+                  const dateLabel = new Date(booking.date).toLocaleDateString("ro-RO", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  });
+
                   return (
                     <div
-                      key={booking.id}
+                      key={group.client.id}
                       className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0B0E17]/60 p-4 md:flex-row md:items-center md:justify-between"
                     >
-                      <div className="flex flex-1 flex-col gap-2">
+                      <div className="flex flex-1 flex-col gap-3">
                         <div className="flex flex-wrap items-center gap-3">
-                          <span className="text-lg font-semibold text-white">{booking.client.name}</span>
+                          <span className="text-lg font-semibold text-white">{group.client.name}</span>
                           <a
-                            href={`mailto:${booking.client.email}`}
+                            href={`mailto:${group.client.email}`}
                             className="text-xs text-white/50 transition hover:text-[#6366F1] hover:underline"
                           >
-                            {booking.client.email}
+                            {group.client.email}
                           </a>
-                          {booking.client.phone && (
+                          {group.client.phone && (
                             <a
-                              href={`tel:${booking.client.phone.replace(/\s/g, "")}`}
+                              href={`tel:${group.client.phone.replace(/\s/g, "")}`}
                               className="text-xs text-white/50 transition hover:text-[#6366F1] hover:underline"
                             >
-                              {booking.client.phone}
+                              {group.client.phone}
                             </a>
                           )}
                         </div>
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-white/60">
-                          <span className="rounded-full border border-white/10 px-3 py-1">
-                            {booking.service?.name ?? "Serviciu necunoscut"}
-                          </span>
-                          <span className="rounded-full border border-white/10 px-3 py-1">Ora {timeLabel}</span>
+                        <div className="flex flex-col gap-1.5 text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-white/60 min-w-[140px]">Ultima intervenție:</span>
+                            <span className="text-white">{booking.service?.name ?? "Serviciu necunoscut"}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-white/60 min-w-[140px]">Ultima vizită:</span>
+                            <span className="text-white">{dateLabel} - Ora {timeLabel}</span>
+                          </div>
                           {booking.employee && mode === "business" && (
-                            <span className="rounded-full border border-white/10 px-3 py-1">
-                              Specialist: {booking.employee.name}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-white/60 min-w-[140px]">Specialist:</span>
+                              <span className="text-white">{booking.employee.name}</span>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -620,30 +622,26 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
                           {consentSigned ? "Consimțământ semnat" : "În așteptare"}
                         </span>
                         <div className="flex flex-wrap justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadDocument(booking.id, booking.consentForm?.pdfUrl)}
-                            className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
-                          >
-                            <i className="fas fa-file-download" />
-                            Descarcă consimțământ
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handlePrintDocument(booking.consentForm?.pdfUrl)}
-                            className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
-                          >
-                            <i className="fas fa-print" />
-                            Print consimțământ
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openFilesModal(booking.client)}
-                            className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
-                          >
-                            <i className="fas fa-folder-open" />
-                            {mode === "employee" ? "Fișiere" : "Fișiere încărcate"}
-                          </button>
+                          {consentSigned && booking.consentForm?.pdfUrl && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadDocument(booking.id, booking.consentForm?.pdfUrl)}
+                                className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                              >
+                                <i className="fas fa-file-download" />
+                                Descarcă consimțământ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintDocument(booking.consentForm?.pdfUrl)}
+                                className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                              >
+                                <i className="fas fa-print" />
+                                Print consimțământ
+                              </button>
+                            </>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleUploadClick(booking.id)}
@@ -651,6 +649,14 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
                           >
                             <i className="fas fa-upload" />
                             {uploadingBookingId === booking.id ? "Se încarcă..." : mode === "employee" ? "Încarcă" : "Încarcă fișier"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openFilesModal(group.client)}
+                            className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                          >
+                            <i className="fas fa-folder-open" />
+                            {mode === "employee" ? "Fișiere" : "Fișiere încărcate"}
                           </button>
                         </div>
                       </div>
@@ -701,149 +707,105 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
               </div>
             ) : (
               <>
-                {/* Search and Filter Section */}
+                {/* Search Section */}
                 <div className="mb-6 space-y-3 rounded-2xl border border-white/10 bg-[#0B0E17]/40 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                    <div className="flex-1">
-                      <label htmlFor="fileSearch" className="mb-1 block text-xs font-semibold text-white/70">
-                        Caută după nume fișier sau serviciu
-                      </label>
-                      <div className="relative">
-                        <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
-                        <input
-                          id="fileSearch"
-                          type="text"
-                          value={fileSearchQuery}
-                          onChange={(e) => setFileSearchQuery(e.target.value)}
-                          placeholder="Ex: consent, upload, serviciu..."
-                          className="w-full rounded-xl border border-white/10 bg-white/5 px-10 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20"
-                        />
-                        {fileSearchQuery && (
-                          <button
-                            type="button"
-                            onClick={() => setFileSearchQuery("")}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
-                          >
-                            <i className="fas fa-times" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="md:w-48">
-                      <label htmlFor="fileDateFilter" className="mb-1 block text-xs font-semibold text-white/70">
-                        Filtrează după dată (lună-zi)
-                      </label>
-                      <div className="relative">
-                        <i className="fas fa-calendar absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
-                        <input
-                          id="fileDateFilter"
-                          type="text"
-                          value={fileDateFilter}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/\D/g, "");
-                            if (value.length <= 5) {
-                              let formatted = value;
-                              if (value.length > 2) {
-                                formatted = `${value.slice(0, 2)}-${value.slice(2)}`;
-                              }
-                              setFileDateFilter(formatted);
-                            }
-                          }}
-                          placeholder="MM-ZZ (ex: 01-15)"
-                          maxLength={5}
-                          className="w-full rounded-xl border border-white/10 bg-white/5 px-10 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20"
-                        />
-                        {fileDateFilter && (
-                          <button
-                            type="button"
-                            onClick={() => setFileDateFilter("")}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
-                          >
-                            <i className="fas fa-times" />
-                          </button>
-                        )}
-                      </div>
+                  <div>
+                    <label htmlFor="fileSearch" className="mb-1 block text-xs font-semibold text-white/70">
+                      Caută după nume fișier sau serviciu
+                    </label>
+                    <div className="relative">
+                      <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                      <input
+                        id="fileSearch"
+                        type="text"
+                        value={fileSearchQuery}
+                        onChange={(e) => setFileSearchQuery(e.target.value)}
+                        placeholder="Ex: consent, upload, serviciu..."
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-10 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20"
+                      />
+                      {fileSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setFileSearchQuery("")}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
+                        >
+                          <i className="fas fa-times" />
+                        </button>
+                      )}
                     </div>
                   </div>
-                  {(fileSearchQuery || fileDateFilter) && (
+                  {fileSearchQuery && (
                     <div className="flex items-center gap-2 text-xs text-white/60">
                       <i className="fas fa-info-circle" />
                       <span>
-                        {groupedDocuments.reduce((acc, group) => acc + group.documents.length, 0)} {groupedDocuments.reduce((acc, group) => acc + group.documents.length, 0) === 1 ? "document găsit" : "documente găsite"}
+                        {filteredDocuments.length} {filteredDocuments.length === 1 ? "document găsit" : "documente găsite"}
                       </span>
                     </div>
                   )}
                 </div>
-                {groupedDocuments.length === 0 ? (
+                {filteredDocuments.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-white/10 bg-[#0B0E17]/40 px-4 py-6 text-sm text-white/60">
-                    {fileSearchQuery || fileDateFilter
+                    {fileSearchQuery
                       ? "Nu s-au găsit documente care să corespundă criteriilor de căutare."
                       : filesModalEmptyMessage}
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {groupedDocuments.map((group) => (
-                      <div
-                        key={group.dateKey}
-                        className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0E17]/60 p-4"
-                      >
-                        <div className="flex items-center gap-2">
-                          <i className="fas fa-calendar-day text-[#6366F1]" />
-                          <p className="text-sm font-semibold text-white">
-                            {group.date.toLocaleDateString("ro-RO", {
-                              weekday: "long",
-                              day: "numeric",
-                              month: "long",
-                              year: "numeric",
-                            })}
-                          </p>
-                          <span className="text-xs text-white/50">
-                            ({group.documents.length} {group.documents.length === 1 ? "fișier" : "fișiere"})
-                          </span>
-                        </div>
-                        <div className="space-y-2">
-                          {group.documents.map((doc) => (
-                            <div
-                              key={doc.id}
-                              className="flex flex-col gap-2 rounded-xl border border-white/5 bg-white/5 p-3 md:flex-row md:items-center md:justify-between"
-                            >
-                              <div className="flex-1">
-                                <p className="text-sm font-semibold text-white">
-                                  {doc.booking.service?.name ?? "Serviciu necunoscut"}
-                                </p>
-                                <p className="text-xs text-white/60">
-                                  {new Date(doc.booking.date).toLocaleString("ro-RO", {
-                                    weekday: "short",
-                                    day: "numeric",
-                                    month: "long",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </p>
-                                <p className="text-xs text-white/70">
-                                  Fișier: {doc.fileName ?? (doc.source === "BUSINESS_UPLOAD" ? "upload-fara-nume.pdf" : "document-generat.pdf")}
-                                </p>
-                                <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/70">
-                                  <i className="fas fa-file-alt" />
-                                  {doc.source === "BUSINESS_UPLOAD" ? "Încărcat manual" : "Semnat digital"}
-                                </span>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
+                  <div className="max-h-[60vh] overflow-y-auto overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="sticky top-0 bg-[#0B0E17]/95 backdrop-blur-sm z-10">
+                        <tr className="border-b border-white/10">
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white/70">
+                            Data încărcării
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white/70">
+                            Nume fișier
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white/70">
+                            Tip
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-white/70">
+                            Acțiuni
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDocuments.map((doc) => (
+                          <tr key={doc.id} className="border-b border-white/5 hover:bg-white/5">
+                            <td className="px-4 py-3 text-sm text-white/80">
+                              {new Date(doc.createdAt).toLocaleString("ro-RO", {
+                                day: "numeric",
+                                month: "long",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-white">
+                              {doc.fileName ?? (doc.source === "BUSINESS_UPLOAD" ? "upload-fara-nume.pdf" : "document-generat.pdf")}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/70">
+                                <i className="fas fa-file-alt" />
+                                {doc.source === "BUSINESS_UPLOAD" ? "Încărcat manual" : "Semnat digital"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-wrap justify-end gap-2">
                                 <button
                                   type="button"
                                   onClick={() => handleOpenDocument(doc.pdfUrl ?? undefined)}
-                                  className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                                  className="flex items-center gap-2 rounded-2xl border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                                  title="Preview"
                                 >
                                   <i className="fas fa-eye" />
-                                  Deschide
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleDownloadDocument(doc.booking.id, doc.pdfUrl ?? undefined)}
-                                  className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                                  className="flex items-center gap-2 rounded-2xl border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                                  title="Descarcă"
                                 >
                                   <i className="fas fa-download" />
-                                  Descarcă
                                 </button>
                                 {!doc.id.startsWith("legacy-") && (
                                   <button
@@ -855,18 +817,18 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
                                         doc.fileName ?? (doc.source === "BUSINESS_UPLOAD" ? "upload-fara-nume.pdf" : "document-generat.pdf")
                                       )
                                     }
-                                    className="flex items-center gap-2 rounded-2xl border border-red-500/50 px-4 py-2 text-xs font-semibold text-red-400 transition hover:bg-red-500/20"
+                                    className="flex items-center gap-2 rounded-2xl border border-red-500/50 px-3 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-500/20"
+                                    title="Șterge"
                                   >
                                     <i className="fas fa-trash" />
-                                    Șterge
                                   </button>
                                 )}
                               </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </>

@@ -156,7 +156,7 @@ export default function Sidebar({ collapsed = false, isOpen = true, onClose }: S
           {!collapsed && (
             <div className="transition-all duration-300">
               <p className={`font-semibold text-white transition-all duration-300 ${onClose ? "text-sm lg:text-base" : "text-base"}`}>VOOB</p>
-              <p className={`text-white/50 transition-all duration-300 ${onClose ? "text-[10px] lg:text-xs" : "text-xs"}`}>Timpul tău, organizat perfect</p>
+              <p className={`text-white/50 transition-all duration-300 ${onClose ? "text-[10px] lg:text-xs" : "text-xs"}`}>your time!</p>
             </div>
           )}
         </Link>

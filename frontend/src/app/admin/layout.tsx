@@ -33,7 +33,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </div>
           <div className="transition-all duration-300">
             <p className="text-sm font-semibold text-white transition-all duration-300">VOOB</p>
-            <p className="text-[10px] text-white/50 transition-all duration-300">Timpul tău, organizat perfect</p>
+            <p className="text-[10px] text-white/50 transition-all duration-300">your time!</p>
           </div>
         </Link>
         <button

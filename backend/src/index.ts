@@ -71,9 +71,10 @@ app.use(cors({
   origin: (origin, callback) => {
     // PRODUCTION: Nu permite requests fără origin (securitate)
     if (!origin) {
-      // În development, permite doar dacă este explicit setat în env
-      if (process.env.NODE_ENV === "development" && process.env.ALLOW_NO_ORIGIN === "true") {
-        logger.warn("⚠️  CORS: Allowing request without origin in development (ALLOW_NO_ORIGIN=true)");
+      // În development, permite requests fără origin pentru a permite SSR și alte request-uri
+      const isDevelopment = process.env.NODE_ENV === "development" || !process.env.NODE_ENV || process.env.NODE_ENV === "";
+      if (isDevelopment) {
+        logger.warn("⚠️  CORS: Allowing request without origin in development");
         return callback(null, true);
       }
       // În production, respinge întotdeauna requests fără origin

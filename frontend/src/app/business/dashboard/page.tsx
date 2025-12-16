@@ -700,7 +700,7 @@ export default function BusinessDashboardPage() {
                       <p className="mt-2 text-sm text-pink-400">{service.notes}</p>
                     )}
                   </div>
-                  <div className="ml-4 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                  <div className="ml-4 flex gap-2 mobile:opacity-100 desktop:opacity-0 transition-opacity group-hover:opacity-100">
                     <button
                       type="button"
                       onClick={() => handleOpenServiceModal(service.id)}
@@ -768,7 +768,7 @@ export default function BusinessDashboardPage() {
                       <p className="mt-1 text-xs text-white/50">{employee.phone}</p>
                     )}
                   </div>
-                  <div className="ml-4 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                  <div className="ml-4 flex gap-2 mobile:opacity-100 desktop:opacity-0 transition-opacity group-hover:opacity-100">
                     <button
                       type="button"
                       onClick={() => {

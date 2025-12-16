@@ -134,7 +134,7 @@ export default function NotificationBell() {
   }
 
   return (
-    <div className="fixed top-4 right-4 z-50" ref={dropdownRef}>
+    <div className="fixed bottom-4 left-4 z-50 sm:bottom-6 sm:left-6 md:bottom-auto md:left-auto md:top-4 md:right-4" ref={dropdownRef}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -150,7 +150,7 @@ export default function NotificationBell() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-white/10 bg-[#0B0E17] shadow-xl shadow-black/40">
+        <div className="absolute bottom-full left-0 right-0 mb-2 md:bottom-auto md:left-auto md:right-0 md:mb-0 md:mt-2 w-80 rounded-2xl border border-white/10 bg-[#0B0E17] shadow-xl shadow-black/40">
           <div className="border-b border-white/10 p-4">
             <h3 className="text-lg font-semibold text-white">Programări viitoare</h3>
             <p className="mt-1 text-xs text-white/60">

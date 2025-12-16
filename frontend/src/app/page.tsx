@@ -365,7 +365,7 @@ export default function Home() {
       <header className="mobile-header">
         <div className="mobile-logo">
           <div className="logo">VOOB</div>
-          <div className="logo-motto">Timpul tău, organizat perfect!</div>
+          <div className="logo-motto">your time!</div>
         </div>
         <button
           className="mobile-menu-btn"
@@ -386,7 +386,7 @@ export default function Home() {
         <div className="sidebar-header">
           <div className="sidebar-logo">
             <div className="logo">VOOB</div>
-            <div className="logo-motto">Timpul tău, organizat perfect!</div>
+            <div className="logo-motto">your time!</div>
           </div>
           <button
             className="sidebar-close-btn"
@@ -427,7 +427,7 @@ export default function Home() {
       <nav className="desktop-nav">
         <div className="logo-container">
           <div className="logo">VOOB</div>
-          <div className="logo-motto">Timpul tău, organizat perfect!</div>
+          <div className="logo-motto">your time!</div>
         </div>
         <div className="nav-links">
           <Link href="#despre">Despre</Link>
@@ -1631,7 +1631,7 @@ export default function Home() {
                   letterSpacing: 1,
                 }}
               >
-                Timpul tău, organizat perfect!
+                your time!
               </div>
               <p
                 style={{

@@ -138,6 +138,7 @@ export default function ClientBookingsPage() {
   const [consentTemplate, setConsentTemplate] = useState<ConsentTemplate | null>(null);
   const [consentValues, setConsentValues] = useState<Record<string, boolean | string>>({});
   const [consentError, setConsentError] = useState<string | null>(null);
+  const [cnpError, setCnpError] = useState<string | null>(null);
   const [consentLoading, setConsentLoading] = useState(false);
   const [consentSubmitting, setConsentSubmitting] = useState(false);
   const [dataPrivacyConsent, setDataPrivacyConsent] = useState(false);
@@ -147,6 +148,22 @@ export default function ClientBookingsPage() {
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const openConsentModal = useCallback(
     async (newBooking: Booking) => {
+      // Check if client has already signed consent for this business
+      if (user?.id && newBooking.business?.id) {
+        try {
+          const { data } = await api.get<{ hasSigned: boolean }>(
+            `/consent/check/${user.id}/${newBooking.business.id}`
+          );
+          if (data.hasSigned) {
+            // Client has already signed, don't show modal
+            return;
+          }
+        } catch (err) {
+          // If check fails, continue with showing modal (fail-safe)
+          console.warn("Failed to check existing consent:", err);
+        }
+      }
+
       // Set booking first
       setConsentBooking(newBooking);
       
@@ -176,7 +193,7 @@ export default function ClientBookingsPage() {
         setConsentLoading(false);
       }
     },
-    [api]
+    [api, user?.id]
   );
 
 
@@ -737,6 +754,7 @@ const handleConsentModalClose = () => {
   setConsentTemplate(null);
   setConsentValues({});
   setConsentError(null);
+  setCnpError(null);
   setConsentLoading(false);
   setConsentSubmitting(false);
   setDataPrivacyConsent(false);
@@ -752,6 +770,23 @@ const handleConsentSubmit = async () => {
     return;
   }
   
+  // Validate CNP if provided
+  const cnpValue = consentValues["cnp"] as string ?? "";
+  if (cnpValue.length > 0) {
+    if (!/^\d+$/.test(cnpValue)) {
+      setConsentError("CNP-ul trebuie să conțină doar cifre");
+      setCnpError("CNP-ul trebuie să conțină doar cifre");
+      setConsentSubmitting(false);
+      return;
+    }
+    if (cnpValue.length !== 13) {
+      setConsentError("CNP-ul trebuie să aibă exact 13 cifre");
+      setCnpError("CNP-ul trebuie să aibă exact 13 cifre");
+      setConsentSubmitting(false);
+      return;
+    }
+  }
+
   const missingField = consentTemplate.fields.find((field) => {
     if (!field.required) return false;
     const value = consentValues[field.id];
@@ -767,12 +802,22 @@ const handleConsentSubmit = async () => {
 
   setConsentSubmitting(true);
   try {
-    await api.post("/consent/sign", {
+    // Prepare formData - ensure CNP is null if empty, and patientAgreement is boolean
+    const cnpValue = consentValues["cnp"];
+    const preparedFormData: Record<string, unknown> = {
+      cnp: (typeof cnpValue === "string" && cnpValue.trim().length > 0) ? cnpValue : null,
+      patientAgreement: Boolean(consentValues["patientAgreement"]),
+      dataPrivacyConsent: dataPrivacyConsent,
+    };
+    
+    // Remove signature field entirely if not provided (don't send null)
+    const requestBody: Record<string, unknown> = {
       bookingId: consentBooking.id,
       clientId: user.id,
-      signature: null, // No signature required
-      formData: consentValues,
-    });
+      formData: preparedFormData,
+    };
+    
+    await api.post("/consent/sign", requestBody);
     
     // Salvează booking-ul pentru modala de succes
     const completedBooking = { ...consentBooking };
@@ -2030,6 +2075,11 @@ const handleConsentSubmit = async () => {
                         );
                       }
 
+                      // Special handling for CNP field
+                      const isCnpField = field.id === "cnp";
+                      const cnpValue = consentValues[field.id] as string ?? "";
+                      const isCnpInvalid = isCnpField && cnpValue.length > 0 && (!/^\d+$/.test(cnpValue) || cnpValue.length !== 13);
+
                       return (
                         <label key={field.id} className="flex flex-col gap-2 text-sm text-white/80">
                           <span>
@@ -2039,13 +2089,32 @@ const handleConsentSubmit = async () => {
                           <input
                             type={field.type === "date" ? "date" : "text"}
                             placeholder={"placeholder" in field ? field.placeholder : undefined}
-                            value={(consentValues[field.id] as string) ?? ""}
+                            value={cnpValue}
                             onChange={(event) => {
-                            setConsentError(null);
-                              setConsentValues((prev) => ({ ...prev, [field.id]: event.target.value }));
+                              setConsentError(null);
+                              if (isCnpField) {
+                                setCnpError(null);
+                                // Allow only digits
+                                const value = event.target.value.replace(/\D/g, "");
+                                // Limit to 13 digits
+                                const limitedValue = value.slice(0, 13);
+                                setConsentValues((prev) => ({ ...prev, [field.id]: limitedValue }));
+                                
+                                // Validate CNP
+                                if (limitedValue.length > 0) {
+                                  if (!/^\d+$/.test(limitedValue)) {
+                                    setCnpError("CNP-ul trebuie să conțină doar cifre");
+                                  } else if (limitedValue.length !== 13) {
+                                    setCnpError("CNP-ul trebuie să aibă exact 13 cifre");
+                                  }
+                                }
+                              } else {
+                                setConsentValues((prev) => ({ ...prev, [field.id]: event.target.value }));
+                              }
                             }}
+                            maxLength={isCnpField ? 13 : undefined}
                             className={`rounded-2xl border bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:invert ${
-                              isFieldInvalid
+                              isFieldInvalid || isCnpInvalid
                                 ? "border-red-500 focus:border-red-500"
                                 : "border-white/10 focus:border-[#6366F1]"
                             }`}
@@ -2057,6 +2126,9 @@ const handleConsentSubmit = async () => {
                                 : undefined
                             }
                           />
+                          {isCnpField && cnpError && (
+                            <p className="text-xs text-red-400">{cnpError}</p>
+                          )}
                         </label>
                       );
                     })}

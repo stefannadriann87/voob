@@ -30,7 +30,17 @@ export default function useTrialStatus(businessId: string | null) {
     } catch (err: any) {
       const errorMessage = err.response?.data?.error || err.message || "Eroare la verificarea statusului trial.";
       setError(errorMessage);
-      console.error("Fetch trial status error:", err);
+      
+      // Log detaliat pentru debugging
+      if (err.response?.status === 403) {
+        console.warn("Trial status check - 403 Forbidden", {
+          businessId,
+          error: errorMessage,
+          response: err.response?.data,
+        });
+      } else {
+        console.error("Fetch trial status error:", err);
+      }
     } finally {
       setLoading(false);
     }

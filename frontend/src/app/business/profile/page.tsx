@@ -314,7 +314,7 @@ export default function BusinessProfilePage() {
       ctx.fillText("VOOB", width / 2, 140);
       ctx.font = "400 24px 'Inter', sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.fillText("Timpul tău, organizat perfect!", width / 2, 190);
+      ctx.fillText("your time!", width / 2, 190);
 
       const qrContainerSize = 720;
       const qrContainerX = (width - qrContainerSize) / 2;

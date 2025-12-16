@@ -15,6 +15,14 @@ export type ConsentField =
       placeholder?: string;
       helperText?: string;
       required?: boolean;
+    }
+  | {
+      id: string;
+      label: string;
+      type: "text" | "date";
+      placeholder?: string;
+      helperText?: string;
+      required?: boolean;
     };
 
 export type ConsentTemplate = {

@@ -1,50 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import useTrialStatus from "../hooks/useTrialStatus";
-import useSubscription from "../hooks/useSubscription";
-import useAuth from "../hooks/useAuth";
-import useBusiness from "../hooks/useBusiness";
-import Link from "next/link";
 
-interface TrialExpiredModalProps {
-  businessId: string | null;
-}
-
-export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps) {
-  const { trialStatus, loading } = useTrialStatus(businessId);
-  const { createCheckout, loading: checkoutLoading } = useSubscription();
-  const { user } = useAuth();
-  const { loading: businessesLoading } = useBusiness();
-  const router = useRouter();
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-
-  // Nu afișa modal-ul dacă nu ești business sau nu ai businessId
-  // Așteaptă până când toate datele sunt încărcate
-  if (user?.role !== "BUSINESS" || !businessId || loading || businessesLoading) {
-    return null;
-  }
-
-  // Nu afișa modala pentru contul medical@voob.io (teste făcute, flow normal)
-  if (user?.email === "medical@voob.io") {
-    return null;
-  }
-
-  // Dacă trialStatus este null, încă se încarcă
-  if (!trialStatus) {
-    return null;
-  }
-
-  // Nu afișa dacă are subscription activ
-  if (trialStatus.hasActiveSubscription) {
-    return null;
-  }
-
-  // Nu afișa dacă trial-ul nu a expirat
-  if (!trialStatus.isExpired) {
-    return null;
-  }
+export default function PreviewSubscribeModalPage() {
+  const [isOpen, setIsOpen] = useState(true);
 
   const availablePlans = [
     { id: "pro", name: "VOOB PRO", price: 149, features: ["1 utilizator", "150 SMS/lună", "Suport 24-48h"] },
@@ -57,17 +16,23 @@ export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps
     },
   ];
 
-  const handleSubscribe = async (planId: string) => {
-    if (!businessId) return;
-
-    try {
-      // Găsește plan-ul real din baza de date
-      // Pentru moment, folosim planId direct
-      await createCheckout(businessId, planId);
-    } catch (error) {
-      console.error("Subscribe error:", error);
-    }
+  const handleSubscribe = (planId: string) => {
+    console.log("Subscribe to plan:", planId);
+    alert(`Ai selectat planul: ${planId}`);
   };
+
+  if (!isOpen) {
+    return (
+      <div className="min-h-screen bg-[#0A0D14] flex items-center justify-center">
+        <button
+          onClick={() => setIsOpen(true)}
+          className="bg-[#6366F1] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#4F46E5] transition"
+        >
+          Deschide modala de subscribe
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -127,29 +92,36 @@ export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps
               </ul>
               <button
                 onClick={() => handleSubscribe(plan.id)}
-                disabled={checkoutLoading}
                 className={`w-full py-3 rounded-lg font-semibold transition-colors ${
                   plan.popular
                     ? "bg-[#6366F1] text-white hover:bg-[#4F46E5]"
                     : "bg-white/10 text-white hover:bg-white/20"
-                } ${checkoutLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+                }`}
               >
-                {checkoutLoading ? "Se procesează..." : "Alege planul"}
+                Alege planul
               </button>
             </div>
           ))}
         </div>
 
         <div className="text-center">
-          <p className="text-white/50 text-sm mt-6">
+          <p className="text-white/50 text-sm">
             Ai nevoie de ajutor?{" "}
-            <Link href="/support" className="text-[#6366F1] hover:underline">
+            <a href="/support" className="text-[#6366F1] hover:underline">
               Contactează suportul
-            </Link>
+            </a>
           </p>
+        </div>
+
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => setIsOpen(false)}
+            className="text-white/50 hover:text-white text-sm underline"
+          >
+            Închide preview
+          </button>
         </div>
       </div>
     </div>
   );
 }
-

@@ -145,15 +145,33 @@ export default function useAuth() {
       return data.user;
     } catch (err) {
       // 401 = nu e autentificat (normal, nu e eroare)
+      // 429 = rate limit - nu șterge user-ul, doar loghează
       const axiosErr = err as AxiosError;
+      if (axiosErr.response?.status === 429) {
+        console.warn("Rate limit hit for /auth/me, using cached user");
+        // Nu șterge user-ul din cache, folosește-l
+        const cachedUser = typeof window !== "undefined" ? window.localStorage.getItem("voob_user") : null;
+        if (cachedUser) {
+          try {
+            const user = JSON.parse(cachedUser);
+            setUser(user);
+            return user;
+          } catch {
+            // Invalid cache, ignore
+          }
+        }
+        return null;
+      }
       if (axiosErr.response?.status !== 401) {
         console.error("Failed to fetch current user:", err);
       }
-      // Șterge datele locale dacă sesiunea e invalidă
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem("voob_user");
+      // Șterge datele locale dacă sesiunea e invalidă (doar pentru erori non-401, non-429)
+      if (axiosErr.response?.status !== 401 && axiosErr.response?.status !== 429) {
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem("voob_user");
+        }
+        setUser(null);
       }
-      setUser(null);
       return null;
     }
   }, [api]);

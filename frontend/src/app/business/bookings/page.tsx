@@ -712,9 +712,6 @@ export default function BusinessBookingsPage() {
                                     onClick={() => setSelectedBooking(booking)}
                                   >
                                     <div className="flex items-center gap-2 mb-1">
-                                      {bookingClientColor && (
-                                        <div className={`w-2 h-2 rounded-full ${bookingClientColor.bg.replace('/60', '')}`} />
-                                      )}
                                       <div className="font-semibold text-white text-sm">{booking.client?.name}</div>
                                     </div>
                                     <div className="text-xs text-white/70 mb-1">{booking.service?.name}</div>

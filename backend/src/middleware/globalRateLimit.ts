@@ -40,6 +40,11 @@ const createRateLimiter = (options: RateLimitOptions & { perPath?: boolean; meth
       return next();
     }
 
+    // Skip rate limiting pentru /auth/me (folosit frecvent pentru verificare sesiune)
+    if (req.path === "/auth/me" && req.method === "GET") {
+      return next();
+    }
+
     // Skip dacă metoda nu e în lista de limitare
     if (!methodsToLimit.includes(req.method)) {
       return next();
