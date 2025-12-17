@@ -316,7 +316,7 @@ async function updateEmployee(
 
   const employee = await prisma.user.findFirst({
     where: {
-      id: validatedArgs.employeeId,
+      id: args.employeeId,
       businessId: context.businessId,
       role: "EMPLOYEE",
     },
@@ -327,22 +327,22 @@ async function updateEmployee(
   }
 
   const updateData: any = {};
-  if (validatedArgs.name) updateData.name = validatedArgs.name.trim();
-  if (validatedArgs.email) {
+  if (args.name) updateData.name = args.name.trim();
+  if (args.email) {
     // Verifică dacă noul email există deja
     const existingUser = await prisma.user.findUnique({
-      where: { email: validatedArgs.email.trim() },
+      where: { email: args.email.trim() },
     });
-    if (existingUser && existingUser.id !== validatedArgs.employeeId) {
+    if (existingUser && existingUser.id !== args.employeeId) {
       throw new Error("Un utilizator cu acest email există deja.");
     }
-    updateData.email = validatedArgs.email.trim();
+    updateData.email = args.email.trim();
   }
-  if (validatedArgs.phone !== undefined) updateData.phone = validatedArgs.phone?.trim() || null;
-  if (validatedArgs.specialization !== undefined) updateData.specialization = validatedArgs.specialization?.trim() || null;
+  if (args.phone !== undefined) updateData.phone = args.phone?.trim() || null;
+  if (args.specialization !== undefined) updateData.specialization = args.specialization?.trim() || null;
 
   const updatedEmployee = await prisma.user.update({
-    where: { id: validatedArgs.employeeId },
+    where: { id: args.employeeId },
     data: updateData,
     select: {
       id: true,
@@ -373,7 +373,7 @@ async function deleteEmployee(
 
   const employee = await prisma.user.findFirst({
     where: {
-      id: validatedArgs.employeeId,
+      id: args.employeeId,
       businessId: context.businessId,
       role: "EMPLOYEE",
     },
@@ -384,7 +384,7 @@ async function deleteEmployee(
   }
 
   await prisma.user.delete({
-    where: { id: validatedArgs.employeeId },
+    where: { id: args.employeeId },
   });
 
   return {
@@ -480,7 +480,7 @@ async function updateService(
 
   const service = await prisma.service.findFirst({
     where: {
-      id: validatedArgs.serviceId,
+      id: args.serviceId,
       businessId: context.businessId,
     },
   });
@@ -501,7 +501,7 @@ async function updateService(
   if (args.notes !== undefined) updateData.notes = args.notes?.trim() || null;
 
   const updatedService = await prisma.service.update({
-    where: { id: validatedArgs.serviceId },
+    where: { id: args.serviceId },
     data: updateData,
   });
 
@@ -525,7 +525,7 @@ async function deleteService(
 
   const service = await prisma.service.findFirst({
     where: {
-      id: validatedArgs.serviceId,
+      id: args.serviceId,
       businessId: context.businessId,
     },
   });
@@ -535,7 +535,7 @@ async function deleteService(
   }
 
   await prisma.service.delete({
-    where: { id: validatedArgs.serviceId },
+    where: { id: args.serviceId },
   });
 
   return {

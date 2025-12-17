@@ -78,14 +78,58 @@ const createRateLimiter = (options: RateLimitOptions & { perPath?: boolean; meth
         // Elimină entries vechi și setează expirare
         await redis.zRemRangeByScore(key, 0, windowStart);
         await redis.expire(key, Math.ceil(windowMs / 1000));
+        
+        return next();
       }
-      // Dacă Redis nu e disponibil, permite request-ul (fail open pentru development)
-      // În production, Redis ar trebui să fie disponibil
-
-      next();
+      
+      // CRITICAL FIX (TICKET-013): Fail closed în production când Redis e indisponibil
+      const isProduction = process.env.NODE_ENV === "production";
+      
+      if (isProduction) {
+        // În production: fail closed - respinge request-ul dacă Redis e down
+        logger.error("CRITICAL: Redis unavailable in production - rate limiting disabled", {
+          ip,
+          path: req.path,
+          env: process.env.NODE_ENV,
+        });
+        
+        // Alert monitoring system (dacă există)
+        // TODO: Integrate with monitoring/alerting system (Sentry, Datadog, etc.)
+        
+        return res.status(503).json({ 
+          error: "Serviciul este temporar indisponibil. Te rugăm să încerci din nou în câteva momente.",
+          code: "SERVICE_UNAVAILABLE",
+          actionable: "Te rugăm să reîmprospătezi pagina sau să încerci din nou în câteva secunde."
+        });
+      }
+      
+      // În development: fail open - permite request-ul dacă Redis e down
+      logger.warn("Redis unavailable in development - allowing request (fail open)", {
+        ip,
+        path: req.path,
+      });
+      
+      // next() is called inside the if/else block above
     } catch (error) {
-      // Dacă rate limiting eșuează, permite request-ul (fail open)
-      logger.error("Rate limiting error", error);
+      // CRITICAL FIX (TICKET-013): Fail closed în production când rate limiting eșuează
+      const isProduction = process.env.NODE_ENV === "production";
+      
+      logger.error("Rate limiting error", error, {
+        ip: getClientIp(req),
+        path: req.path,
+        env: process.env.NODE_ENV,
+      });
+      
+      if (isProduction) {
+        // În production: fail closed - respinge request-ul dacă rate limiting eșuează
+        return res.status(503).json({ 
+          error: "Serviciul este temporar indisponibil. Te rugăm să încerci din nou în câteva momente.",
+          code: "RATE_LIMIT_ERROR",
+          actionable: "Te rugăm să reîmprospătezi pagina sau să încerci din nou în câteva secunde."
+        });
+      }
+      
+      // În development: fail open - permite request-ul dacă rate limiting eșuează
       next();
     }
   };

@@ -9,15 +9,8 @@ const { logger } = require("./logger");
 // Connection pool configuration
 // Formula recomandată: connections = ((core_count * 2) + effective_spindle_count)
 // Pentru PostgreSQL: max 20-100 connections (depinde de server)
-const connectionPoolConfig = {
-  // Numărul maxim de conexiuni în pool
-  // Default: 10 (bun pentru majoritatea aplicațiilor)
-  // Pentru producție: 20-50 (depinde de load)
-  connection_limit: Number(process.env.DATABASE_POOL_SIZE || 10),
-  
-  // Timpul de așteptare pentru o conexiune (ms)
-  pool_timeout: Number(process.env.DATABASE_POOL_TIMEOUT || 10000), // 10 secunde
-};
+// Configurarea se face prin DATABASE_URL query parameters:
+// postgresql://user:pass@host:5432/db?connection_limit=10&pool_timeout=10
 
 // Configurează Prisma Client cu connection pool
 const prisma = new PrismaClient({

@@ -11,9 +11,13 @@ const { requireBusinessAccess } = require("../middleware/requireOwnership");
 const { 
   invalidateBusinessProfile,
   invalidateServices,
+  getServices,
+  setServices,
+  TTL,
 } = require("../services/cacheService");
 const { logger } = require("../lib/logger");
-const { validate, validateParams } = require("../middleware/validate");
+const { validate, validateParams, validateQuery } = require("../middleware/validate");
+const { paginationQuerySchema, getPaginationParams, buildPaginationResponse } = require("../validators/paginationSchemas");
 const { 
   createServiceSchema, 
   updateServiceSchema, 
@@ -21,9 +25,75 @@ const {
   serviceIdParamSchema,
   employeeIdParamSchema 
 } = require("../validators/businessSchemas");
-import { AuthenticatedRequest } from "./business.shared";
+import type { AuthenticatedRequest } from "./business.shared.d";
 
 const router = express.Router();
+
+// CRITICAL FIX (TICKET-009, TICKET-010): Get services list with caching and pagination
+router.get("/:businessId/services", verifyJWT, requireBusinessAccess("businessId"), validateQuery(paginationQuerySchema), async (req, res) => {
+  const { businessId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // Parse pagination parameters
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 50; // Default 50 items
+    const { skip, take } = getPaginationParams(page, limit);
+
+    // Check cache first (cache key includes pagination params)
+    const cacheKey = `${businessId}_page_${page}_limit_${limit}`;
+    const cached = await getServices(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    // Get total count for pagination
+    const total = await prisma.service.count({
+      where: { businessId },
+    });
+
+    // Fetch services from database
+    const services = await prisma.service.findMany({
+      where: { businessId },
+      skip,
+      take,
+      orderBy: { name: "asc" },
+    });
+
+    // Build paginated response
+    const response = buildPaginationResponse(services, total, page, limit);
+
+    // Cache the result (shorter TTL for paginated results)
+    await setServices(cacheKey, response, 180); // 3 minutes
+
+    return res.json(response);
+  } catch (error: any) {
+    logger.error("Failed to get services", error);
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      
+      // Check for business not found
+      if (errorMessage.includes("Business") || errorMessage.includes("not found")) {
+        return res.status(404).json({ 
+          error: "Business-ul nu a fost găsit.",
+          code: "BUSINESS_NOT_FOUND",
+          actionable: "Verifică că business-ul există și că ai permisiunea de a-l accesa."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut încărca lista de servicii. Te rugăm să încerci din nou.",
+      code: "SERVICES_FETCH_FAILED",
+      actionable: "Dacă problema persistă, reîmprospătează pagina sau contactează suportul."
+    });
+  }
+});
 
 // Create service
 router.post("/:businessId/services", verifyJWT, validateParams(businessIdParamSchema), validate(createServiceSchema), async (req, res) => {
@@ -46,9 +116,51 @@ router.post("/:businessId/services", verifyJWT, validateParams(businessIdParamSc
     await invalidateBusinessProfile(businessId);
 
     return res.status(201).json(service);
-  } catch (error) {
+  } catch (error: any) {
     logger.error("Service creation failed", error);
-    return res.status(500).json({ error: "Eroare la adăugarea serviciului." });
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      const errorCode = (error as any)?.code || "";
+      
+      // Check for foreign key constraint errors
+      if (errorMessage.includes("Foreign key constraint") || 
+          errorMessage.includes("Record to connect not found") ||
+          errorCode === "P2025") {
+        return res.status(400).json({ 
+          error: "Business-ul nu a fost găsit sau nu ai permisiunea de a adăuga servicii pentru acest business.",
+          code: "BUSINESS_NOT_FOUND",
+          actionable: "Verifică că business-ul există și că ai permisiunea de a-l gestiona."
+        });
+      }
+      
+      // Check for unique constraint errors
+      if (errorMessage.includes("Unique constraint") || 
+          errorMessage.includes("duplicate key") ||
+          errorCode === "P2002") {
+        return res.status(409).json({ 
+          error: "Un serviciu cu acest nume există deja pentru acest business.",
+          code: "SERVICE_DUPLICATE",
+          actionable: "Folosește un nume diferit pentru serviciu."
+        });
+      }
+      
+      // Check for validation errors
+      if (errorMessage.includes("Invalid") || errorMessage.includes("required")) {
+        return res.status(400).json({ 
+          error: "Date invalide pentru serviciu.",
+          code: "INVALID_SERVICE_DATA",
+          actionable: "Verifică că ai completat toate câmpurile obligatorii (nume, durată, preț) cu valori valide."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut adăuga serviciul. Te rugăm să încerci din nou.",
+      code: "SERVICE_CREATION_FAILED",
+      actionable: "Dacă problema persistă, contactează suportul."
+    });
   }
 });
 
@@ -101,9 +213,38 @@ router.put("/:businessId/services/:serviceId", verifyJWT, validate(updateService
     await invalidateBusinessProfile(businessId);
 
     return res.json(service);
-  } catch (error) {
+  } catch (error: any) {
     logger.error("Service update failed", error);
-    return res.status(500).json({ error: "Eroare la actualizarea serviciului." });
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      const errorCode = (error as any)?.code || "";
+      
+      // Check for not found errors
+      if (errorMessage.includes("Record to update not found") || errorCode === "P2025") {
+        return res.status(404).json({ 
+          error: "Serviciul nu a fost găsit sau nu aparține acestui business.",
+          code: "SERVICE_NOT_FOUND",
+          actionable: "Verifică că serviciul există și că aparține business-ului corect."
+        });
+      }
+      
+      // Check for validation errors
+      if (errorMessage.includes("Invalid") || errorMessage.includes("required")) {
+        return res.status(400).json({ 
+          error: "Date invalide pentru actualizare serviciu.",
+          code: "INVALID_SERVICE_DATA",
+          actionable: "Verifică că toate câmpurile (nume, durată, preț) au valori valide."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut actualiza serviciul. Te rugăm să încerci din nou.",
+      code: "SERVICE_UPDATE_FAILED",
+      actionable: "Dacă problema persistă, contactează suportul."
+    });
   }
 });
 
@@ -137,9 +278,40 @@ router.delete("/:businessId/services/:serviceId", verifyJWT, async (req, res) =>
     await invalidateBusinessProfile(businessId);
 
     return res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     logger.error("Service deletion failed", error);
-    return res.status(500).json({ error: "Eroare la ștergerea serviciului." });
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      const errorCode = (error as any)?.code || "";
+      
+      // Check for not found errors
+      if (errorMessage.includes("Record to delete does not exist") || errorCode === "P2025") {
+        return res.status(404).json({ 
+          error: "Serviciul nu a fost găsit sau a fost deja șters.",
+          code: "SERVICE_NOT_FOUND",
+          actionable: "Verifică că serviciul există înainte de a-l șterge."
+        });
+      }
+      
+      // Check for foreign key constraint errors (service is referenced)
+      if (errorMessage.includes("Foreign key constraint") || 
+          errorMessage.includes("violates foreign key constraint") ||
+          errorCode === "P2003") {
+        return res.status(409).json({ 
+          error: "Nu poți șterge acest serviciu deoarece este folosit în rezervări existente.",
+          code: "SERVICE_IN_USE",
+          actionable: "Anulează sau finalizează toate rezervările pentru acest serviciu înainte de a-l șterge."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut șterge serviciul. Te rugăm să încerci din nou.",
+      code: "SERVICE_DELETION_FAILED",
+      actionable: "Dacă problema persistă, contactează suportul."
+    });
   }
 });
 
@@ -229,9 +401,38 @@ router.get("/:businessId/employees/:employeeId/services", verifyJWT, requireBusi
       employeeId: employee.id,
       businessId: employee.business.id,
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error("Get employee services error:", error);
-    return res.status(500).json({ error: "Eroare la obținerea serviciilor employee-ului." });
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      
+      // Check for employee not found
+      if (errorMessage.includes("Employee-ul nu a fost găsit") || 
+          errorMessage.includes("not found")) {
+        return res.status(404).json({ 
+          error: "Angajatul nu a fost găsit sau nu aparține acestui business.",
+          code: "EMPLOYEE_NOT_FOUND",
+          actionable: "Verifică că angajatul există și că aparține business-ului corect."
+        });
+      }
+      
+      // Check for business not found
+      if (errorMessage.includes("Business") || errorMessage.includes("business")) {
+        return res.status(404).json({ 
+          error: "Business-ul nu a fost găsit.",
+          code: "BUSINESS_NOT_FOUND",
+          actionable: "Verifică că business-ul există și că ai permisiunea de a-l accesa."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut încărca serviciile angajatului. Te rugăm să încerci din nou.",
+      code: "EMPLOYEE_SERVICES_FETCH_FAILED",
+      actionable: "Dacă problema persistă, reîmprospătează pagina sau contactează suportul."
+    });
   }
 });
 

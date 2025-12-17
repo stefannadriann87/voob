@@ -7,17 +7,91 @@
 import express = require("express");
 import bcrypt = require("bcryptjs");
 const prisma = require("../lib/prisma");
-import type { Prisma } from "@prisma/client";
 const { verifyJWT } = require("../middleware/auth");
 const { requireBusinessAccess } = require("../middleware/requireOwnership");
-const { invalidateBusinessProfile } = require("../services/cacheService");
+const { 
+  invalidateBusinessProfile,
+  getBusinessProfile,
+  setBusinessProfile,
+  TTL,
+} = require("../services/cacheService");
 const { logger } = require("../lib/logger");
-const { validate } = require("../middleware/validate");
+const { validate, validateQuery } = require("../middleware/validate");
+const { paginationQuerySchema, getPaginationParams, buildPaginationResponse } = require("../validators/paginationSchemas");
 const { createEmployeeSchema, updateEmployeeSchema } = require("../validators/businessSchemas");
 const { checkEmployeeLimit } = require("../services/subscriptionService");
-import { AuthenticatedRequest } from "./business.shared";
 
 const router = express.Router();
+
+// CRITICAL FIX (TICKET-009, TICKET-010): Get employees list with caching and pagination
+router.get("/:businessId/employees", verifyJWT, requireBusinessAccess("businessId"), validateQuery(paginationQuerySchema), async (req, res) => {
+  const { businessId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // Parse pagination parameters
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 50; // Default 50 items
+    const { skip, take } = getPaginationParams(page, limit);
+
+    // Get total count for pagination
+    const total = await prisma.user.count({
+      where: { 
+        businessId,
+        role: "EMPLOYEE",
+      },
+    });
+
+    // Fetch employees from database
+    const employees = await prisma.user.findMany({
+      where: { 
+        businessId,
+        role: "EMPLOYEE",
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        specialization: true,
+        avatar: true,
+      },
+      skip,
+      take,
+      orderBy: { name: "asc" },
+    });
+
+    // Build paginated response
+    const response = buildPaginationResponse(employees, total, page, limit);
+
+    return res.json(response);
+  } catch (error: any) {
+    logger.error("Failed to get employees", error);
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      
+      // Check for business not found
+      if (errorMessage.includes("Business") || errorMessage.includes("not found")) {
+        return res.status(404).json({ 
+          error: "Business-ul nu a fost găsit.",
+          code: "BUSINESS_NOT_FOUND",
+          actionable: "Verifică că business-ul există și că ai permisiunea de a-l accesa."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut încărca lista de angajați. Te rugăm să încerci din nou.",
+      code: "EMPLOYEES_FETCH_FAILED",
+      actionable: "Dacă problema persistă, reîmprospătează pagina sau contactează suportul."
+    });
+  }
+});
 
 // Create employee
 router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("businessId"), validate(createEmployeeSchema), async (req, res) => {
@@ -95,9 +169,51 @@ router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("business
     await invalidateBusinessProfile(businessId);
 
     return res.status(201).json(employeeResponse);
-  } catch (error) {
+  } catch (error: any) {
     logger.error("Employee creation failed", error);
-    return res.status(500).json({ error: "Eroare la adăugarea employee-ului." });
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      const errorCode = (error as any)?.code || "";
+      
+      // Check for duplicate email
+      if (errorMessage.includes("Un utilizator cu acest email există deja") || 
+          errorMessage.includes("Unique constraint") ||
+          errorCode === "P2002") {
+        return res.status(409).json({ 
+          error: "Un utilizator cu acest email există deja în sistem.",
+          code: "EMAIL_ALREADY_EXISTS",
+          actionable: "Folosește un alt email sau verifică dacă angajatul este deja înregistrat."
+        });
+      }
+      
+      // Check for foreign key constraint errors
+      if (errorMessage.includes("Foreign key constraint") || 
+          errorMessage.includes("Record to connect not found") ||
+          errorCode === "P2025") {
+        return res.status(400).json({ 
+          error: "Business-ul nu a fost găsit sau nu ai permisiunea de a adăuga angajați pentru acest business.",
+          code: "BUSINESS_NOT_FOUND",
+          actionable: "Verifică că business-ul există și că ai permisiunea de a-l gestiona."
+        });
+      }
+      
+      // Check for employee limit
+      if (errorMessage.includes("limita") || errorMessage.includes("limit")) {
+        return res.status(403).json({ 
+          error: errorMessage || "Ai atins limita de angajați pentru planul tău.",
+          code: "EMPLOYEE_LIMIT_REACHED",
+          actionable: "Upgrade la un plan superior sau șterge angajați existenți pentru a adăuga alții."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut adăuga angajatul. Te rugăm să încerci din nou.",
+      code: "EMPLOYEE_CREATION_FAILED",
+      actionable: "Dacă problema persistă, contactează suportul."
+    });
   }
 });
 
@@ -172,9 +288,42 @@ router.put("/:businessId/employees/:employeeId", verifyJWT, validate(updateEmplo
     await invalidateBusinessProfile(businessId);
 
     return res.json(updatedEmployee);
-  } catch (error) {
+  } catch (error: any) {
     logger.error("Employee update failed", error);
-    return res.status(500).json({ error: "Eroare la actualizarea angajatului." });
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      const errorCode = (error as any)?.code || "";
+      
+      // Check for not found errors
+      if (errorMessage.includes("nu a fost găsit") || 
+          errorMessage.includes("Record to update not found") || 
+          errorCode === "P2025") {
+        return res.status(404).json({ 
+          error: "Angajatul nu a fost găsit sau nu aparține acestui business.",
+          code: "EMPLOYEE_NOT_FOUND",
+          actionable: "Verifică că angajatul există și că aparține business-ului corect."
+        });
+      }
+      
+      // Check for duplicate email
+      if (errorMessage.includes("Un utilizator cu acest email există deja") || 
+          errorMessage.includes("Unique constraint") ||
+          errorCode === "P2002") {
+        return res.status(409).json({ 
+          error: "Un utilizator cu acest email există deja în sistem.",
+          code: "EMAIL_ALREADY_EXISTS",
+          actionable: "Folosește un alt email pentru acest angajat."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut actualiza angajatul. Te rugăm să încerci din nou.",
+      code: "EMPLOYEE_UPDATE_FAILED",
+      actionable: "Dacă problema persistă, contactează suportul."
+    });
   }
 });
 
@@ -223,9 +372,42 @@ router.delete("/:businessId/employees/:employeeId", verifyJWT, async (req, res) 
     // You might want to check if they have bookings before deleting
 
     return res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     logger.error("Employee deletion failed", error);
-    return res.status(500).json({ error: "Eroare la ștergerea angajatului." });
+    
+    // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+    if (error instanceof Error) {
+      const errorMessage = error.message || "";
+      const errorCode = (error as any)?.code || "";
+      
+      // Check for not found errors
+      if (errorMessage.includes("nu a fost găsit") || 
+          errorMessage.includes("Record to delete does not exist") || 
+          errorCode === "P2025") {
+        return res.status(404).json({ 
+          error: "Angajatul nu a fost găsit sau a fost deja șters.",
+          code: "EMPLOYEE_NOT_FOUND",
+          actionable: "Verifică că angajatul există înainte de a-l șterge."
+        });
+      }
+      
+      // Check for foreign key constraint errors (employee is referenced)
+      if (errorMessage.includes("Foreign key constraint") || 
+          errorMessage.includes("violates foreign key constraint") ||
+          errorCode === "P2003") {
+        return res.status(409).json({ 
+          error: "Nu poți șterge acest angajat deoarece are rezervări asociate.",
+          code: "EMPLOYEE_IN_USE",
+          actionable: "Anulează sau finalizează toate rezervările pentru acest angajat înainte de a-l șterge."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut șterge angajatul. Te rugăm să încerci din nou.",
+      code: "EMPLOYEE_DELETION_FAILED",
+      actionable: "Dacă problema persistă, contactează suportul."
+    });
   }
 });
 

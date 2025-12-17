@@ -242,7 +242,8 @@ model Booking {
   @@index([businessId, date, status]) // For business bookings filtering
   @@index([employeeId, date, status]) // For employee bookings filtering
   @@index([businessId, employeeId, date]) // For overlap checks with employee
-  @@index([businessId, date, status]) // Duplicate for clarity (PostgreSQL will optimize)
+  // CRITICAL FIX (TICKET-041): Index for court bookings overlap checks
+  @@index([courtId, businessId, date, status]) // For court bookings filtering and overlap checks
 }
 
 model ConsentForm {

@@ -6,6 +6,7 @@
 const { Queue, Worker } = require("bullmq");
 const { getRedisClient } = require("../lib/redis");
 const { logger } = require("../lib/logger");
+import type { Job } from "bullmq";
 
 // Queue names
 const QUEUE_NAMES = {
@@ -104,7 +105,7 @@ function createWorker(
 
   const worker = new Worker(
     queueName,
-    async (job) => {
+    async (job: Job) => {
       logger.info(`Processing job ${job.id} from queue ${queueName}`);
       try {
         const result = await processor(job);

@@ -9,19 +9,27 @@ const prisma = require("../lib/prisma");
 const { BusinessType } = require("@prisma/client");
 const { verifyJWT } = require("../middleware/auth");
 const { requireBusinessAccess } = require("../middleware/requireOwnership");
-const { 
+const {
   cacheBusinessProfile, 
   getCachedBusiness,
+  getBusinessProfile,
+  setBusinessProfile,
+  invalidateBusinessProfile,
+  getServices,
+  setServices,
+  invalidateServices,
+  TTL,
 } = require("../services/cacheService");
 const { logger } = require("../lib/logger");
-const { validate, validateParams } = require("../middleware/validate");
+const { validate, validateParams, validateQuery } = require("../middleware/validate");
 const { createBusinessRouteSchema, updateBusinessSchema, businessIdParamSchema } = require("../validators/businessSchemas");
+const { paginationQuerySchema, getPaginationParams, buildPaginationResponse } = require("../validators/paginationSchemas");
 const {
   generateBusinessQrDataUrl,
   generateBusinessQrBuffer,
   generateBusinessQrSvg,
 } = require("../lib/qr");
-import type { AuthenticatedRequest } from "./business.shared";
+import type { AuthenticatedRequest } from "./business.shared.d";
 const { defaultBusinessInclude } = require("./business.shared");
 
 // Import modular routes
@@ -132,14 +140,23 @@ router.post("/", verifyJWT, validate(createBusinessRouteSchema), async (req, res
   }
 });
 
-router.get("/", verifyJWT, async (req, res) => {
+// CRITICAL FIX (TICKET-010): Add pagination to business list endpoint
+router.get("/", verifyJWT, validateQuery(paginationQuerySchema), async (req, res) => {
   try {
-    // Check cache first
-    const cacheKey = "business_list_all";
+    // Parse pagination parameters
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 50; // Default 50 items
+    const { skip, take } = getPaginationParams(page, limit);
+
+    // Check cache first (cache key includes pagination params)
+    const cacheKey = `business_list_all_page_${page}_limit_${limit}`;
     const cached = await getCachedBusiness(cacheKey);
     if (cached) {
       return res.json(cached);
     }
+
+    // Get total count for pagination
+    const total = await prisma.business.count();
 
     // Fetch businesses with services in a single query (avoid N+1)
     const businesses = await prisma.business.findMany({
@@ -149,6 +166,9 @@ router.get("/", verifyJWT, async (req, res) => {
           select: { duration: true },
         },
       },
+      skip,
+      take,
+      orderBy: { createdAt: "desc" },
     });
 
     // Calculate slotDuration for each business if not set (in-memory, no additional queries)
@@ -175,10 +195,13 @@ router.get("/", verifyJWT, async (req, res) => {
         return { ...business, slotDuration: calculatedSlotDuration };
       });
 
-    // Cache the result
-    await cacheBusinessProfile(cacheKey, businessesWithSlotDuration, 300); // 5 minutes
+    // Build paginated response
+    const response = buildPaginationResponse(businessesWithSlotDuration, total, page, limit);
+
+    // Cache the result (shorter TTL for paginated results)
+    await cacheBusinessProfile(cacheKey, response, 180); // 3 minutes
     
-    return res.json(businessesWithSlotDuration);
+    return res.json(response);
   } catch (error) {
     logger.error("Failed to list businesses", error);
     const errorMessage = error instanceof Error ? error.message : "Eroare necunoscută";
@@ -188,6 +211,51 @@ router.get("/", verifyJWT, async (req, res) => {
       error: "Eroare la listarea business-urilor.",
       details: process.env.NODE_ENV === "development" ? errorMessage : undefined,
     });
+  }
+});
+
+// CRITICAL FIX (TICKET-009): Get individual business with caching
+router.get("/:businessId", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const authReq = req as AuthenticatedRequest;
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // Check cache first
+    const cached = await getBusinessProfile(businessId);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    // Fetch business with all related data
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      include: defaultBusinessInclude,
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    // Verify access (owner, employee, or SUPERADMIN)
+    const isOwner = business.ownerId === authReq.user?.userId;
+    const isEmployee = business.employees.some((emp: { id: string }) => emp.id === authReq.user?.userId);
+    const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
+
+    if (!isOwner && !isEmployee && !isSuperAdmin) {
+      return res.status(403).json({ error: "Nu ai permisiunea de a accesa acest business." });
+    }
+
+    // Cache the result
+    await setBusinessProfile(businessId, business);
+
+    return res.json(business);
+  } catch (error) {
+    logger.error("Failed to get business", error);
+    return res.status(500).json({ error: "Eroare la obținerea business-ului." });
   }
 });
 
@@ -623,6 +691,9 @@ router.put("/:businessId", verifyJWT, requireBusinessAccess("businessId"), valid
     });
 
     logger.info(`Business ${businessId} updated by user ${authReq.user?.userId}`);
+
+    // CRITICAL FIX (TICKET-009): Invalidate cache when business is updated
+    await invalidateBusinessProfile(businessId);
 
     return res.json(updated);
   } catch (error: any) {

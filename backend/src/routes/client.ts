@@ -3,7 +3,8 @@
 import express = require("express");
 const prisma = require("../lib/prisma");
 const { verifyJWT } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
+const { validate, validateQuery } = require("../middleware/validate");
+const { paginationQuerySchema, getPaginationParams, buildPaginationResponse } = require("../validators/paginationSchemas");
 const { linkClientSchema } = require("../validators/businessSchemas");
 const { logger } = require("../lib/logger");
 
@@ -112,7 +113,8 @@ router.post("/link", verifyJWT, validate(linkClientSchema), async (req, res) => 
   }
 });
 
-router.get("/businesses", verifyJWT, async (req, res) => {
+// CRITICAL FIX (TICKET-010): Add pagination to client businesses endpoint
+router.get("/businesses", verifyJWT, validateQuery(paginationQuerySchema), async (req, res) => {
   const authReq = req as AuthenticatedRequest;
 
   if (!authReq.user || authReq.user.role !== "CLIENT") {
@@ -120,6 +122,21 @@ router.get("/businesses", verifyJWT, async (req, res) => {
   }
 
   try {
+    // Parse pagination parameters
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 50; // Default 50 items
+    const { skip, take } = getPaginationParams(page, limit);
+
+    // Get total count for pagination
+    const total = await prisma.clientBusinessLink.count({
+      where: { 
+        clientId: authReq.user.userId,
+        business: {
+          status: { not: "SUSPENDED" }, // Exclude suspended businesses
+        },
+      },
+    });
+
     const links = await prisma.clientBusinessLink.findMany({
       where: { 
         clientId: authReq.user.userId,
@@ -132,6 +149,8 @@ router.get("/businesses", verifyJWT, async (req, res) => {
           include: businessInclude,
         },
       },
+      skip,
+      take,
       orderBy: { createdAt: "desc" },
     });
 
@@ -156,7 +175,10 @@ router.get("/businesses", verifyJWT, async (req, res) => {
 
       return { ...business, slotDuration: calculatedSlotDuration };
     });
-    return res.json(businesses);
+
+    // Build paginated response
+    const response = buildPaginationResponse(businesses, total, page, limit);
+    return res.json(response);
   } catch (error) {
     logger.error("Client linked businesses error:", error);
     return res.status(500).json({ error: "Nu am putut încărca business-urile conectate." });

@@ -3,8 +3,6 @@
  * CRITICAL FIX (TICKET-014): Extracted shared code for modular business routes
  */
 
-import express = require("express");
-
 const defaultBusinessInclude = {
   owner: {
     select: { id: true, email: true, name: true },
@@ -15,19 +13,7 @@ const defaultBusinessInclude = {
   },
 };
 
-interface AuthenticatedRequest extends express.Request {
-  user?: {
-    userId: string;
-    role: string;
-    businessId?: string;
-  };
-}
-
-// Export both CommonJS and ES module style
+// CommonJS export
 module.exports = {
   defaultBusinessInclude,
 };
-
-// Export type for TypeScript (must be separate from module.exports)
-export type { AuthenticatedRequest };
-export { defaultBusinessInclude };

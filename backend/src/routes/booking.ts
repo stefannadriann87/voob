@@ -603,8 +603,8 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
         }
       }
 
-      // Create booking within the transaction
-      return await tx.booking.create({
+      // CRITICAL FIX (TICKET-002): Create booking and payment atomically within the transaction
+      const createdBooking = await tx.booking.create({
         data: bookingData,
         include: {
           client: { select: { id: true, name: true, email: true, phone: true } },
@@ -615,6 +615,47 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
           consentForm: true,
         },
       });
+
+      // CRITICAL FIX (TICKET-002): Create Payment record for offline payments (atomic with booking creation)
+      if (isPaid && (paymentMethod === PaymentMethod.OFFLINE || paymentMethod === PaymentMethod.CASH)) {
+        // Calculate payment amount
+        let paymentAmount = 0;
+        if (isSportOutdoor) {
+          // For SPORT_OUTDOOR: use bookingData.price (calculated from court pricing)
+          paymentAmount = bookingData.price ?? 0;
+        } else {
+          // For non-SPORT_OUTDOOR: use service.price
+          paymentAmount = service?.price ?? 0;
+        }
+
+        if (paymentAmount > 0) {
+          await tx.payment.create({
+            data: {
+              businessId,
+              bookingId: createdBooking.id,
+              amount: paymentAmount,
+              currency: "RON",
+              method: paymentMethod === PaymentMethod.OFFLINE ? PaymentMethod.OFFLINE : PaymentMethod.CASH,
+              status: "SUCCEEDED", // Offline payments are considered succeeded immediately
+              gateway: "offline",
+              metadata: {
+                bookingId: createdBooking.id,
+                clientId,
+                paymentMethod: paymentMethod,
+              },
+            },
+          });
+        } else {
+          logger.warn("Payment amount is 0 for paid booking", {
+            bookingId: createdBooking.id,
+            isSportOutdoor,
+            servicePrice: service?.price,
+            bookingPrice: bookingData.price,
+          });
+        }
+      }
+
+      return createdBooking;
     }, {
       // Use Serializable isolation level for maximum protection against race conditions
       // This ensures that concurrent transactions are serialized, preventing phantom reads

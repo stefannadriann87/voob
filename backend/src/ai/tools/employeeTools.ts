@@ -247,8 +247,8 @@ async function updateEmployeeBooking(
 
   const updateData: any = {};
 
-  if (validatedArgs.date) {
-    const newDate = new Date(validatedArgs.date);
+  if (args.date) {
+    const newDate = new Date(args.date);
     if (Number.isNaN(newDate.getTime())) {
       throw new Error("Data rezervării este invalidă.");
     }
@@ -258,18 +258,18 @@ async function updateEmployeeBooking(
     updateData.date = newDate;
   }
 
-  if (validatedArgs.serviceId) {
+  if (args.serviceId) {
     const service = await prisma.service.findFirst({
-      where: { id: validatedArgs.serviceId, businessId },
+      where: { id: args.serviceId, businessId },
     });
     if (!service) {
       throw new Error("Serviciul nu a fost găsit sau nu aparține acestui business.");
     }
-    updateData.serviceId = validatedArgs.serviceId;
+    updateData.serviceId = args.serviceId;
   }
 
-  if (validatedArgs.paid !== undefined) {
-    updateData.paid = validatedArgs.paid;
+  if (args.paid !== undefined) {
+    updateData.paid = args.paid;
   }
 
   if (Object.keys(updateData).length === 0) {

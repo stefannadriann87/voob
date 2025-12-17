@@ -8,7 +8,7 @@ import express = require("express");
 const prisma = require("../lib/prisma");
 const { verifyJWT } = require("../middleware/auth");
 const { logger } = require("../lib/logger");
-import { AuthenticatedRequest } from "./business.shared";
+import type { AuthenticatedRequest } from "./business.shared.d";
 
 const router = express.Router();
 
@@ -460,6 +460,11 @@ router.get("/:businessId/courts/:courtId/availability", async (req, res) => {
     for (const slot of daySchedule.slots || []) {
       const [startHour, startMinute] = slot.start.split(":").map(Number);
       const [endHour, endMinute] = slot.end.split(":").map(Number);
+
+      // Skip invalid time slots
+      if (startHour === undefined || endHour === undefined || isNaN(startHour) || isNaN(endHour)) {
+        continue;
+      }
 
       for (let hour = startHour; hour < endHour; hour++) {
         // Verifică dacă ora este deja rezervată

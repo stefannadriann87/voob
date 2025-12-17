@@ -24,7 +24,7 @@ const createBookingSchema = z.object({
   courtId: z.string().regex(cuidRegex, "courtId trebuie să fie un CUID valid").optional().nullable(),
   employeeId: z.string().regex(cuidRegex, "employeeId trebuie să fie un CUID valid").nullable().optional(),
   date: z.string().datetime({ message: "Data trebuie să fie în format ISO 8601" })
-    .refine((dateStr) => {
+    .refine((dateStr: string) => {
       const date = new Date(dateStr);
       const now = new Date();
       // Date trebuie să fie în viitor (minimum 2 ore înainte)
@@ -38,7 +38,7 @@ const createBookingSchema = z.object({
   paymentReused: z.boolean().optional().default(false),
   clientNotes: z.string()
     .max(1000, "Notele clientului nu pot depăși 1000 caractere")
-    .refine((notes) => {
+    .refine((notes: string) => {
       if (!notes) return true;
       // Validare pentru caractere speciale periculoase (XSS prevention)
       const dangerousPatterns = /<script|javascript:|onerror=|onload=/i;
@@ -53,7 +53,7 @@ const createBookingSchema = z.object({
     .positive("Durata trebuie să fie pozitivă")
     .min(15, "Durata minimă este de 15 minute")
     .max(480, "Durata maximă este de 8 ore (480 minute)")
-    .refine((duration) => {
+    .refine((duration: number) => {
       // Durata trebuie să fie multiplu de 15 minute pentru validare generală
       // Validarea specifică (30 sau 60) se face în route handler bazat pe business type
       return duration % 15 === 0;
@@ -62,7 +62,19 @@ const createBookingSchema = z.object({
     })
     .optional()
     .nullable(),
-}).refine((data: z.infer<typeof createBookingSchema>) => {
+}).refine((data: {
+  clientId: string;
+  businessId: string;
+  serviceId?: string | null;
+  courtId?: string | null;
+  employeeId?: string | null;
+  date: string;
+  paid?: boolean;
+  paymentMethod?: "CARD" | "OFFLINE" | "CASH";
+  paymentReused?: boolean;
+  clientNotes?: string | null;
+  duration?: number | null;
+}) => {
   // Fie serviceId, fie courtId trebuie să fie furnizat, dar nu ambele
   const hasServiceId = !!data.serviceId;
   const hasCourtId = !!data.courtId;

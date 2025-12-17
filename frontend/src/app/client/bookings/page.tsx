@@ -397,12 +397,14 @@ export default function ClientBookingsPage() {
     }
 
     const fetchEmployeeServices = async () => {
+      if (!selectedBusinessId) {
+        setEmployeeServices(new Set());
+        return;
+      }
       try {
-        // Try to get services from business endpoint (for business to see employee services)
-        // Or we can use a public endpoint that doesn't require employee auth
-        // For now, we'll fetch from business endpoint if available
+        // CRITICAL FIX (TICKET-003): Use correct route with businessId
         const { data } = await api.get<{ services: Array<{ id: string; isAssociated: boolean }> }>(
-          `/business/employees/${selectedEmployeeId}/services`
+          `/business/${selectedBusinessId}/employees/${selectedEmployeeId}/services`
         );
         const associatedServiceIds = new Set(
           data.services.filter((s) => s.isAssociated).map((s) => s.id)
