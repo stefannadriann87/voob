@@ -7,6 +7,7 @@ import useSubscription from "../hooks/useSubscription";
 import useAuth from "../hooks/useAuth";
 import useBusiness from "../hooks/useBusiness";
 import Link from "next/link";
+import { logger } from "../lib/logger";
 
 interface TrialExpiredModalProps {
   businessId: string | null;
@@ -19,6 +20,16 @@ export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps
   const { loading: businessesLoading } = useBusiness();
   const router = useRouter();
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+
+  // DEVELOPMENT: Dezactivează modal-ul în development pentru testare
+  const isDevelopment = process.env.NODE_ENV === "development" || 
+                        process.env.NEXT_PUBLIC_ENVIRONMENT === "development" ||
+                        window.location.hostname === "localhost" ||
+                        window.location.hostname === "127.0.0.1";
+  
+  if (isDevelopment) {
+    return null; // Nu afișa modal-ul în development
+  }
 
   // Nu afișa modal-ul dacă nu ești business sau nu ai businessId
   // Așteaptă până când toate datele sunt încărcate
@@ -65,7 +76,7 @@ export default function TrialExpiredModal({ businessId }: TrialExpiredModalProps
       // Pentru moment, folosim planId direct
       await createCheckout(businessId, planId);
     } catch (error) {
-      console.error("Subscribe error:", error);
+      logger.error("Subscribe error:", error);
     }
   };
 

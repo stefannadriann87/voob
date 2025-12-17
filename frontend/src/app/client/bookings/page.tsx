@@ -20,6 +20,7 @@ import useCourts from "../../../hooks/useCourts";
 import { isBookingTooSoon, MIN_LEAD_MESSAGE, MIN_BOOKING_LEAD_MS } from "../../../utils/bookingRules";
 import { getWeekStart, formatDayLabel, getDefaultHours } from "../../../utils/calendarUtils";
 import { formatInTimezone, isPastInTimezone, toUTC } from "../../../utils/timezoneUtils";
+import { logger } from "../../../lib/logger";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -104,7 +105,7 @@ export default function ClientBookingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, hydrated } = useAuth();
-  const { businesses, fetchBusinesses } = useBusiness();
+  const { businesses, fetchBusinesses, loading: businessesLoading } = useBusiness();
   const { bookings, fetchBookings, createBooking, loading } = useBookings();
   const api = useApi();
 
@@ -131,8 +132,6 @@ export default function ClientBookingsPage() {
     return today.toISOString().split("T")[0];
   });
   const [initializedFromUrl, setInitializedFromUrl] = useState(false);
-  const [showEmployeePopup, setShowEmployeePopup] = useState(false);
-  const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentBooking, setConsentBooking] = useState<Booking | null>(null);
   const [consentTemplate, setConsentTemplate] = useState<ConsentTemplate | null>(null);
@@ -160,7 +159,7 @@ export default function ClientBookingsPage() {
           }
         } catch (err) {
           // If check fails, continue with showing modal (fail-safe)
-          console.warn("Failed to check existing consent:", err);
+          logger.warn("Failed to check existing consent:", err);
         }
       }
 
@@ -187,7 +186,7 @@ export default function ClientBookingsPage() {
           axiosError.response?.data?.error ??
           axiosError.message ??
           (err instanceof Error ? err.message : "Nu am putut încărca formularul de consimțământ.");
-        console.error("Error loading consent template:", message);
+        logger.error("Error loading consent template:", message);
         setConsentError(message);
       } finally {
         setConsentLoading(false);
@@ -197,18 +196,10 @@ export default function ClientBookingsPage() {
   );
 
 
-  const handleServiceSelection = (serviceId: string) => {
-    if (!selectedBusinessId) return;
-    if (selectedBusiness && selectedBusiness.employees.length > 0) {
-      setPendingServiceId(serviceId);
-      setShowEmployeePopup(true);
-    } else {
-      setServiceSelections((prev) => ({
-        ...prev,
-        [selectedBusinessId]: serviceId,
-      }));
-    }
-  };
+  // State for employee services (services associated with selected employee)
+  const [employeeServices, setEmployeeServices] = useState<Set<string>>(new Set());
+  // CRITICAL FIX (TICKET-019): Loading state for employee services
+  const [loadingEmployeeServices, setLoadingEmployeeServices] = useState(false);
 
   useEffect(() => {
     if (!hydrated) {
@@ -306,7 +297,7 @@ export default function ClientBookingsPage() {
           return businesses.filter((b) => ids.includes(b.id));
         }
       } catch (error) {
-        console.error("Error parsing selected business IDs:", error);
+        logger.error("Error parsing selected business IDs:", error);
       }
     }
     return businesses;
@@ -317,6 +308,46 @@ export default function ClientBookingsPage() {
     const business = availableBusinesses.find((business) => business.id === selectedBusinessId) ?? null;
     return business;
   }, [availableBusinesses, selectedBusinessId]);
+
+  // CRITICAL FIX (TICKET-016): Memoize handler functions to prevent unnecessary re-renders
+  // Handle employee selection (moved after selectedBusinessId declaration)
+  const handleEmployeeSelection = useCallback((employeeId: string) => {
+    if (!selectedBusinessId) return;
+    setEmployeeSelections((prev) => ({
+      ...prev,
+      [selectedBusinessId]: employeeId,
+    }));
+    // Clear service selection when employee changes
+    setServiceSelections((prev) => ({
+      ...prev,
+      [selectedBusinessId]: null as any,
+    }));
+  }, [selectedBusinessId]);
+
+  const handleServiceSelection = useCallback((serviceId: string) => {
+    if (!selectedBusinessId) return;
+    setServiceSelections((prev) => ({
+      ...prev,
+      [selectedBusinessId]: serviceId,
+    }));
+  }, [selectedBusinessId]);
+
+  const handleViewTypeChange = useCallback((newViewType: "week" | "day") => {
+    setViewType(newViewType);
+  }, []);
+
+  const handleCalendarDateChange = useCallback((date: string) => {
+    setCalendarDate(date);
+    setSelectedDate("");
+    setHoveredSlot(null);
+    const selectedDateObj = new Date(date);
+    if (viewType === "day") {
+      selectedDateObj.setHours(0, 0, 0, 0);
+      setWeekStart(selectedDateObj);
+    } else {
+      setWeekStart(getWeekStart(selectedDateObj));
+    }
+  }, [viewType]);
   
   // Detect if business is SPORT_OUTDOOR
   const isSportOutdoor = selectedBusiness?.businessType === "SPORT_OUTDOOR";
@@ -324,6 +355,25 @@ export default function ClientBookingsPage() {
   // Get courts for SPORT_OUTDOOR businesses
   const { courts, loading: courtsLoading, error: courtsError } = useCourts(isSportOutdoor ? selectedBusinessId : null);
   
+  const selectedEmployeeId =
+    selectedBusinessId != null ? employeeSelections[selectedBusinessId] ?? null : null;
+
+  const selectedEmployee = useMemo(
+    () => selectedBusiness?.employees.find((employee) => employee.id === selectedEmployeeId) ?? null,
+    [selectedBusiness, selectedEmployeeId]
+  );
+
+  // Filter services based on selected employee (must be after selectedEmployeeId declaration)
+  const availableServices = useMemo(() => {
+    if (!selectedBusiness?.services) return [];
+    if (!selectedEmployeeId || employeeServices.size === 0) {
+      // If no employee selected or no restrictions, show all services (backward compatibility)
+      return selectedBusiness.services;
+    }
+    // Filter services that are associated with the selected employee
+    return selectedBusiness.services.filter((service) => employeeServices.has(service.id));
+  }, [selectedBusiness?.services, selectedEmployeeId, employeeServices]);
+
   const selectedServiceId =
     !isSportOutdoor && selectedBusinessId != null ? serviceSelections[selectedBusinessId] ?? null : null;
   const selectedCourtId =
@@ -339,13 +389,34 @@ export default function ClientBookingsPage() {
     [courts, selectedCourtId]
   );
 
-  const selectedEmployeeId =
-    selectedBusinessId != null ? employeeSelections[selectedBusinessId] ?? null : null;
+  // Fetch employee services when employee is selected
+  useEffect(() => {
+    if (!selectedEmployeeId || !selectedBusinessId) {
+      setEmployeeServices(new Set());
+      return;
+    }
 
-  const selectedEmployee = useMemo(
-    () => selectedBusiness?.employees.find((employee) => employee.id === selectedEmployeeId) ?? null,
-    [selectedBusiness, selectedEmployeeId]
-  );
+    const fetchEmployeeServices = async () => {
+      try {
+        // Try to get services from business endpoint (for business to see employee services)
+        // Or we can use a public endpoint that doesn't require employee auth
+        // For now, we'll fetch from business endpoint if available
+        const { data } = await api.get<{ services: Array<{ id: string; isAssociated: boolean }> }>(
+          `/business/employees/${selectedEmployeeId}/services`
+        );
+        const associatedServiceIds = new Set(
+          data.services.filter((s) => s.isAssociated).map((s) => s.id)
+        );
+        setEmployeeServices(associatedServiceIds);
+      } catch (error) {
+        // If endpoint fails or employee has no restrictions, show all services (backward compatibility)
+        logger.warn("Could not fetch employee services, showing all services:", error);
+        setEmployeeServices(new Set());
+      }
+    };
+
+    void fetchEmployeeServices();
+  }, [selectedEmployeeId, selectedBusinessId, api]);
 
   // Get slot duration from business, or calculate from minimum service duration, or default to 60
   // For SPORT_OUTDOOR, always use 60 minutes (1 hour)
@@ -427,7 +498,7 @@ export default function ClientBookingsPage() {
         setClientSecret(secret);
         setPaymentIntentId(intentId);
       } catch (err: any) {
-        console.error("Auto payment intent creation failed:", err);
+        logger.error("Auto payment intent creation failed:", err);
         // Don't show error to user, they can retry by clicking submit
       } finally {
         setPaymentProcessing(false);
@@ -1071,12 +1142,71 @@ const handleConsentSubmit = async () => {
         return;
       }
     } catch (err) {
-      const axiosError = err as AxiosError<{ error?: string }>;
-      const message =
+      const axiosError = err as AxiosError<{ error?: string; code?: string }>;
+      let message =
         axiosError.response?.data?.error ??
         axiosError.message ??
         (err instanceof Error ? err.message : "Nu am putut procesa rezervarea.");
+      
+      // CRITICAL FIX (TICKET-020): Handle edge cases gracefully
+      const errorCode = axiosError.response?.data?.code;
+      
+      // Business suspended
+      if (message.includes("suspendat") || message.includes("SUSPENDED")) {
+        message = "Business-ul este suspendat temporar. Rezervările sunt oprite. Te rugăm să contactezi business-ul pentru detalii.";
+        // Refresh businesses to get updated status
+        void fetchBusinesses({ scope: "linked" });
+      }
+      // Service not found (deleted)
+      else if (message.includes("Serviciul nu a fost găsit") || (message.includes("service") && message.includes("nu există"))) {
+        message = "Serviciul selectat nu mai este disponibil. Te rugăm să selectezi alt serviciu.";
+        // Refresh businesses to get updated services
+        void fetchBusinesses({ scope: "linked" });
+        // Clear service selection
+        if (selectedBusinessId) {
+          setServiceSelections((prev) => ({
+            ...prev,
+            [selectedBusinessId]: null as any,
+          }));
+        }
+      }
+      // Employee not found (deleted)
+      else if (message.includes("Angajatul") && (message.includes("nu există") || message.includes("nu a fost găsit"))) {
+        message = "Specialistul selectat nu mai este disponibil. Te rugăm să selectezi alt specialist.";
+        // Refresh businesses to get updated employees
+        void fetchBusinesses({ scope: "linked" });
+        // Clear employee selection
+        if (selectedBusinessId) {
+          setEmployeeSelections((prev) => ({
+            ...prev,
+            [selectedBusinessId]: null as any,
+          }));
+        }
+      }
+      // Court not found (deleted)
+      else if (message.includes("Terenul") && (message.includes("nu există") || message.includes("nu a fost găsit"))) {
+        message = "Terenul selectat nu mai este disponibil. Te rugăm să selectezi alt teren.";
+        // Refresh courts
+        if (selectedBusinessId) {
+          setCourtSelections((prev) => ({
+            ...prev,
+            [selectedBusinessId]: null as any,
+          }));
+        }
+      }
+      // Slot conflict (already booked)
+      else if (message.includes("deja rezervat") || message.includes("overlap") || errorCode === "SLOT_CONFLICT") {
+        message = "Intervalul selectat tocmai a fost rezervat de alt client. Te rugăm să selectezi alt interval.";
+        // Refresh bookings to get updated slots
+        void fetchBookings();
+      }
+      // Outside working hours
+      else if (message.includes("working hours") || message.includes("program") || errorCode === "OUTSIDE_WORKING_HOURS") {
+        message = axiosError.response?.data?.error || "Intervalul selectat este în afara programului de lucru. Te rugăm să selectezi alt interval.";
+      }
+      
       setConfirmationError(message);
+      logger.error("Booking creation failed:", err);
     } finally {
       setPaymentProcessing(false);
     }
@@ -1087,6 +1217,7 @@ const handleConsentSubmit = async () => {
     closeConfirmationModal,
     createBooking,
     fetchBookings,
+    fetchBusinesses, // CRITICAL FIX (TICKET-020): Added for edge case handling
     isSportOutdoor,
     openConsentModal,
     paymentAlreadyMade,
@@ -1145,7 +1276,7 @@ const handleConsentSubmit = async () => {
       setPaymentIntentId(null);
       void fetchBookings();
     } catch (err: any) {
-      console.error("Booking confirmation failed:", err);
+      logger.error("Booking confirmation failed:", err);
     }
   }, [api, closeConfirmationModal, fetchBookings, openConsentModal, paymentIntentId, resetBookingForm, selectedBusiness]);
 
@@ -1189,31 +1320,91 @@ const handleConsentSubmit = async () => {
                   )}
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 justify-items-start">
-                  {availableBusinesses.map((business) => (
-                    <BusinessCard
-                      key={business.id}
-                      id={business.id}
-                      name={business.name}
-                      domain={business.domain}
-                      services={business.services.length}
-                      selected={business.id === selectedBusinessId}
-                      onSelect={(id) => {
-                        setBusinessIdOverride(id);
-                      }}
-                    />
-                  ))}
-                  {availableBusinesses.length === 0 && (
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
-                      Nu ești conectat la niciun business. Scanează codul QR în{" "}
-                      <span className="text-white font-semibold">Client → Scanează QR</span> pentru a începe.
-                    </div>
+                  {/* CRITICAL FIX (TICKET-019): Skeleton loader for businesses */}
+                  {businessesLoading ? (
+                    <>
+                      {[1, 2].map((i) => (
+                        <div
+                          key={i}
+                          className="rounded-2xl border border-white/10 bg-white/5 p-6 w-full animate-pulse"
+                        >
+                          <div className="h-5 bg-white/10 rounded w-3/4 mb-3" />
+                          <div className="h-4 bg-white/10 rounded w-1/2 mb-2" />
+                          <div className="h-3 bg-white/10 rounded w-2/3" />
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      {availableBusinesses.map((business) => (
+                        <BusinessCard
+                          key={business.id}
+                          id={business.id}
+                          name={business.name}
+                          domain={business.domain}
+                          services={business.services.length}
+                          selected={business.id === selectedBusinessId}
+                          onSelect={(id) => {
+                            setBusinessIdOverride(id);
+                          }}
+                        />
+                      ))}
+                      {availableBusinesses.length === 0 && !businessesLoading && (
+                        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
+                          Nu ești conectat la niciun business. Scanează codul QR în{" "}
+                          <span className="text-white font-semibold">Client → Scanează QR</span> pentru a începe.
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
 
+              {/* Employee Selection - Only for non-SPORT_OUTDOOR businesses with employees */}
+              {!isSportOutdoor && selectedBusiness && selectedBusiness.employees.length > 0 && (
+                <div className="flex flex-col gap-4">
+                  <h2 className="text-xl font-semibold">2. Alege specialistul</h2>
+                  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                    {selectedBusiness.employees.map((employee) => (
+                      <button
+                        key={employee.id}
+                        type="button"
+                        onClick={() => handleEmployeeSelection(employee.id)}
+                        className={`rounded-2xl border px-5 py-4 text-left transition ${
+                          selectedEmployeeId === employee.id
+                            ? "border-[#6366F1] bg-[#6366F1]/10"
+                            : "border-white/10 bg-white/5 hover:border-[#6366F1]/60 hover:bg-[#6366F1]/10"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="relative h-10 w-10 overflow-hidden rounded-full border-2 border-white/10">
+                            {employee.avatar ? (
+                              <img src={employee.avatar} alt={employee.name} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-[#6366F1]/20 text-[#6366F1]">
+                                <i className="fas fa-user text-sm" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-white">{employee.name}</p>
+                            {employee.specialization && (
+                              <p className="text-xs text-white/60">{employee.specialization}</p>
+                            )}
+                          </div>
+                          {selectedEmployeeId === employee.id && (
+                            <i className="fas fa-check text-[#6366F1]" />
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col gap-4">
                 <h2 className="text-xl font-semibold">
-                  {isSportOutdoor ? "2. Alege terenul" : "2. Alege serviciul"}
+                  {isSportOutdoor ? "2. Alege terenul" : selectedBusiness && selectedBusiness.employees.length > 0 ? "3. Alege serviciul" : "2. Alege serviciul"}
                 </h2>
                 <div className="grid gap-4 sm:grid-cols-2 justify-items-start">
                   {isSportOutdoor ? (
@@ -1264,26 +1455,57 @@ const handleConsentSubmit = async () => {
                   ) : (
                     // Display services for non-SPORT_OUTDOOR
                     <>
-                      {selectedBusiness?.services.map((service) => (
-                        <ServiceCard
-                          key={service.id}
-                          id={service.id}
-                          name={service.name}
-                          duration={service.duration}
-                          price={service.price}
-                          notes={service.notes}
-                          selected={service.id === selectedServiceId}
-                          onSelect={(serviceId) => {
-                            if (selectedBusinessId != null) {
-                              handleServiceSelection(serviceId);
-                            }
-                          }}
-                        />
-                      ))}
-                      {selectedBusiness && selectedBusiness.services.length === 0 && (
+                      {selectedBusiness && selectedBusiness.employees.length > 0 && !selectedEmployeeId ? (
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
-                          Businessul selectat nu are servicii configurate încă.
+                          Selectează mai întâi un specialist pentru a vedea serviciile disponibile.
                         </div>
+                      ) : (
+                        <>
+                          {/* CRITICAL FIX (TICKET-019): Loading state for employee services */}
+                          {loadingEmployeeServices ? (
+                            <div className="grid gap-4 sm:grid-cols-2 w-full">
+                              {[1, 2].map((i) => (
+                                <div
+                                  key={i}
+                                  className="rounded-2xl border border-white/10 bg-white/5 p-6 animate-pulse"
+                                >
+                                  <div className="h-4 bg-white/10 rounded w-3/4 mb-3" />
+                                  <div className="h-3 bg-white/10 rounded w-1/2 mb-2" />
+                                  <div className="h-3 bg-white/10 rounded w-2/3" />
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <>
+                              {availableServices.map((service) => (
+                                <ServiceCard
+                                  key={service.id}
+                                  id={service.id}
+                                  name={service.name}
+                                  duration={service.duration}
+                                  price={service.price}
+                                  notes={service.notes}
+                                  selected={service.id === selectedServiceId}
+                                  onSelect={(serviceId) => {
+                                    if (selectedBusinessId != null) {
+                                      handleServiceSelection(serviceId);
+                                    }
+                                  }}
+                                />
+                              ))}
+                              {selectedBusiness && availableServices.length === 0 && selectedEmployeeId && !loadingEmployeeServices && (
+                                <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
+                                  Specialistul selectat nu are servicii disponibile momentan.
+                                </div>
+                              )}
+                              {selectedBusiness && selectedBusiness.services.length === 0 && !loadingEmployeeServices && (
+                                <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
+                                  Businessul selectat nu are servicii configurate încă.
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </>
                       )}
                     </>
                   )}
@@ -1293,7 +1515,9 @@ const handleConsentSubmit = async () => {
               <section className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6" data-calendar-section>
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-semibold text-white">3. Alege data și ora</h2>
+                    <h2 className="text-xl font-semibold text-white">
+                      {isSportOutdoor ? "3. Alege data și ora" : selectedBusiness && selectedBusiness.employees.length > 0 ? "4. Alege data și ora" : "3. Alege data și ora"}
+                    </h2>
                     <p className="text-xs text-white/50">
                       {viewType === "week" && "Zilele sunt pe coloane, orele pe rânduri. Alege un interval disponibil din această săptămână."}
                       {viewType === "day" && "Vizualizare detaliată pentru o singură zi. Alege un interval disponibil."}
@@ -1310,7 +1534,7 @@ const handleConsentSubmit = async () => {
                     <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 overflow-x-auto">
                       <button
                         type="button"
-                        onClick={() => setViewType("week")}
+                        onClick={() => handleViewTypeChange("week")}
                         className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                           viewType === "week"
                             ? "bg-[#6366F1] text-white"
@@ -1322,7 +1546,7 @@ const handleConsentSubmit = async () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setViewType("day")}
+                        onClick={() => handleViewTypeChange("day")}
                         className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                           viewType === "day"
                             ? "bg-[#6366F1] text-white"
@@ -1337,19 +1561,7 @@ const handleConsentSubmit = async () => {
                     <div className="hidden sm:block">
                       <DatePicker
                         value={calendarDate}
-                        onChange={(date) => {
-                          setCalendarDate(date);
-                          setSelectedDate("");
-                          setHoveredSlot(null);
-                          const selectedDateObj = new Date(date);
-                          // In day view, set weekStart to the exact day; in week view, set to week start
-                          if (viewType === "day") {
-                            selectedDateObj.setHours(0, 0, 0, 0);
-                            setWeekStart(selectedDateObj);
-                          } else {
-                            setWeekStart(getWeekStart(selectedDateObj));
-                          }
-                        }}
+                        onChange={handleCalendarDateChange}
                         placeholder="Selectează data"
                         viewType={viewType}
                       />
@@ -2187,72 +2399,6 @@ const handleConsentSubmit = async () => {
         </div>
       )}
 
-      {showEmployeePopup && selectedBusiness && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={() => setShowEmployeePopup(false)}>
-          <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h3 className="text-2xl font-semibold text-white">Alege specialistul</h3>
-                <p className="mt-2 text-sm text-white/60">
-                  Selectează la cine vrei să faci programarea pentru acest serviciu
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowEmployeePopup(false);
-                  setPendingServiceId(null);
-                }}
-                className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
-              >
-                <i className="fas fa-times" />
-              </button>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-              {selectedBusiness.employees.map((employee) => (
-                <button
-                  key={employee.id}
-                  type="button"
-                  onClick={() => {
-                    if (selectedBusinessId != null && pendingServiceId) {
-                      // Set employee selection
-                      setEmployeeSelections((prev) => ({
-                        ...prev,
-                        [selectedBusinessId]: employee.id,
-                      }));
-                      // Set service selection
-                      setServiceSelections((prev) => ({
-                        ...prev,
-                        [selectedBusinessId]: pendingServiceId,
-                      }));
-                      // Close popup
-                      setShowEmployeePopup(false);
-                      setPendingServiceId(null);
-                    }
-                  }}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-left transition hover:border-[#6366F1]/60 hover:bg-[#6366F1]/10"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="relative h-10 w-10 overflow-hidden rounded-full border-2 border-white/10">
-                      {employee.avatar ? (
-                        <img src={employee.avatar} alt={employee.name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-emerald-500/20 text-emerald-400">
-                          <i className="fas fa-user" />
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-white">{employee.name}</h3>
-                      <p className="text-xs text-white/60">{employee.email}</p>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Duration Selection Modal for SPORT_OUTDOOR */}
       {showDurationModal && pendingCourtId && selectedBusinessId && (

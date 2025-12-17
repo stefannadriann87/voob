@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import useApi from "./useApi";
 import { loadStripe } from "@stripe/stripe-js";
+import { logger } from "../lib/logger";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -41,7 +42,7 @@ export default function useSubscription() {
       } catch (err: any) {
         const errorMessage = err.response?.data?.error || err.message || "Eroare la crearea sesiunii de checkout.";
         setError(errorMessage);
-        console.error("Create checkout error:", err);
+        logger.error("Create checkout error:", err);
         throw err;
       } finally {
         setLoading(false);

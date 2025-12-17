@@ -7,6 +7,7 @@ import BookingCard from "../../../components/BookingCard";
 import useAuth from "../../../hooks/useAuth";
 import useBookings, { type Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
+import { logger } from "../../../lib/logger";
 
 export default function EmployeeDashboardPage() {
   const router = useRouter();
@@ -84,7 +85,7 @@ export default function EmployeeDashboardPage() {
         await cancelBooking(bookingId);
         await fetchBookings();
       } catch (error) {
-        console.error("Cancel booking error:", error);
+        logger.error("Cancel booking error:", error);
       } finally {
         setCancellingBookingId(null);
       }

@@ -59,22 +59,56 @@ const normalizeSignature = (signature: string) => {
   return Buffer.from(base64, "base64");
 };
 
+// File size limits (in bytes)
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_PDF_SIZE = 10 * 1024 * 1024; // 10MB
+
 const convertImageDataUrlToPdf = async (dataUrl: string) => {
   const [meta, base64] = dataUrl.split(",");
   if (!meta || !base64) {
     throw new Error("Fișierul încărcat nu conține date valide.");
   }
   
+  // CRITICAL FIX (TICKET-005): Validate file size before processing
+  const base64Length = base64.length;
+  // Base64 encoding increases size by ~33%, so we estimate original size
+  const estimatedSize = (base64Length * 3) / 4;
+  
+  if (estimatedSize > MAX_IMAGE_SIZE) {
+    logger.warn("File size exceeds limit", { 
+      estimatedSize, 
+      maxSize: MAX_IMAGE_SIZE,
+      base64Length 
+    });
+    throw new Error(`Fișierul este prea mare. Dimensiunea maximă permisă este ${MAX_IMAGE_SIZE / 1024 / 1024}MB.`);
+  }
+  
   // Extract MIME type - handle both "data:image/png;base64" and "data:image/png" formats
   const mimeMatch = meta.match(/data:(.*?)(;base64)?$/);
   const mimeType = mimeMatch?.[1];
   
-  if (!mimeType || !mimeType.startsWith("image/")) {
+  // CRITICAL FIX (TICKET-005): Validate MIME type completely
+  if (!mimeType) {
+    throw new Error("Tipul de fișier nu a putut fi determinat.");
+  }
+  
+  // Only allow specific image types
+  const allowedImageTypes = ["image/png", "image/jpeg", "image/jpg"];
+  if (!allowedImageTypes.includes(mimeType.toLowerCase())) {
     logger.warn("Invalid image MIME type", { meta, mimeType });
-    throw new Error("Format imagine invalid.");
+    throw new Error(`Format imagine invalid. Tipuri permise: PNG, JPG, JPEG.`);
   }
   
   const imageBytes = Buffer.from(base64, "base64");
+  
+  // CRITICAL FIX (TICKET-005): Validate actual decoded size
+  if (imageBytes.length > MAX_IMAGE_SIZE) {
+    logger.warn("Decoded image size exceeds limit", { 
+      actualSize: imageBytes.length, 
+      maxSize: MAX_IMAGE_SIZE 
+    });
+    throw new Error(`Fișierul este prea mare. Dimensiunea maximă permisă este ${MAX_IMAGE_SIZE / 1024 / 1024}MB.`);
+  }
   const pdfDoc = await PDFDocument.create();
   let embeddedImage;
   
@@ -592,12 +626,62 @@ router.post("/upload", verifyJWT, async (req, res) => {
         .json({ error: "Formatul fișierului trebuie să fie PDF sau imagine (PNG/JPG) în format base64." });
     }
     
+    // CRITICAL FIX (TICKET-005): Validate file size before processing
+    const [meta, base64] = pdfDataUrl.split(",");
+    if (!meta || !base64) {
+      return res.status(400).json({ error: "Fișierul încărcat nu conține date valide." });
+    }
+    
+    // Validate size (estimate from base64 length)
+    const base64Length = base64.length;
+    const estimatedSize = (base64Length * 3) / 4;
+    
     // Check if it's an image (PNG, JPG, JPEG, etc.)
     if (pdfDataUrl.startsWith("data:image/")) {
+      if (estimatedSize > MAX_IMAGE_SIZE) {
+        logger.warn("Image file size exceeds limit", { 
+          estimatedSize, 
+          maxSize: MAX_IMAGE_SIZE,
+          fileName 
+        });
+        return res.status(400).json({ 
+          error: `Fișierul este prea mare. Dimensiunea maximă permisă pentru imagini este ${MAX_IMAGE_SIZE / 1024 / 1024}MB.` 
+        });
+      }
       storedPdfUrl = await convertImageDataUrlToPdf(pdfDataUrl);
     } 
     // Check if it's a PDF
     else if (pdfDataUrl.startsWith("data:application/pdf")) {
+      // CRITICAL FIX (TICKET-005): Validate PDF size
+      if (estimatedSize > MAX_PDF_SIZE) {
+        logger.warn("PDF file size exceeds limit", { 
+          estimatedSize, 
+          maxSize: MAX_PDF_SIZE,
+          fileName 
+        });
+        return res.status(400).json({ 
+          error: `Fișierul este prea mare. Dimensiunea maximă permisă pentru PDF-uri este ${MAX_PDF_SIZE / 1024 / 1024}MB.` 
+        });
+      }
+      
+      // Validate actual decoded size for PDF
+      try {
+        const pdfBytes = Buffer.from(base64, "base64");
+        if (pdfBytes.length > MAX_PDF_SIZE) {
+          logger.warn("Decoded PDF size exceeds limit", { 
+            actualSize: pdfBytes.length, 
+            maxSize: MAX_PDF_SIZE,
+            fileName 
+          });
+          return res.status(400).json({ 
+            error: `Fișierul este prea mare. Dimensiunea maximă permisă pentru PDF-uri este ${MAX_PDF_SIZE / 1024 / 1024}MB.` 
+          });
+        }
+      } catch (decodeError) {
+        logger.error("Error decoding PDF base64", { error: decodeError, fileName });
+        return res.status(400).json({ error: "Formatul fișierului PDF este invalid." });
+      }
+      
       // Already a PDF, use as is
       storedPdfUrl = pdfDataUrl;
     } 

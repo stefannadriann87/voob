@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import useApi from "./useApi";
+import { logger } from "../lib/logger";
 
 export interface TrialStatus {
   isExpired: boolean;
@@ -33,13 +34,13 @@ export default function useTrialStatus(businessId: string | null) {
       
       // Log detaliat pentru debugging
       if (err.response?.status === 403) {
-        console.warn("Trial status check - 403 Forbidden", {
+        logger.warn("Trial status check - 403 Forbidden", {
           businessId,
           error: errorMessage,
           response: err.response?.data,
         });
       } else {
-        console.error("Fetch trial status error:", err);
+        logger.error("Fetch trial status error:", err);
       }
     } finally {
       setLoading(false);

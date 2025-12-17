@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, FormEvent } from "re
 import { useRouter } from "next/navigation";
 import useAuth from "../../../hooks/useAuth";
 import useBusiness from "../../../hooks/useBusiness";
+import { logger } from "../../../lib/logger";
 
 const extractBusinessId = (payload: string): string | null => {
   if (!payload) {
@@ -171,7 +172,7 @@ export default function ClientScanQrPage() {
         setScannerActive(true);
         animationRef.current = requestAnimationFrame(scanFrame);
       } catch (err) {
-        console.error("Camera error:", err);
+        logger.error("Camera error:", err);
         setCameraError("Nu am putut accesa camera. Permite accesul sau folosește linkul manual.");
       }
     };

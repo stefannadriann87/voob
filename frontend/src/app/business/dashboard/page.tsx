@@ -3,12 +3,16 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import BookingCard from "../../../components/BookingCard";
 import useAuth from "../../../hooks/useAuth";
 import useBookings, { type Booking } from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import useApi from "../../../hooks/useApi";
 import useCourts from "../../../hooks/useCourts";
+import { logger } from "../../../lib/logger";
 
 type InsightSlot = {
   day: string;
@@ -39,10 +43,7 @@ export default function BusinessDashboardPage() {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
-  const [serviceName, setServiceName] = useState("");
-  const [serviceDuration, setServiceDuration] = useState("30");
-  const [servicePrice, setServicePrice] = useState("150");
-  const [serviceNotes, setServiceNotes] = useState("");
+  // CRITICAL FIX (TICKET-018): Removed manual state - using React Hook Form instead
   const [serviceFeedback, setServiceFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [serviceToDelete, setServiceToDelete] = useState<{ id: string; name: string } | null>(null);
   const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
@@ -59,6 +60,10 @@ export default function BusinessDashboardPage() {
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
   const [insights, setInsights] = useState<BusinessInsights | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  // Employee services management
+  const [employeeServices, setEmployeeServices] = useState<Array<{ id: string; name: string; isAssociated: boolean }>>([]);
+  const [loadingEmployeeServices, setLoadingEmployeeServices] = useState(false);
+  const [updatingEmployeeService, setUpdatingEmployeeService] = useState<string | null>(null);
   const [insightsError, setInsightsError] = useState<string | null>(null);
   
   // Court management state
@@ -168,7 +173,7 @@ export default function BusinessDashboardPage() {
         await cancelBooking(bookingId);
         await fetchBookings();
       } catch (error) {
-        console.error("Cancel booking error:", error);
+        logger.error("Cancel booking error:", error);
       } finally {
         setCancellingBookingId(null);
       }
@@ -176,56 +181,79 @@ export default function BusinessDashboardPage() {
     [cancelBooking, fetchBookings]
   );
 
+  // CRITICAL FIX (TICKET-018): React Hook Form schema for service form
+  const serviceFormSchema = z.object({
+    name: z.string().min(1, "Numele serviciului este obligatoriu").max(100, "Numele este prea lung"),
+    duration: z.number().min(15, "Durata minimă este 15 minute").max(480, "Durata maximă este 480 minute").refine(
+      (val) => val % 30 === 0,
+      "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)"
+    ),
+    price: z.number().min(0, "Prețul trebuie să fie pozitiv").max(100000, "Prețul este prea mare"),
+    notes: z.string().max(500, "Notițele sunt prea lungi").optional().or(z.literal("")),
+  });
+
+  type ServiceFormData = z.infer<typeof serviceFormSchema>;
+
+  const {
+    register: registerService,
+    handleSubmit: handleSubmitServiceForm,
+    reset: resetServiceForm,
+    formState: { errors: serviceFormErrors, isSubmitting: isSubmittingService },
+    setValue: setServiceValue,
+    watch: watchService,
+  } = useForm<ServiceFormData>({
+    resolver: zodResolver(serviceFormSchema),
+    defaultValues: {
+      name: "",
+      duration: 30,
+      price: 150,
+      notes: "",
+    },
+    mode: "onChange", // Validate on change for better UX
+  });
+
   const handleOpenServiceModal = useCallback((serviceId?: string) => {
     if (serviceId && business) {
       // Editing existing service
       const service = business.services.find((s) => s.id === serviceId);
       if (service) {
         setEditingServiceId(serviceId);
-        setServiceName(service.name);
-        setServiceDuration(service.duration.toString());
-        setServicePrice(service.price.toString());
-        setServiceNotes(service.notes || "");
+        resetServiceForm({
+          name: service.name,
+          duration: service.duration,
+          price: service.price,
+          notes: service.notes || "",
+        });
       }
     } else {
       // Adding new service
       setEditingServiceId(null);
-      setServiceName("");
-      setServiceDuration("30");
-      setServicePrice("150");
-      setServiceNotes("");
+      resetServiceForm({
+        name: "",
+        duration: 30,
+        price: 150,
+        notes: "",
+      });
     }
     setServiceFeedback(null);
     setServiceModalOpen(true);
-  }, [business]);
+  }, [business, resetServiceForm]);
 
   const handleCloseServiceModal = useCallback(() => {
     setServiceModalOpen(false);
     setEditingServiceId(null);
-    setServiceName("");
-    setServiceDuration("30");
-    setServicePrice("150");
-    setServiceNotes("");
+    resetServiceForm({
+      name: "",
+      duration: 30,
+      price: 150,
+      notes: "",
+    });
     setServiceFeedback(null);
-  }, []);
+  }, [resetServiceForm]);
 
-  const handleSubmitService = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  // CRITICAL FIX (TICKET-018): React Hook Form submit handler
+  const onSubmitService = useCallback(async (data: ServiceFormData) => {
     if (!business?.id) return;
-
-    const duration = Number(serviceDuration);
-    const price = Number(servicePrice);
-
-    if (!serviceName.trim() || Number.isNaN(duration) || duration <= 0 || Number.isNaN(price) || price <= 0) {
-      setServiceFeedback({ type: "error", message: "Completează un nume, o durată și un preț valide." });
-      return;
-    }
-
-    // Validare: durata trebuie să fie multiplu de 30 minute
-    if (duration % 30 !== 0) {
-      setServiceFeedback({ type: "error", message: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)" });
-      return;
-    }
 
     try {
       if (editingServiceId) {
@@ -233,20 +261,20 @@ export default function BusinessDashboardPage() {
         await updateService(
           business.id,
           editingServiceId,
-          serviceName.trim(),
-          duration,
-          price,
-          serviceNotes.trim() || undefined
+          data.name.trim(),
+          data.duration,
+          data.price,
+          data.notes?.trim() || undefined
         );
         setServiceFeedback({ type: "success", message: "Serviciu actualizat cu succes." });
       } else {
         // Add new service
         await addService({
           businessId: business.id,
-          name: serviceName.trim(),
-          duration,
-          price,
-          notes: serviceNotes.trim() || undefined,
+          name: data.name.trim(),
+          duration: data.duration,
+          price: data.price,
+          notes: data.notes?.trim() || undefined,
         });
         setServiceFeedback({ type: "success", message: "Serviciu adăugat cu succes." });
       }
@@ -258,7 +286,7 @@ export default function BusinessDashboardPage() {
         void fetchBusinesses();
       }, 1000);
     } catch (error) {
-      console.error("Service operation failed:", error);
+      logger.error("Service operation failed:", error);
       setServiceFeedback({ 
         type: "error", 
         message: editingServiceId 
@@ -266,7 +294,7 @@ export default function BusinessDashboardPage() {
           : "Nu am putut adăuga serviciul. Încearcă din nou." 
       });
     }
-  };
+  }, [business, editingServiceId, updateService, addService, fetchBusinesses, handleCloseServiceModal]);
 
   const handleDeleteService = useCallback(async () => {
     if (!serviceToDelete || !business?.id) return;
@@ -278,12 +306,80 @@ export default function BusinessDashboardPage() {
       // Refresh businesses to get updated data
       void fetchBusinesses();
     } catch (error) {
-      console.error("Delete service failed:", error);
+      logger.error("Delete service failed:", error);
       setServiceToDelete(null);
     } finally {
       setDeletingServiceId(null);
     }
   }, [serviceToDelete, business?.id, deleteService, fetchBusinesses]);
+
+  // Toggle employee service association
+  const handleToggleEmployeeService = useCallback(
+    async (serviceId: string, isAssociated: boolean) => {
+      if (!editingEmployeeId || !business?.id || updatingEmployeeService) return;
+
+      setUpdatingEmployeeService(serviceId);
+      try {
+        if (isAssociated) {
+          // Disassociate
+          await api.delete(`/business/${business.id}/employees/${editingEmployeeId}/services/${serviceId}`);
+        } else {
+          // Associate
+          await api.post(`/business/${business.id}/employees/${editingEmployeeId}/services/${serviceId}`);
+        }
+        // Update local state
+        setEmployeeServices((prev) =>
+          prev.map((s) => (s.id === serviceId ? { ...s, isAssociated: !isAssociated } : s))
+        );
+      } catch (error) {
+        logger.error("Failed to toggle employee service:", error);
+        setEmployeeFeedback({
+          type: "error",
+          message: "Eroare la actualizarea serviciilor employee-ului.",
+        });
+      } finally {
+        setUpdatingEmployeeService(null);
+      }
+    },
+    [editingEmployeeId, business?.id, updatingEmployeeService, api]
+  );
+
+  // Fetch employee services when editing employee
+  useEffect(() => {
+    if (!employeeModalOpen || !editingEmployeeId || !business?.id) {
+      setEmployeeServices([]);
+      return;
+    }
+
+    const fetchEmployeeServices = async () => {
+      setLoadingEmployeeServices(true);
+      try {
+        const { data } = await api.get<{ services: Array<{ id: string; name: string; isAssociated: boolean }> }>(
+          `/business/${business.id}/employees/${editingEmployeeId}/services`
+        );
+        setEmployeeServices(data.services);
+      } catch (error: any) {
+        logger.error("Failed to fetch employee services:", error);
+        // If 404, employee doesn't exist - reset editing state and close modal
+        if (error?.response?.status === 404) {
+          setEditingEmployeeId(null);
+          setEmployeeModalOpen(false);
+          setEmployeeServices([]);
+          return;
+        }
+        // If other error, show all services as not associated (backward compatibility)
+        if (business?.services) {
+          setEmployeeServices(
+            business.services.map((s) => ({ id: s.id, name: s.name, isAssociated: false }))
+          );
+        }
+      } finally {
+        setLoadingEmployeeServices(false);
+      }
+    };
+
+    void fetchEmployeeServices();
+  }, [employeeModalOpen, editingEmployeeId, business?.id, business?.services, api]);
 
   // Court management handlers
   const handleOpenCourtModal = useCallback((courtId?: string) => {
@@ -366,7 +462,7 @@ export default function BusinessDashboardPage() {
       // Refresh courts
       refreshCourts();
     } catch (error: any) {
-      console.error("Delete court failed:", error);
+      logger.error("Delete court failed:", error);
       setCourtToDelete(null);
     } finally {
       setDeletingCourtId(null);
@@ -921,39 +1017,46 @@ export default function BusinessDashboardPage() {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmitService} className="space-y-4">
+              {/* CRITICAL FIX (TICKET-018): React Hook Form implementation */}
+              <form onSubmit={handleSubmitServiceForm(onSubmitService)} className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-3">
                   <label className="flex flex-col gap-2 text-sm">
                     <span className="text-white/70">Nume serviciu *</span>
                     <input
-                      value={serviceName}
-                      onChange={(event) => setServiceName(event.target.value)}
+                      {...registerService("name")}
                       placeholder="Ex: Tuns modern"
-                      required
-                      className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                      className={`rounded-xl border bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition ${
+                        serviceFormErrors.name
+                          ? "border-red-500/50 focus:border-red-500"
+                          : "border-white/10 focus:border-[#6366F1]"
+                      }`}
                     />
+                    {serviceFormErrors.name && (
+                      <span className="text-xs text-red-400">{serviceFormErrors.name.message}</span>
+                    )}
                   </label>
                   <label className="flex flex-col gap-2 text-sm">
                     <span className="text-white/70">Durată (minute) *</span>
                     <div className="relative">
                       <input
                         type="number"
-                        min={1}
-                        value={serviceDuration}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setServiceDuration(value);
-                        }}
-                        required
+                        min={15}
+                        max={480}
+                        step={30}
+                        {...registerService("duration", { valueAsNumber: true })}
                         placeholder="30, 60, 90, 120..."
-                        className="w-full rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 pr-12 text-white outline-none transition focus:border-[#6366F1] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        className={`w-full rounded-xl border bg-[#0B0E17]/60 px-4 py-3 pr-12 text-white outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                          serviceFormErrors.duration
+                            ? "border-red-500/50 focus:border-red-500"
+                            : "border-white/10 focus:border-[#6366F1]"
+                        }`}
                       />
                       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
                         <button
                           type="button"
                           onClick={() => {
-                            const current = Number(serviceDuration) || 30;
-                            setServiceDuration(String(Math.max(1, current + 30)));
+                            const current = watchService("duration") || 30;
+                            setServiceValue("duration", Math.min(480, current + 30));
                           }}
                           className="flex h-4 w-6 items-center justify-center rounded-t border border-white/20 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
                         >
@@ -962,8 +1065,8 @@ export default function BusinessDashboardPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const current = Number(serviceDuration) || 30;
-                            setServiceDuration(String(Math.max(1, current - 30)));
+                            const current = watchService("duration") || 30;
+                            setServiceValue("duration", Math.max(15, current - 30));
                           }}
                           className="flex h-4 w-6 items-center justify-center rounded-b border border-white/20 border-t-0 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
                         >
@@ -971,15 +1074,11 @@ export default function BusinessDashboardPage() {
                         </button>
                       </div>
                     </div>
-                    {serviceDuration && Number(serviceDuration) > 0 && Number(serviceDuration) % 30 !== 0 && (
-                      <span className="text-xs text-red-400">
-                        Durata trebuie să fie un multiplu de 30 minute (30, 60, 90, 120, etc.)
-                      </span>
-                    )}
-                    {serviceDuration && Number(serviceDuration) > 0 && Number(serviceDuration) % 30 === 0 && (
+                    {serviceFormErrors.duration ? (
+                      <span className="text-xs text-red-400">{serviceFormErrors.duration.message}</span>
+                    ) : watchService("duration") && watchService("duration")! % 30 === 0 ? (
                       <span className="text-xs text-green-400">✓ Durată validă</span>
-                    )}
-                    {(!serviceDuration || Number(serviceDuration) <= 0) && (
+                    ) : (
                       <span className="text-xs text-white/50">Doar multipli de 30 minute (30, 60, 90, 120, etc.)</span>
                     )}
                   </label>
@@ -990,18 +1089,20 @@ export default function BusinessDashboardPage() {
                         type="number"
                         min={0}
                         step="0.01"
-                        value={servicePrice}
-                        onChange={(event) => setServicePrice(event.target.value)}
-                        required
+                        {...registerService("price", { valueAsNumber: true })}
                         placeholder="150.00"
-                        className="w-full rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 pr-12 text-white outline-none transition focus:border-[#6366F1] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        className={`w-full rounded-xl border bg-[#0B0E17]/60 px-4 py-3 pr-12 text-white outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                          serviceFormErrors.price
+                            ? "border-red-500/50 focus:border-red-500"
+                            : "border-white/10 focus:border-[#6366F1]"
+                        }`}
                       />
                       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
                         <button
                           type="button"
                           onClick={() => {
-                            const current = Number(servicePrice) || 0;
-                            setServicePrice((current + 10).toFixed(2));
+                            const current = watchService("price") || 0;
+                            setServiceValue("price", current + 10);
                           }}
                           className="flex h-4 w-6 items-center justify-center rounded-t border border-white/20 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
                         >
@@ -1010,8 +1111,8 @@ export default function BusinessDashboardPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const current = Number(servicePrice) || 0;
-                            setServicePrice(Math.max(0, current - 10).toFixed(2));
+                            const current = watchService("price") || 0;
+                            setServiceValue("price", Math.max(0, current - 10));
                           }}
                           className="flex h-4 w-6 items-center justify-center rounded-b border border-white/20 border-t-0 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
                         >
@@ -1019,17 +1120,26 @@ export default function BusinessDashboardPage() {
                         </button>
                       </div>
                     </div>
+                    {serviceFormErrors.price && (
+                      <span className="text-xs text-red-400">{serviceFormErrors.price.message}</span>
+                    )}
                   </label>
                 </div>
                 <label className="flex mt-6 flex-col gap-2 text-sm">
                   <span className="text-white/70">Observații</span>
                   <textarea
-                    value={serviceNotes}
-                    onChange={(event) => setServiceNotes(event.target.value)}
+                    {...registerService("notes")}
                     placeholder="Adaugă observații sau note despre acest serviciu..."
                     rows={3}
-                    className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1] resize-none"
+                    className={`rounded-xl border bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition resize-none ${
+                      serviceFormErrors.notes
+                        ? "border-red-500/50 focus:border-red-500"
+                        : "border-white/10 focus:border-[#6366F1]"
+                    }`}
                   />
+                  {serviceFormErrors.notes && (
+                    <span className="text-xs text-red-400">{serviceFormErrors.notes.message}</span>
+                  )}
                 </label>
 
                 {serviceFeedback && (
@@ -1054,9 +1164,14 @@ export default function BusinessDashboardPage() {
                   </button>
                   <button
                     type="submit"
-                    className="rounded-xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED]"
+                    disabled={isSubmittingService}
+                    className="rounded-xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {editingServiceId ? "Salvează modificările" : "Adaugă servicii"}
+                    {isSubmittingService
+                      ? "Se salvează..."
+                      : editingServiceId
+                        ? "Salvează modificările"
+                        : "Adaugă servicii"}
                   </button>
                 </div>
               </form>
@@ -1196,6 +1311,7 @@ export default function BusinessDashboardPage() {
                     setEmployeePhone("");
                     setEmployeeSpecialization("");
                     setEmployeeFeedback(null);
+                    setEmployeeServices([]);
                   }}
                   className="rounded-lg p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
                 >
@@ -1246,14 +1362,21 @@ export default function BusinessDashboardPage() {
                       setEmployeePhone("");
                       setEmployeeSpecialization("");
                       setEmployeeFeedback(null);
+                      setEmployeeServices([]);
                       void fetchBusinesses();
                     }, 1000);
-                  } catch (error) {
+                  } catch (error: any) {
+                    // Extract error message from Axios response if available
+                    const errorMessage = error?.response?.data?.error 
+                      || error?.message 
+                      || (error instanceof Error ? error.message : null)
+                      || (editingEmployeeId 
+                        ? "Eroare la actualizarea angajatului." 
+                        : "Eroare la adăugarea angajatului.");
+                    
                     setEmployeeFeedback({
                       type: "error",
-                      message: error instanceof Error ? error.message : editingEmployeeId 
-                        ? "Eroare la actualizarea angajatului." 
-                        : "Eroare la adăugarea angajatului.",
+                      message: errorMessage,
                     });
                   } finally {
                     setAddingEmployee(false);
@@ -1306,6 +1429,54 @@ export default function BusinessDashboardPage() {
                     placeholder="+40 7XX XXX XXX"
                   />
                 </label>
+
+                {/* Services Section - Only show when editing existing employee */}
+                {editingEmployeeId && business?.services && business.services.length > 0 && (
+                  <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0E17]/40 p-4">
+                    <label className="text-sm font-semibold text-white/80">
+                      Servicii disponibile
+                    </label>
+                    <p className="text-xs text-white/50">
+                      Selectează serviciile pe care le poate efectua acest specialist
+                    </p>
+                    {loadingEmployeeServices ? (
+                      <div className="py-4 text-center text-sm text-white/60">
+                        <i className="fas fa-spinner fa-spin mr-2" />
+                        Se încarcă serviciile...
+                      </div>
+                    ) : (
+                      <div className="max-h-48 space-y-2 overflow-y-auto">
+                        {employeeServices.map((service) => (
+                          <label
+                            key={service.id}
+                            className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 transition hover:bg-white/10 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={service.isAssociated}
+                              onChange={(e) =>
+                                handleToggleEmployeeService(service.id, service.isAssociated)
+                              }
+                              disabled={updatingEmployeeService === service.id}
+                              className="h-4 w-4 rounded border-white/30 text-[#6366F1] focus:ring-[#6366F1] disabled:opacity-50 disabled:cursor-not-allowed"
+                            />
+                            <div className="flex-1">
+                              <span className="text-sm text-white">{service.name}</span>
+                            </div>
+                            {updatingEmployeeService === service.id && (
+                              <i className="fas fa-spinner fa-spin text-white/60 text-xs" />
+                            )}
+                          </label>
+                        ))}
+                        {employeeServices.length === 0 && (
+                          <p className="py-4 text-center text-sm text-white/60">
+                            Nu există servicii disponibile.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {employeeFeedback && (
                   <div
@@ -1379,9 +1550,15 @@ export default function BusinessDashboardPage() {
                     try {
                       await deleteEmployee(business.id, employeeToDelete.id);
                       setEmployeeToDelete(null);
+                      // If the deleted employee was being edited, reset editing state and close modal
+                      if (editingEmployeeId === employeeToDelete.id) {
+                        setEditingEmployeeId(null);
+                        setEmployeeModalOpen(false);
+                        setEmployeeServices([]);
+                      }
                       void fetchBusinesses();
                     } catch (error) {
-                      console.error("Delete employee failed:", error);
+                      logger.error("Delete employee failed:", error);
                       setEmployeeToDelete(null);
                     } finally {
                       setDeletingEmployeeId(null);

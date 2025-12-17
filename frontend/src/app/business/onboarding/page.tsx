@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import useAuth from "../../../hooks/useAuth";
 import useApi from "../../../hooks/useApi";
 import CustomSelect from "../../../components/CustomSelect";
+import { logger } from "../../../lib/logger";
 
 type OnboardingStep = "business" | "legal" | "representative" | "bank" | "review";
 
@@ -91,7 +92,7 @@ export default function BusinessOnboardingPage() {
             setCurrentStep("review");
           }
         } catch (err) {
-          console.error("Error checking onboarding status:", err);
+          logger.error("Error checking onboarding status:", err);
           // Dacă nu poate verifica statusul, începe de la legal
           setCurrentStep("legal");
         }

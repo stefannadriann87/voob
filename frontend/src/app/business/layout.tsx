@@ -11,6 +11,7 @@ import TrialBanner from "../../components/TrialBanner";
 import TrialExpiredModal from "../../components/TrialExpiredModal";
 import useAuth from "../../hooks/useAuth";
 import useBusiness from "../../hooks/useBusiness";
+import { logger } from "../../lib/logger";
 
 export default function BusinessLayout({ children }: { children: ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -55,9 +56,9 @@ export default function BusinessLayout({ children }: { children: ReactNode }) {
   // Debug: Log businessId pentru debugging
   useEffect(() => {
     if (currentBusinessId) {
-      console.log("[BusinessLayout] Current businessId:", currentBusinessId);
+      logger.log("[BusinessLayout] Current businessId:", currentBusinessId);
     } else if (!businessesLoading && businesses.length === 0 && user?.role === "BUSINESS") {
-      console.warn("[BusinessLayout] No businessId available, businesses:", businesses);
+      logger.warn("[BusinessLayout] No businessId available, businesses:", businesses);
     }
   }, [currentBusinessId, businesses, businessesLoading, user]);
 

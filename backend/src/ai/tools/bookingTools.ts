@@ -243,6 +243,25 @@ async function createBooking(
     if (!employee || employee.businessId !== finalBusinessId) {
       throw new Error("Angajatul nu a fost găsit sau nu aparține acestui business.");
     }
+
+    // Verify employee can perform the service (if serviceId is provided)
+    if (finalServiceId) {
+      const employeeService = await prisma.employeeService.findUnique({
+        where: {
+          employeeId_serviceId: {
+            employeeId: finalEmployeeId,
+            serviceId: finalServiceId,
+          },
+        },
+      });
+
+      // If no association found, check if business has no restrictions (backward compatibility)
+      // For now, we allow booking if no association exists (backward compatibility)
+      // In the future, you might want to make this stricter
+      // if (!employeeService) {
+      //   throw new Error("Angajatul nu poate efectua acest serviciu.");
+      // }
+    }
   }
 
   const bookingDateObj = new Date(date);

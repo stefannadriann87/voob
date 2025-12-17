@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useAuth from "../../../../hooks/useAuth";
 import useApi from "../../../../hooks/useApi";
+import { logger } from "../../../../lib/logger";
 
 export default function KycReturnPage() {
   const router = useRouter();
@@ -52,7 +53,7 @@ export default function KycReturnPage() {
           router.push("/business/dashboard");
         }, 3000);
       } catch (error: any) {
-        console.error("KYC status check error:", error);
+        logger.error("KYC status check error:", error);
         setStatus("error");
         setMessage("Eroare la verificarea statusului. Te rugăm să încerci din nou.");
       }

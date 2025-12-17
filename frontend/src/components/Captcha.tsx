@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { logger } from "../lib/logger";
 
 interface CaptchaProps {
   onVerify: (token: string) => void;
@@ -26,7 +27,7 @@ export default function Captcha({ onVerify, action = "register" }: CaptchaProps)
 
   useEffect(() => {
     if (!siteKey) {
-      console.warn("NEXT_PUBLIC_RECAPTCHA_SITE_KEY nu este configurat");
+      logger.warn("NEXT_PUBLIC_RECAPTCHA_SITE_KEY nu este configurat");
       return;
     }
 
@@ -47,14 +48,14 @@ export default function Captcha({ onVerify, action = "register" }: CaptchaProps)
         executeCaptcha();
       };
       script.onerror = () => {
-        console.error("Failed to load reCAPTCHA script");
+        logger.error("Failed to load reCAPTCHA script");
       };
       document.head.appendChild(script);
     };
 
     const executeCaptcha = () => {
       if (!window.grecaptcha || !window.grecaptcha.ready) {
-        console.warn("reCAPTCHA nu este încărcat");
+        logger.warn("reCAPTCHA nu este încărcat");
         return;
       }
 
@@ -65,7 +66,7 @@ export default function Captcha({ onVerify, action = "register" }: CaptchaProps)
             onVerify(token);
           }
         } catch (error) {
-          console.error("Error executing reCAPTCHA:", error);
+          logger.error("Error executing reCAPTCHA:", error);
         }
       });
     };

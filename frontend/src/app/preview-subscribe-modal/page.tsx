@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { logger } from "../../lib/logger";
 
 export default function PreviewSubscribeModalPage() {
   const [isOpen, setIsOpen] = useState(true);
@@ -17,7 +18,7 @@ export default function PreviewSubscribeModalPage() {
   ];
 
   const handleSubscribe = (planId: string) => {
-    console.log("Subscribe to plan:", planId);
+    logger.log("Subscribe to plan:", planId);
     alert(`Ai selectat planul: ${planId}`);
   };
 

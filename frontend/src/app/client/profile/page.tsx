@@ -2,21 +2,43 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import useAuth from "../../../hooks/useAuth";
 
 export default function ClientProfilePage() {
   const router = useRouter();
   const { user, hydrated, updateProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [avatar, setAvatar] = useState<string | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // CRITICAL FIX (TICKET-018): React Hook Form schema for profile form
+  const profileFormSchema = z.object({
+    name: z.string().min(1, "Numele este obligatoriu").max(100, "Numele este prea lung"),
+    phone: z.string().max(20, "Numărul de telefon este prea lung").optional().or(z.literal("")),
+  });
+
+  type ProfileFormData = z.infer<typeof profileFormSchema>;
+
+  const {
+    register: registerProfile,
+    handleSubmit: handleSubmitProfileForm,
+    reset: resetProfileForm,
+    formState: { errors: profileFormErrors, isSubmitting: isSubmittingProfile },
+  } = useForm<ProfileFormData>({
+    resolver: zodResolver(profileFormSchema),
+    defaultValues: {
+      name: "",
+      phone: "",
+    },
+    mode: "onChange",
+  });
 
   useEffect(() => {
     if (!hydrated) {
@@ -31,23 +53,24 @@ export default function ClientProfilePage() {
       return;
     }
     // Initialize form with user data
-    setName(user.name || "");
+    resetProfileForm({
+      name: user.name || "",
+      phone: user.phone || "",
+    });
     setEmail(user.email || "");
-    setPhone(user.phone || "");
     setAvatar(user.avatar || null);
     setAvatarPreview(user.avatar || null);
-  }, [hydrated, user, router]);
+  }, [hydrated, user, router, resetProfileForm]);
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  // CRITICAL FIX (TICKET-018): React Hook Form submit handler
+  const onSubmitProfile = async (data: ProfileFormData) => {
     setError(null);
     setSuccess(null);
-    setLoading(true);
 
     try {
       await updateProfile({
-        name: name.trim(),
-        phone: phone.trim() || undefined,
+        name: data.name.trim(),
+        phone: data.phone?.trim() || undefined,
       });
       setSuccess("Profil actualizat cu succes!");
       setIsEditing(false);
@@ -56,16 +79,15 @@ export default function ClientProfilePage() {
       }, 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Eroare la actualizarea profilului.");
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleCancel = () => {
     setIsEditing(false);
-    setName(user?.name || "");
-    setEmail(user?.email || "");
-    setPhone(user?.phone || "");
+    resetProfileForm({
+      name: user?.name || "",
+      phone: user?.phone || "",
+    });
     setAvatar(user?.avatar || null);
     setAvatarPreview(user?.avatar || null);
     setError(null);
@@ -188,7 +210,8 @@ export default function ClientProfilePage() {
               <p className="mt-1 text-sm text-white/60">Actualizează datele tale personale.</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            {/* CRITICAL FIX (TICKET-018): React Hook Form implementation */}
+            <form onSubmit={handleSubmitProfileForm(onSubmitProfile)} className="space-y-6">
               <div className="flex flex-col gap-4">
                 <label className="text-sm font-medium text-white/70">Avatar</label>
                 <div className="flex items-center gap-4">
@@ -243,8 +266,7 @@ export default function ClientProfilePage() {
                 <label className="text-sm font-medium text-white/70">Nume complet *</label>
                 <input
                   type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  {...registerProfile("name")}
                   required
                   className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
                   placeholder="Nume complet"
@@ -267,8 +289,7 @@ export default function ClientProfilePage() {
                 <label className="text-sm font-medium text-white/70">Număr de telefon</label>
                 <input
                   type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  {...registerProfile("phone")}
                   className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
                   placeholder="+40 7XX XXX XXX"
                 />
@@ -290,17 +311,17 @@ export default function ClientProfilePage() {
                 <button
                   type="button"
                   onClick={handleCancel}
-                  disabled={loading}
+                  disabled={isSubmittingProfile}
                   className="flex-1 rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Anulează
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={isSubmittingProfile}
                   className="flex-1 rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {loading ? "Se salvează..." : "Salvează modificările"}
+                  {isSubmittingProfile ? "Se salvează..." : "Salvează modificările"}
                 </button>
               </div>
             </form>

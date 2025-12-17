@@ -8,6 +8,7 @@ import useBookings from "../../../hooks/useBookings";
 import useBusiness from "../../../hooks/useBusiness";
 import { getBookingCancellationStatus } from "../../../utils/bookingRules";
 import useApi from "../../../hooks/useApi";
+import { logger } from "../../../lib/logger";
 
 type InsightSlot = {
   day: string;
@@ -99,7 +100,7 @@ export default function ClientDashboardPage() {
           setSelectedBusinessId((prev) => prev ?? ids[0]);
         }
       } catch (error) {
-        console.error("Error loading selected business IDs:", error);
+        logger.error("Error loading selected business IDs:", error);
         setHasStoredSelection(false);
         setSelectedBusinessIdsForBookings(new Set());
       }
@@ -206,7 +207,7 @@ export default function ClientDashboardPage() {
       const { data } = await api.get<{ insights: BusinessInsights }>(`/business/${targetBusinessId}/insights`);
       setInsights(data.insights);
     } catch (error) {
-      console.error("Failed to fetch insights:", error);
+      logger.error("Failed to fetch insights:", error);
       setInsightsError("Nu am putut încărca insight-urile de rezervări.");
       setInsights(null);
     } finally {
@@ -449,7 +450,7 @@ export default function ClientDashboardPage() {
         setCancelSuccessMessage(null);
       }, 2000);
     } catch (error: any) {
-      console.error("Cancel booking failed:", error);
+      logger.error("Cancel booking failed:", error);
       const errorMessage = error?.response?.data?.error || error?.message || "Eroare la anularea rezervării.";
       setCancelErrorMessage(errorMessage);
     } finally {
@@ -559,7 +560,7 @@ export default function ClientDashboardPage() {
         void fetchBusinesses({ scope: businessScope });
       }, 1000);
     } catch (error) {
-      console.error("Service operation failed:", error);
+      logger.error("Service operation failed:", error);
       setServiceFeedback({ 
         type: "error", 
         message: editingServiceId 
@@ -579,7 +580,7 @@ export default function ClientDashboardPage() {
       // Refresh businesses to get updated data
       void fetchBusinesses({ scope: businessScope });
     } catch (error) {
-      console.error("Delete service failed:", error);
+      logger.error("Delete service failed:", error);
       setServiceToDelete(null);
     } finally {
       setDeletingServiceId(null);
@@ -935,7 +936,7 @@ export default function ClientDashboardPage() {
                 // For business users, always show client name
                 // If client data is missing, log it for debugging
                 if (isBusinessUser && !booking.client) {
-                  console.warn("Booking missing client data:", {
+                  logger.warn("Booking missing client data:", {
                     bookingId: booking.id,
                     businessId: booking.businessId,
                     clientId: booking.clientId,
@@ -1539,7 +1540,7 @@ export default function ClientDashboardPage() {
                   setShowPhoneModal(false);
                   setPhoneInput("");
                 } catch (error) {
-                  console.error("Failed to update phone:", error);
+                  logger.error("Failed to update phone:", error);
                 } finally {
                   setUpdatingPhone(false);
                 }

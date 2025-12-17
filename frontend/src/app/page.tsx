@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CookiePreferencesButton from "../components/CookiePreferencesButton";
+import { logger } from "../lib/logger";
 
 export default function Home() {
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -152,7 +153,7 @@ export default function Home() {
           return slots[0]?.iso ?? null;
         });
       } catch (error) {
-        console.error("Available slots fetch failed:", error);
+        logger.error("Available slots fetch failed:", error);
         setSlotsError(error instanceof Error ? error.message : "Nu am putut încărca intervalele.");
         setAvailableSlots([]);
         setSelectedSlot(null);
@@ -209,7 +210,7 @@ export default function Home() {
       setDemoForm({ firstName: "", lastName: "", email: "", phone: "" });
       void fetchAvailableSlots(demoDate);
     } catch (error) {
-      console.error("Demo booking failed:", error);
+      logger.error("Demo booking failed:", error);
       setDemoError(error instanceof Error ? error.message : "Nu am putut programa demo-ul.");
     } finally {
       setDemoSubmitting(false);

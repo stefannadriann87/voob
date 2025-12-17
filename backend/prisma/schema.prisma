@@ -31,6 +31,7 @@ model User {
   resetTokens      PasswordResetToken[]
   sessions         UserSession[]
   business         Business?            @relation(fields: [businessId], references: [id])
+  employeeServices EmployeeService[]    @relation("EmployeeServices")
 
   refreshTokens RefreshToken[]
 
@@ -85,7 +86,7 @@ model Business {
   domain           String                  @unique
   businessType     BusinessType            @default(GENERAL)
   ownerId          String
-  slotDuration     Int?                    // Durata slot-ului în minute (stocat consistent)
+  slotDuration     Int? // Durata slot-ului în minute (stocat consistent)
   workingHours     Json?
   qrCodeUrl        String?
   address          String?
@@ -147,27 +148,42 @@ model Holiday {
 }
 
 model Service {
-  id         String    @id @default(cuid())
+  id         String            @id @default(cuid())
   name       String
   duration   Int
   price      Float
   notes      String?
   businessId String
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
   bookings   Booking[]
-  business   Business  @relation(fields: [businessId], references: [id])
+  business   Business          @relation(fields: [businessId], references: [id])
+  employees  EmployeeService[]
+}
+
+model EmployeeService {
+  id         String   @id @default(cuid())
+  employeeId String
+  serviceId  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  employee   User     @relation("EmployeeServices", fields: [employeeId], references: [id], onDelete: Cascade)
+  service    Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, serviceId])
+  @@index([employeeId])
+  @@index([serviceId])
 }
 
 model Court {
-  id         String        @id @default(cuid())
+  id         String         @id @default(cuid())
   businessId String
   name       String
   number     Int
-  isActive   Boolean       @default(true)
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
-  business   Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  isActive   Boolean        @default(true)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  business   Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   bookings   Booking[]
   pricing    CourtPricing[]
 
@@ -198,7 +214,7 @@ model Booking {
   courtId          String?
   employeeId       String?
   date             DateTime
-  duration         Int?                 // Durata în minute (pentru logica de suprapunere)
+  duration         Int? // Durata în minute (pentru logica de suprapunere)
   paid             Boolean              @default(false)
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
@@ -222,6 +238,11 @@ model Booking {
   @@index([employeeId])
   @@index([businessId, date])
   @@index([clientId, date])
+  // CRITICAL FIX (TICKET-008): Composite indexes for frequent queries
+  @@index([businessId, date, status]) // For business bookings filtering
+  @@index([employeeId, date, status]) // For employee bookings filtering
+  @@index([businessId, employeeId, date]) // For overlap checks with employee
+  @@index([businessId, date, status]) // Duplicate for clarity (PostgreSQL will optimize)
 }
 
 model ConsentForm {
@@ -292,31 +313,30 @@ model PasswordResetToken {
 }
 
 model UserSession {
-  id           String    @id @default(cuid())
+  id           String   @id @default(cuid())
   userId       String
-  tokenHash    String    @unique // Hash of JWT pentru invalidare
+  tokenHash    String   @unique // Hash of JWT pentru invalidare
   userAgent    String?
   ipAddress    String?
-  lastActivity DateTime  @default(now())
+  lastActivity DateTime @default(now())
   expiresAt    DateTime
-  createdAt    DateTime  @default(now())
-  isActive     Boolean   @default(true)
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  isActive     Boolean  @default(true)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([tokenHash])
   @@index([expiresAt])
 }
 
-
 model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
+  id        String    @id @default(cuid())
+  token     String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
-  createdAt DateTime @default(now())
-  revoked   Boolean  @default(false)
+  createdAt DateTime  @default(now())
+  revoked   Boolean   @default(false)
   revokedAt DateTime?
 
   @@index([userId])

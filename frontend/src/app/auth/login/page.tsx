@@ -8,6 +8,7 @@ import AuthHeader from "../../../components/AuthHeader";
 import CustomSelect from "../../../components/CustomSelect";
 import useAuth, { Role } from "../../../hooks/useAuth";
 import Captcha from "../../../components/Captcha";
+import { logger } from "../../../lib/logger";
 
 export default function LoginPage() {
   const searchParams = useSearchParams();
@@ -36,7 +37,7 @@ export default function LoginPage() {
       const loggedUser = await login(loginPayload);
       
       if (!loggedUser) {
-        console.error("Login returned null/undefined user");
+        logger.error("Login returned null/undefined user");
         return;
       }
       
@@ -68,7 +69,7 @@ export default function LoginPage() {
       // Use window.location.href for a full page reload
       window.location.href = redirectPath;
     } catch (err) {
-      console.error("Login error:", err);
+      logger.error("Login error:", err);
       // error handled by hook
     }
   };

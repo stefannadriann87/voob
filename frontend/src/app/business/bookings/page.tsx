@@ -202,16 +202,16 @@ export default function BusinessBookingsPage() {
   }, [hydrated, user, router]); // Removed fetchBookings and fetchBusinesses from dependencies
 
   // Listen for booking created events from AI chat
-  useEffect(() => {
-    const handleBookingCreated = () => {
-      void fetchBookings();
-    };
+  const handleBookingCreated = useCallback(() => {
+    void fetchBookings();
+  }, [fetchBookings]);
 
+  useEffect(() => {
     window.addEventListener("voob:booking-created", handleBookingCreated);
     return () => {
       window.removeEventListener("voob:booking-created", handleBookingCreated);
     };
-  }, [fetchBookings]);
+  }, [handleBookingCreated]);
 
   // Fetch clients when modal opens or search query changes
   useEffect(() => {
@@ -416,6 +416,91 @@ export default function BusinessBookingsPage() {
   // Expose slotsMatrix for validation in create booking modal
   const slotsMatrixForValidation = slotsMatrix;
 
+  // CRITICAL FIX (TICKET-016): Memoize handler functions to prevent unnecessary re-renders
+  const handleViewTypeChange = useCallback((newViewType: "week" | "day") => {
+    setViewType(newViewType);
+  }, []);
+
+  const handleCalendarDateChange = useCallback((date: string) => {
+    setCalendarDate(date);
+    const selectedDateObj = new Date(date);
+    // In day view, set weekStart to the exact day; in week view, set to week start
+    if (viewType === "day") {
+      selectedDateObj.setHours(0, 0, 0, 0);
+      setWeekStart(selectedDateObj);
+    } else {
+      setWeekStart(getWeekStart(selectedDateObj));
+    }
+  }, [viewType]);
+
+  const handleClearFilters = useCallback(() => {
+    setFilterEmployeeId(null);
+    setFilterServiceId(null);
+    setFilterStatus("all");
+    setSearchQuery("");
+  }, []);
+
+  const handleSelectEmployee = useCallback((employeeId: string | null) => {
+    setSelectedEmployeeId(employeeId);
+  }, []);
+
+  const handleSelectCourt = useCallback((courtId: string | null) => {
+    setSelectedCourtId(courtId);
+  }, []);
+
+  const handleSelectBooking = useCallback((booking: Booking | null) => {
+    setSelectedBooking(booking);
+    setTooltipBooking(null);
+    setTooltipPosition(null);
+  }, []);
+
+  const handleOpenCreateBookingModal = useCallback((slotIso: string) => {
+    setSelectedSlotDate(slotIso);
+    setCreateBookingModalOpen(true);
+  }, []);
+
+  const handleCloseCreateBookingModal = useCallback(() => {
+    setCreateBookingModalOpen(false);
+    setSelectedSlotDate(null);
+    setSelectedClientId("");
+    setSelectedServiceId("");
+    setSelectedEmployeeIdForBooking("");
+    setPaid(false);
+    setClientSearchQuery("");
+    setCreateBookingError(null);
+  }, []);
+
+  const handleFilterEmployeeChange = useCallback((value: string) => {
+    setFilterEmployeeId(value || null);
+  }, []);
+
+  const handleFilterServiceChange = useCallback((value: string) => {
+    setFilterServiceId(value || null);
+  }, []);
+
+  // Memoize employee filter options
+  const employeeFilterOptions = useMemo(() => {
+    return [
+      { value: "", label: "Toți angajații" },
+      ...employees.map((emp) => ({
+        value: emp.id,
+        label: emp.name,
+      })),
+    ];
+  }, [employees]);
+
+  // Memoize service filter options
+  const serviceFilterOptions = useMemo(() => {
+    if (!business?.services) return [{ value: "", label: "Toate serviciile" }];
+    return [
+      { value: "", label: "Toate serviciile" },
+      ...business.services.map((service) => ({
+        value: service.id,
+        label: service.name,
+      })),
+    ];
+  }, [business?.services]);
+
   if (!hydrated) {
     return null;
   }
@@ -449,7 +534,7 @@ export default function BusinessBookingsPage() {
                 <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 overflow-x-auto">
                   <button
                     type="button"
-                    onClick={() => setViewType("week")}
+                    onClick={() => handleViewTypeChange("week")}
                     className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                       viewType === "week"
                         ? "bg-[#6366F1] text-white"
@@ -461,7 +546,7 @@ export default function BusinessBookingsPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setViewType("day")}
+                    onClick={() => handleViewTypeChange("day")}
                     className={`px-2 sm:px-3 py-1 text-sm font-medium rounded transition whitespace-nowrap ${
                       viewType === "day"
                         ? "bg-[#6366F1] text-white"
@@ -476,17 +561,7 @@ export default function BusinessBookingsPage() {
                     <div className="hidden sm:block">
                       <DatePicker
                         value={calendarDate}
-                        onChange={(date) => {
-                          setCalendarDate(date);
-                          const selectedDateObj = new Date(date);
-                          // In day view, set weekStart to the exact day; in week view, set to week start
-                          if (viewType === "day") {
-                            selectedDateObj.setHours(0, 0, 0, 0);
-                            setWeekStart(selectedDateObj);
-                          } else {
-                            setWeekStart(getWeekStart(selectedDateObj));
-                          }
-                        }}
+                        onChange={handleCalendarDateChange}
                         placeholder="Selectează data"
                         viewType={viewType}
                       />
@@ -573,12 +648,7 @@ export default function BusinessBookingsPage() {
                 {(filterEmployeeId || filterServiceId || filterStatus !== "all" || searchQuery) && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setFilterEmployeeId(null);
-                      setFilterServiceId(null);
-                      setFilterStatus("all");
-                      setSearchQuery("");
-                    }}
+                    onClick={handleClearFilters}
                     className="rounded-lg border border-white/10 bg-[#0B0E17]/60 px-3 py-2 text-xs text-white/60 hover:text-white hover:bg-white/5 transition touch-manipulation min-h-[44px] flex items-center gap-1"
                   >
                     <i className="fas fa-times" />
@@ -595,7 +665,7 @@ export default function BusinessBookingsPage() {
             <div className="flex flex-wrap gap-2 border-b border-white/10 pb-4 overflow-x-auto">
               <button
                 type="button"
-                onClick={() => setSelectedEmployeeId(null)}
+                onClick={() => handleSelectEmployee(null)}
                 className={`rounded-lg px-3 sm:px-4 py-2 text-sm font-semibold transition whitespace-nowrap touch-manipulation min-h-[44px] ${
                   selectedEmployeeId === null
                     ? "bg-[#6366F1] text-white"
@@ -608,7 +678,7 @@ export default function BusinessBookingsPage() {
                 <button
                   key={employee.id}
                   type="button"
-                  onClick={() => setSelectedEmployeeId(employee.id)}
+                  onClick={() => handleSelectEmployee(employee.id)}
                   className={`rounded-lg px-3 sm:px-4 py-2 text-sm font-semibold transition whitespace-nowrap touch-manipulation min-h-[44px] ${
                     selectedEmployeeId === employee.id
                       ? "bg-[#6366F1] text-white"
@@ -626,7 +696,7 @@ export default function BusinessBookingsPage() {
             <div className="flex flex-wrap gap-2 border-b border-white/10 pb-4 overflow-x-auto">
               <button
                 type="button"
-                onClick={() => setSelectedCourtId(null)}
+                onClick={() => handleSelectCourt(null)}
                 className={`rounded-lg px-3 sm:px-4 py-2 text-sm font-semibold transition whitespace-nowrap touch-manipulation min-h-[44px] ${
                   selectedCourtId === null
                     ? "bg-[#6366F1] text-white"
@@ -639,7 +709,7 @@ export default function BusinessBookingsPage() {
                 <button
                   key={court.id}
                   type="button"
-                  onClick={() => setSelectedCourtId(court.id)}
+                  onClick={() => handleSelectCourt(court.id)}
                   className={`rounded-lg px-3 sm:px-4 py-2 text-sm font-semibold transition whitespace-nowrap touch-manipulation min-h-[44px] ${
                     selectedCourtId === court.id
                       ? "bg-[#6366F1] text-white"
@@ -709,7 +779,7 @@ export default function BusinessBookingsPage() {
                                     className={`rounded-lg border p-3 cursor-pointer transition hover:opacity-80 ${
                                       bookingClientColor?.border || "border-white/20"
                                     } ${bookingClientColor?.bg || "bg-[#6366F1]/60"}`}
-                                    onClick={() => setSelectedBooking(booking)}
+                                    onClick={() => handleSelectBooking(booking)}
                                   >
                                     <div className="flex items-center gap-2 mb-1">
                                       <div className="font-semibold text-white text-sm">{booking.client?.name}</div>
@@ -728,7 +798,7 @@ export default function BusinessBookingsPage() {
                           ) : slot.booking ? (
                             <div
                               className="cursor-pointer"
-                              onClick={() => setSelectedBooking(slot.booking!)}
+                              onClick={() => handleSelectBooking(slot.booking!)}
                             >
                               <div className="font-semibold text-white">{slot.booking.client?.name}</div>
                               <div className="text-sm text-white/70">{slot.booking.service?.name}</div>
@@ -742,10 +812,7 @@ export default function BusinessBookingsPage() {
                           ) : slot.status === "available" && !slot.isBreak ? (
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedSlotDate(slot.iso);
-                                setCreateBookingModalOpen(true);
-                              }}
+                              onClick={() => handleOpenCreateBookingModal(slot.iso)}
                               className="text-white/50 hover:text-white transition"
                             >
                               Disponibil

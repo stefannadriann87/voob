@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import useApi from "../hooks/useApi";
 import useAuth from "../hooks/useAuth";
+import { logger } from "../lib/logger";
 
 type DayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
 
@@ -81,7 +82,7 @@ export default function EmployeeWorkingHoursSettings() {
           setWorkingHours(migratedHours);
         }
       } catch (error) {
-        console.error("Failed to fetch working hours:", error);
+        logger.error("Failed to fetch working hours:", error);
       } finally {
         setLoading(false);
       }
@@ -167,7 +168,7 @@ export default function EmployeeWorkingHoursSettings() {
       // Dispatch event to notify calendar to refresh
       window.dispatchEvent(new Event("workingHoursUpdated"));
     } catch (error) {
-      console.error("Failed to save working hours:", error);
+      logger.error("Failed to save working hours:", error);
       setMessage({ type: "error", text: "Eroare la salvarea programului de lucru." });
     } finally {
       setSaving(false);

@@ -21,8 +21,7 @@ const {
   generateBusinessQrBuffer,
   generateBusinessQrSvg,
 } = require("../lib/qr");
-import type { AuthenticatedRequest } from "./business.shared";
-const { defaultBusinessInclude } = require("./business.shared");
+import { defaultBusinessInclude, AuthenticatedRequest } from "./business.shared";
 
 // Import modular routes
 const businessServicesRouter = require("./business.services.routes");
@@ -409,12 +408,6 @@ router.get("/:businessId/qr", async (req, res) => {
 
 // CRITICAL FIX (TICKET-014): Services routes moved to business.services.routes.ts
 // Removed duplicate routes - now imported via businessServicesRouter
-
-// Get working hours for a business
-router.get("/:businessId/working-hours", verifyJWT, async (req, res) => {
-  const { businessId } = req.params;
-  const { employeeId } = req.query as { employeeId?: string };
-
   logger.info(
     `GET /business/${businessId}/working-hours - Request received${employeeId ? ` (employeeId=${employeeId})` : ""}`
   );
@@ -517,7 +510,11 @@ router.put("/:businessId/working-hours", verifyJWT, async (req, res) => {
   }
 });
 
-// Update business
+// Update slot duration for a business
+/**
+ * PUT /business/:businessId
+ * Actualizează informațiile unui business
+ */
 router.put("/:businessId", verifyJWT, requireBusinessAccess("businessId"), validateParams(businessIdParamSchema), validate(updateBusinessSchema), async (req, res) => {
   const { businessId } = businessIdParamSchema.parse({ businessId: req.params.businessId });
   const authReq = req as AuthenticatedRequest;
@@ -567,16 +564,7 @@ router.put("/:businessId", verifyJWT, requireBusinessAccess("businessId"), valid
     }
 
     // Actualizează business-ul
-    type BusinessUpdateData = {
-      name?: string;
-      email?: string | null;
-      address?: string | null;
-      phone?: string | null;
-      latitude?: number | null;
-      longitude?: number | null;
-      businessType?: string;
-    };
-    const updateData: BusinessUpdateData = {};
+    const updateData: any = {};
     if (name !== undefined) {
       updateData.name = name.trim();
     }
@@ -634,7 +622,6 @@ router.put("/:businessId", verifyJWT, requireBusinessAccess("businessId"), valid
   }
 });
 
-// Update slot duration
 router.put("/:businessId/slot-duration", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const { slotDuration }: { slotDuration?: number } = req.body;
@@ -825,7 +812,10 @@ router.delete("/:businessId/holidays/:holidayId", verifyJWT, async (req, res) =>
   }
 });
 
-// Cancel subscription
+/**
+ * POST /business/:businessId/cancel-subscription
+ * Anulează abonamentul Stripe pentru un business
+ */
 router.post("/:businessId/cancel-subscription", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const authReq = req as AuthenticatedRequest;
@@ -864,6 +854,7 @@ router.post("/:businessId/cancel-subscription", verifyJWT, async (req, res) => {
     }
 
     // Anulează subscription în Stripe
+    const { cancelSubscription } = require("../modules/billing/billing.service");
     const { getStripeClient } = require("../services/stripeService");
     const stripe = getStripeClient();
 
@@ -900,7 +891,10 @@ router.post("/:businessId/cancel-subscription", verifyJWT, async (req, res) => {
   }
 });
 
-// Delete business
+/**
+ * DELETE /business/:businessId
+ * Șterge permanent un business și toate datele asociate
+ */
 router.delete("/:businessId", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const authReq = req as AuthenticatedRequest;

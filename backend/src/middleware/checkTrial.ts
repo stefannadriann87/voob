@@ -20,8 +20,16 @@ interface AuthenticatedRequest extends express.Request {
  * Dacă da, returnează 403 cu { trialExpired: true }
  * 
  * Folosit pe toate rutele business (except subscription, billing, support)
+ * 
+ * ⚠️ DEVELOPMENT: Skip verificarea trial-ului în development pentru testare
  */
 const checkTrial = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
+  // DEVELOPMENT: Skip verificarea trial-ului în development
+  const nodeEnv = process.env.NODE_ENV || process.env.ENVIRONMENT;
+  if (nodeEnv === "development" || nodeEnv === "dev") {
+    return next();
+  }
+
   // Skip pentru rutele de subscription, billing, support
   const allowedPaths = ["/subscription", "/platform-settings", "/business-onboarding"];
   const path = req.path;

@@ -239,5 +239,224 @@ router.delete("/:employeeId/holidays/:holidayId", verifyJWT, async (req, res) =>
   }
 });
 
+// Get employee services (available and associated)
+router.get("/services", verifyJWT, async (req, res) => {
+  const authReq = req as express.Request & { user?: { userId: string; role: string } };
+
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  // Verify role is EMPLOYEE
+  if (authReq.user.role !== "EMPLOYEE") {
+    return res.status(403).json({ error: "Doar angajații pot accesa serviciile." });
+  }
+
+  try {
+    // Get employee with business
+    const employee = await prisma.user.findUnique({
+      where: { id: authReq.user.userId },
+      select: {
+        id: true,
+        role: true,
+        businessId: true,
+        business: {
+          select: {
+            id: true,
+            name: true,
+            services: {
+              select: {
+                id: true,
+                name: true,
+                duration: true,
+                price: true,
+                notes: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!employee || employee.role !== "EMPLOYEE") {
+      return res.status(404).json({ error: "Employee-ul nu a fost găsit." });
+    }
+
+    if (!employee.businessId || !employee.business) {
+      return res.status(404).json({ error: "Employee-ul nu are un business asociat." });
+    }
+
+    // Get associated services for this employee
+    const employeeServices = await prisma.employeeService.findMany({
+      where: { employeeId: employee.id },
+      select: { serviceId: true },
+    });
+
+    const associatedServiceIds = new Set(employeeServices.map((es: { serviceId: string }) => es.serviceId));
+
+    // Return services with association status
+    const services = employee.business.services.map((service: { id: string; name: string; duration: number; price: number; notes?: string | null }) => ({
+      ...service,
+      isAssociated: associatedServiceIds.has(service.id),
+    }));
+
+    return res.json({
+      services,
+      businessId: employee.business.id,
+      businessName: employee.business.name,
+    });
+  } catch (error) {
+    logger.error("Get employee services error:", error);
+    return res.status(500).json({ error: "Eroare la obținerea serviciilor." });
+  }
+});
+
+// Associate service with employee
+router.post("/services/:serviceId", verifyJWT, async (req, res) => {
+  const authReq = req as express.Request & { user?: { userId: string; role: string } };
+  const { serviceId } = req.params;
+
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  // Verify role is EMPLOYEE
+  if (authReq.user.role !== "EMPLOYEE") {
+    return res.status(403).json({ error: "Doar angajații pot asocia servicii." });
+  }
+
+  try {
+    // Get employee with business
+    const employee = await prisma.user.findUnique({
+      where: { id: authReq.user.userId },
+      select: {
+        id: true,
+        role: true,
+        businessId: true,
+      },
+    });
+
+    if (!employee || employee.role !== "EMPLOYEE") {
+      return res.status(404).json({ error: "Employee-ul nu a fost găsit." });
+    }
+
+    if (!employee.businessId) {
+      return res.status(404).json({ error: "Employee-ul nu are un business asociat." });
+    }
+
+    // Verify service exists and belongs to employee's business
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      select: { id: true, businessId: true },
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Serviciul nu a fost găsit." });
+    }
+
+    if (service.businessId !== employee.businessId) {
+      return res.status(403).json({ error: "Serviciul nu aparține business-ului tău." });
+    }
+
+    // Check if association already exists
+    const existingAssociation = await prisma.employeeService.findUnique({
+      where: {
+        employeeId_serviceId: {
+          employeeId: employee.id,
+          serviceId: service.id,
+        },
+      },
+    });
+
+    if (existingAssociation) {
+      return res.status(409).json({ error: "Serviciul este deja asociat." });
+    }
+
+    // Create association
+    const employeeService = await prisma.employeeService.create({
+      data: {
+        employeeId: employee.id,
+        serviceId: service.id,
+      },
+      include: {
+        service: {
+          select: {
+            id: true,
+            name: true,
+            duration: true,
+            price: true,
+            notes: true,
+          },
+        },
+      },
+    });
+
+    return res.status(201).json({ employeeService });
+  } catch (error) {
+    logger.error("Associate employee service error:", error);
+    return res.status(500).json({ error: "Eroare la asocierea serviciului." });
+  }
+});
+
+// Disassociate service from employee
+router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
+  const authReq = req as express.Request & { user?: { userId: string; role: string } };
+  const { serviceId } = req.params;
+
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  // Verify role is EMPLOYEE
+  if (authReq.user.role !== "EMPLOYEE") {
+    return res.status(403).json({ error: "Doar angajații pot dezasocia servicii." });
+  }
+
+  try {
+    // Get employee
+    const employee = await prisma.user.findUnique({
+      where: { id: authReq.user.userId },
+      select: {
+        id: true,
+        role: true,
+        businessId: true,
+      },
+    });
+
+    if (!employee || employee.role !== "EMPLOYEE") {
+      return res.status(404).json({ error: "Employee-ul nu a fost găsit." });
+    }
+
+    // Verify association exists
+    const employeeService = await prisma.employeeService.findUnique({
+      where: {
+        employeeId_serviceId: {
+          employeeId: employee.id,
+          serviceId: serviceId,
+        },
+      },
+    });
+
+    if (!employeeService) {
+      return res.status(404).json({ error: "Asocierea nu a fost găsită." });
+    }
+
+    // Delete association
+    await prisma.employeeService.delete({
+      where: {
+        employeeId_serviceId: {
+          employeeId: employee.id,
+          serviceId: serviceId,
+        },
+      },
+    });
+
+    return res.json({ ok: true });
+  } catch (error) {
+    logger.error("Disassociate employee service error:", error);
+    return res.status(500).json({ error: "Eroare la dezasocierea serviciului." });
+  }
+});
+
 export = router;
 

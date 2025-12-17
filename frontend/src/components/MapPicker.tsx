@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { logger } from "../lib/logger";
 
 interface MapPickerProps {
   address: string;
@@ -33,7 +34,7 @@ export default function MapPicker({ address, latitude, longitude, onLocationSele
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     
     if (!apiKey) {
-      console.warn("Google Maps API key not found. Please add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to your .env file.");
+      logger.warn("Google Maps API key not found. Please add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to your .env file.");
       setIsLoading(false);
       return;
     }
@@ -199,7 +200,7 @@ export default function MapPicker({ address, latitude, longitude, onLocationSele
         }
       },
       (error) => {
-        console.error("Error getting location:", error);
+        logger.error("Error getting location:", error);
         alert("Nu am putut obține locația ta. Te rog selectează manual pe hartă.");
       }
     );

@@ -2,6 +2,7 @@ import { AxiosError } from "axios";
 import { useCallback, useState } from "react";
 import useApi from "./useApi";
 import type { BusinessTypeValue } from "../constants/businessTypes";
+import { logger } from "../lib/logger";
 
 export interface Service {
   id: string;
@@ -85,7 +86,7 @@ export default function useBusiness() {
       
       // Log detailed error information for debugging
       if (axiosError.code === "ERR_NETWORK" || axiosError.message === "Network Error") {
-        console.error("Network Error Details:", {
+        logger.error("Network Error Details:", {
           endpoint: options?.scope === "linked" ? "/client/businesses" : "/business",
           baseURL: api.defaults.baseURL,
           hasUser: typeof window !== "undefined" ? !!window.localStorage.getItem("voob_user") : false,

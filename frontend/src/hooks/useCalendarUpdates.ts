@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import useBookings from "./useBookings";
+import { logger } from "../lib/logger";
 
 interface UseCalendarUpdatesOptions {
   enabled?: boolean;
@@ -33,7 +34,7 @@ export default function useCalendarUpdates({
       await fetchBookings();
       onUpdate?.();
     } catch (error) {
-      console.error("Error polling for calendar updates:", error);
+      logger.error("Error polling for calendar updates:", error);
     } finally {
       isPollingRef.current = false;
     }

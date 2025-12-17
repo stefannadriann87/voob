@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import useApi from "../../../../hooks/useApi";
+import { logger } from "../../../../lib/logger";
 
 export default function SubscriptionSuccessPage() {
   const router = useRouter();
@@ -39,7 +40,7 @@ export default function SubscriptionSuccessPage() {
 
         setSubscriptionData(data);
       } catch (error) {
-        console.error("Failed to fetch subscription details:", error);
+        logger.error("Failed to fetch subscription details:", error);
       } finally {
         setLoading(false);
       }

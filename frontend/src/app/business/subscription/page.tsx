@@ -7,6 +7,7 @@ import useBusiness from "../../../hooks/useBusiness";
 import useSubscription from "../../../hooks/useSubscription";
 import useApi from "../../../hooks/useApi";
 import CustomSelect from "../../../components/CustomSelect";
+import { logger } from "../../../lib/logger";
 
 interface SubscriptionPlan {
   id: string;
@@ -72,7 +73,7 @@ export default function BusinessSubscriptionPage() {
 
         setPlans([proPlan, businessPlan]);
       } catch (error) {
-        console.error("Fetch plans error:", error);
+        logger.error("Fetch plans error:", error);
       } finally {
         setLoading(false);
       }
@@ -90,7 +91,7 @@ export default function BusinessSubscriptionPage() {
     try {
       await createCheckout(selectedBusinessId, planId);
     } catch (error) {
-      console.error("Subscribe error:", error);
+      logger.error("Subscribe error:", error);
     }
   };
 

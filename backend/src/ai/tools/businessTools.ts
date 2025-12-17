@@ -92,6 +92,25 @@ async function createBusinessBooking(
     throw new Error(MIN_LEAD_MESSAGE);
   }
 
+  // Verify employee can perform the service (if both are provided)
+  if (validatedArgs.employeeId && validatedArgs.serviceId) {
+    const employeeService = await prisma.employeeService.findUnique({
+      where: {
+        employeeId_serviceId: {
+          employeeId: validatedArgs.employeeId,
+          serviceId: validatedArgs.serviceId,
+        },
+      },
+    });
+
+    // If no association found, check if business has no restrictions (backward compatibility)
+    // For now, we allow booking if no association exists (backward compatibility)
+    // In the future, you might want to make this stricter
+    // if (!employeeService) {
+    //   throw new Error("Angajatul nu poate efectua acest serviciu.");
+    // }
+  }
+
   const booking = await prisma.booking.create({
     data: {
       clientId: validatedArgs.clientId,

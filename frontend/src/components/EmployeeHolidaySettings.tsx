@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import useApi from "../hooks/useApi";
 import useAuth from "../hooks/useAuth";
 import DatePicker from "./DatePicker";
+import { logger } from "../lib/logger";
 
 interface Holiday {
   id: string;
@@ -37,7 +38,7 @@ export default function EmployeeHolidaySettings() {
         const { data } = await api.get<{ holidays: Holiday[] }>(`/employee/${user.id}/holidays`);
         setHolidays(data.holidays);
       } catch (error) {
-        console.error("Failed to fetch holidays:", error);
+        logger.error("Failed to fetch holidays:", error);
       } finally {
         setLoading(false);
       }
@@ -96,7 +97,7 @@ export default function EmployeeHolidaySettings() {
         handleCloseModal();
       }, 1000);
     } catch (error: any) {
-      console.error("Failed to create holiday:", error);
+      logger.error("Failed to create holiday:", error);
       setMessage({
         type: "error",
         text: error?.response?.data?.error || "Eroare la adăugarea perioadei de concediu.",
@@ -114,7 +115,7 @@ export default function EmployeeHolidaySettings() {
       await api.delete(`/employee/${user.id}/holidays/${holidayId}`);
       setHolidays((prev) => prev.filter((h) => h.id !== holidayId));
     } catch (error) {
-      console.error("Failed to delete holiday:", error);
+      logger.error("Failed to delete holiday:", error);
     } finally {
       setDeletingId(null);
     }

@@ -2,6 +2,7 @@ import { AxiosError } from "axios";
 import { useCallback, useEffect, useState } from "react";
 import useApi from "./useApi";
 import type { BusinessTypeValue } from "../constants/businessTypes";
+import { logger } from "../lib/logger";
 
 export type Role = "CLIENT" | "BUSINESS" | "EMPLOYEE" | "SUPERADMIN";
 
@@ -148,7 +149,7 @@ export default function useAuth() {
       // 429 = rate limit - nu șterge user-ul, doar loghează
       const axiosErr = err as AxiosError;
       if (axiosErr.response?.status === 429) {
-        console.warn("Rate limit hit for /auth/me, using cached user");
+        logger.warn("Rate limit hit for /auth/me, using cached user");
         // Nu șterge user-ul din cache, folosește-l
         const cachedUser = typeof window !== "undefined" ? window.localStorage.getItem("voob_user") : null;
         if (cachedUser) {
@@ -163,7 +164,7 @@ export default function useAuth() {
         return null;
       }
       if (axiosErr.response?.status !== 401) {
-        console.error("Failed to fetch current user:", err);
+        logger.error("Failed to fetch current user:", err);
       }
       // Șterge datele locale dacă sesiunea e invalidă (doar pentru erori non-401, non-429)
       if (axiosErr.response?.status !== 401 && axiosErr.response?.status !== 429) {
@@ -191,30 +192,30 @@ export default function useAuth() {
           captchaToken 
         });
 
-        // Debug: Log user data pentru debugging (ALWAYS log)
-        console.log("=== FRONTEND LOGIN RESPONSE ===");
-        console.log("Full user object:", JSON.stringify(data.user, null, 2));
-        console.log("Business:", data.user.business);
-        console.log("Business Type:", data.user.business?.businessType);
-        console.log("===============================");
+        // Debug: Log user data pentru debugging (only in development)
+        logger.log("=== FRONTEND LOGIN RESPONSE ===");
+        logger.log("Full user object:", JSON.stringify(data.user, null, 2));
+        logger.log("Business:", data.user.business);
+        logger.log("Business Type:", data.user.business?.businessType);
+        logger.log("===============================");
 
         // Token-ul este setat automat în HttpOnly cookie de către backend
         // Salvăm doar user-ul pentru cache UI
         persistUser(data.user);
         
         // Force refresh user from server to ensure we have latest data (especially businessType)
-        console.log("=== FORCING USER REFRESH ===");
+        logger.log("=== FORCING USER REFRESH ===");
         try {
           const freshUser = await fetchCurrentUser();
-          console.log("Fresh user from /auth/me:", JSON.stringify(freshUser, null, 2));
+          logger.log("Fresh user from /auth/me:", JSON.stringify(freshUser, null, 2));
           if (freshUser) {
             persistUser(freshUser);
-            console.log("✅ User refreshed successfully");
+            logger.log("✅ User refreshed successfully");
             return freshUser;
           }
         } catch (refreshError) {
           // If refresh fails, use the login response user
-          console.warn("❌ Failed to refresh user after login, using login response:", refreshError);
+          logger.warn("❌ Failed to refresh user after login, using login response:", refreshError);
         }
         
         return data.user;
@@ -301,7 +302,7 @@ export default function useAuth() {
       await api.post("/auth/logout");
     } catch (err) {
       // Continuă chiar dacă request-ul eșuează (ex: deja deconectat)
-      console.error("Logout request failed:", err);
+      logger.error("Logout request failed:", err);
     }
     
     // Șterge datele locale

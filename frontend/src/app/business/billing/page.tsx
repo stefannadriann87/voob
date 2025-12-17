@@ -8,6 +8,7 @@ import useAuth from "../../../hooks/useAuth";
 import useBusiness from "../../../hooks/useBusiness";
 import useBilling from "../../../hooks/useBilling";
 import useApi from "../../../hooks/useApi";
+import { logger } from "../../../lib/logger";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -99,7 +100,7 @@ function BillingForm() {
           setPlans([proPlan, businessPlan]);
         }
       } catch (error) {
-        console.error("Failed to fetch plans:", error);
+        logger.error("Failed to fetch plans:", error);
         const proPlan: SubscriptionPlan = {
           id: "pro",
           name: "VOOB PRO",
@@ -133,7 +134,7 @@ function BillingForm() {
         const status = await getBillingStatus(selectedBusinessId);
         setBillingStatus(status);
       } catch (error) {
-        console.error("Failed to fetch billing status:", error);
+        logger.error("Failed to fetch billing status:", error);
       } finally {
         setStatusLoading(false);
       }
@@ -154,7 +155,7 @@ function BillingForm() {
       const secret = await createSetupIntent(selectedBusinessId);
       setClientSecret(secret);
     } catch (error) {
-      console.error("Failed to create setup intent:", error);
+      logger.error("Failed to create setup intent:", error);
       alert("Eroare la inițializarea formularului de plată. Te rugăm să încerci din nou.");
     }
   };
@@ -196,7 +197,7 @@ function BillingForm() {
 
       router.push("/business/billing/success");
     } catch (error: any) {
-      console.error("Subscription activation error:", error);
+      logger.error("Subscription activation error:", error);
       alert(error.message || "Eroare la activarea subscription-ului.");
     } finally {
       setProcessing(false);
@@ -217,7 +218,7 @@ function BillingForm() {
       const status = await getBillingStatus(selectedBusinessId);
       setBillingStatus(status);
     } catch (error: any) {
-      console.error("Cancel subscription error:", error);
+      logger.error("Cancel subscription error:", error);
       alert(error.message || "Eroare la anularea abonamentului.");
     }
   };

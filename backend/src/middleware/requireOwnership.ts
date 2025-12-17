@@ -46,6 +46,7 @@ const requireBusinessAccess = (businessIdParam: string = "businessId") => {
         select: {
           id: true,
           ownerId: true,
+          status: true, // CRITICAL FIX: Include status for TICKET-004
           employees: {
             select: { id: true },
           },
@@ -54,6 +55,17 @@ const requireBusinessAccess = (businessIdParam: string = "businessId") => {
 
       if (!business) {
         return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+      }
+
+      // CRITICAL FIX (TICKET-004): Verify business is ACTIVE
+      if (business.status !== "ACTIVE") {
+        logger.warn("Attempt to access inactive business", {
+          userId: user.userId,
+          role: user.role,
+          businessId,
+          status: business.status,
+        });
+        return res.status(403).json({ error: "Business-ul este suspendat. Accesul este restricționat." });
       }
 
       // Verifică dacă user-ul este owner

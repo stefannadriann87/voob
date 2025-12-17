@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Component, ReactNode } from "react";
+import { logger } from "../lib/logger";
 
 interface Props {
   children: ReactNode;
@@ -28,7 +29,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     // Loghează eroarea pentru debugging
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
+    logger.error("ErrorBoundary caught an error:", error, errorInfo);
     
     // Poți trimite eroarea la un serviciu de logging (Sentry, LogRocket, etc.)
     // Example: logErrorToService(error, errorInfo);

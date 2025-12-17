@@ -7,6 +7,7 @@ import Link from "next/link";
 import useAuth from "../hooks/useAuth";
 import useApi from "../hooks/useApi";
 import DatePicker from "./DatePicker";
+import { logger } from "../lib/logger";
 
 type ConsentBooking = {
   id: string;
@@ -266,7 +267,7 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
       setRefreshToken((prev) => prev + 1);
       setDeleteConfirmModal(null);
     } catch (err) {
-      console.error("Delete error:", err);
+      logger.error("Delete error:", err);
       const axiosError = err as AxiosError<{ error?: string; details?: string }>;
       const message =
         axiosError.response?.data?.error ??

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import useAuth from "../hooks/useAuth";
 import useBusiness from "../hooks/useBusiness";
+import { logger } from "../lib/logger";
 
 /**
  * Component to handle deep links and pending business attachments
@@ -56,7 +57,7 @@ export default function DeepLinkHandler() {
             }
           })
           .catch((err) => {
-            console.error("Failed to attach pending business:", err);
+            logger.error("Failed to attach pending business:", err);
           });
       }
       return;
@@ -83,7 +84,7 @@ export default function DeepLinkHandler() {
           }
         })
         .catch((err) => {
-          console.error("Failed to attach business from deep link:", err);
+          logger.error("Failed to attach business from deep link:", err);
         });
     }
   }, [hydrated, user, searchParams, pathname, linkClientToBusiness, fetchBusinesses, router]);
@@ -103,7 +104,7 @@ export default function DeepLinkHandler() {
               fetchBusinesses({ scope: "linked" });
             })
             .catch((err) => {
-              console.error("Failed to attach business from deep link event:", err);
+              logger.error("Failed to attach business from deep link event:", err);
             });
         } else if (bizId && !user) {
           // Store for later

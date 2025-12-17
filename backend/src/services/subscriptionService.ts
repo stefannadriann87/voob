@@ -60,7 +60,8 @@ async function checkEmployeeLimit(businessId: string): Promise<{
   try {
     const business = await prisma.business.findUnique({
       where: { id: businessId },
-      include: {
+      select: {
+        ownerId: true,
         currentPlan: {
           select: {
             name: true,
@@ -68,6 +69,9 @@ async function checkEmployeeLimit(businessId: string): Promise<{
           },
         },
         employees: {
+          where: {
+            role: "EMPLOYEE", // Only count users with EMPLOYEE role
+          },
           select: { id: true },
         },
       },
@@ -92,8 +96,24 @@ async function checkEmployeeLimit(businessId: string): Promise<{
     }
 
     // Numără doar angajații (exclude owner)
-    const currentEmployeeCount = business.employees.length;
+    // Get owner ID to exclude from count
+    const ownerId = business.ownerId;
+    const allUsers = business.employees.map((emp: { id: string }) => emp.id);
+    const employeesOnly = business.employees.filter((emp: { id: string }) => emp.id !== ownerId);
+    const currentEmployeeCount = employeesOnly.length;
     const maxEmployees = business.currentPlan.maxEmployees;
+
+    // Debug logging
+    logger.info("Employee limit check", {
+      businessId,
+      ownerId,
+      allUsersCount: allUsers.length,
+      allUsers,
+      employeesOnlyCount: currentEmployeeCount,
+      employeesOnly: employeesOnly.map((e: { id: string }) => e.id),
+      maxEmployees,
+      planName: business.currentPlan.name,
+    });
 
     // Dacă nu există limită (null), permite oricâți
     if (maxEmployees === null) {
@@ -259,7 +279,8 @@ async function canChangePlan(
     const [business, newPlan] = await Promise.all([
       prisma.business.findUnique({
         where: { id: businessId },
-        include: {
+        select: {
+          ownerId: true,
           employees: { select: { id: true } },
           currentPlan: { select: { name: true, maxEmployees: true } },
         },
@@ -277,7 +298,8 @@ async function canChangePlan(
       };
     }
 
-    const currentEmployeeCount = business.employees.length;
+    // Exclude owner from employee count
+    const currentEmployeeCount = business.employees.filter((emp: { id: string }) => emp.id !== business.ownerId).length;
     const newMaxEmployees = newPlan.maxEmployees;
 
     // Dacă noul plan are limită și business-ul are mai mulți angajați

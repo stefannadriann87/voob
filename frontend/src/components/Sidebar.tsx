@@ -23,6 +23,7 @@ import type { LucideIcon } from "lucide-react";
 import useAuth, { Role } from "../hooks/useAuth";
 import type { BusinessTypeValue } from "../constants/businessTypes";
 import { requiresConsentForBusiness } from "../constants/consentTemplates";
+import { logger } from "../lib/logger";
 
 interface MenuItem {
   label: string;
@@ -92,7 +93,7 @@ export default function Sidebar({ collapsed = false, isOpen = true, onClose }: S
 
   // Debug: Log pentru a verifica businessType
   if (process.env.NODE_ENV === "development" && user.role === "BUSINESS") {
-    console.log("Sidebar debug:", {
+    logger.log("Sidebar debug:", {
       userId: user.id,
       role: user.role,
       business: user.business,

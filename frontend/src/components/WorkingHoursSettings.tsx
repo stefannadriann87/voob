@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import useApi from "../hooks/useApi";
 import useBusiness from "../hooks/useBusiness";
 import useAuth from "../hooks/useAuth";
+import { logger } from "../lib/logger";
 
 type DayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
 
@@ -89,7 +90,7 @@ export default function WorkingHoursSettings() {
           setWorkingHours(migratedHours);
         }
       } catch (error) {
-        console.error("Failed to fetch working hours:", error);
+        logger.error("Failed to fetch working hours:", error);
       } finally {
         setLoading(false);
       }
@@ -186,7 +187,7 @@ export default function WorkingHoursSettings() {
       await api.put(`/business/${business.id}/working-hours`, { workingHours });
       setMessage({ type: "success", text: "Programul de lucru a fost salvat cu succes!" });
     } catch (error) {
-      console.error("Failed to save working hours:", error);
+      logger.error("Failed to save working hours:", error);
       setMessage({ type: "error", text: "Eroare la salvarea programului de lucru." });
     } finally {
       setSaving(false);

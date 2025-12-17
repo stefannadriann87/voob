@@ -26,7 +26,10 @@ const PREFIX = {
 };
 
 /**
- * Get value from cache
+ * Obține o valoare din cache
+ * @template T - Tipul valorii din cache
+ * @param {string} key - Cheia cache-ului
+ * @returns {Promise<T | null>} Valoarea din cache sau null dacă nu există
  */
 async function get<T>(key: string): Promise<T | null> {
   try {
@@ -44,7 +47,11 @@ async function get<T>(key: string): Promise<T | null> {
 }
 
 /**
- * Set value in cache
+ * Setează o valoare în cache
+ * @param {string} key - Cheia cache-ului
+ * @param {unknown} value - Valoarea de stocat (va fi serializată ca JSON)
+ * @param {number} [ttlSeconds=TTL.MEDIUM] - Time-to-live în secunde (default: 5 minute)
+ * @returns {Promise<boolean>} true dacă operația a reușit, false altfel
  */
 async function set(key: string, value: unknown, ttlSeconds: number = TTL.MEDIUM): Promise<boolean> {
   try {

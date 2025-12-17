@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import { useMemo } from "react";
 import { sanitizeObject } from "../lib/sanitize";
+import { logger } from "../lib/logger";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -50,7 +51,7 @@ export default function useApi(): AxiosInstance {
         }
         
         if (error.code === "ECONNABORTED" || error.message === "Network Error") {
-          console.error("Network Error - Backend may be down or unreachable:", {
+          logger.error("Network Error - Backend may be down or unreachable:", {
             baseURL: API_URL,
             url: error.config?.url,
             method: error.config?.method,
