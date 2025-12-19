@@ -8,7 +8,7 @@ const { logger } = require("../lib/logger");
 
 // Rate limiter pentru AI: 50 requests per hour per user
 const aiRateLimiter = createRateLimiter({
-  maxRequests: Number(process.env.AI_RATE_LIMIT_MAX || 50),
+  max: Number(process.env.AI_RATE_LIMIT_MAX || 50),
   windowMs: Number(process.env.AI_RATE_LIMIT_WINDOW || 60 * 60 * 1000), // 1 hour
   perPath: false, // Rate limit per IP/user
   methodsToLimit: ["POST"], // Doar POST requests

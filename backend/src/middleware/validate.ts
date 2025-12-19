@@ -55,12 +55,21 @@ const validate = (schema: ZodSchema) => {
  * Middleware pentru validare query parameters
  * @param schema - Zod schema pentru validare
  * @returns Express middleware
+ * 
+ * NOTE: req.query is read-only in Express, so we validate but don't replace it.
+ * Route handlers should use req.query directly (values are already validated).
  */
 const validateQuery = (schema: ZodSchema) => {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     try {
+      // Validate query parameters without modifying req.query (it's read-only)
+      // The schema will transform strings to numbers and apply defaults
       const validated = schema.parse(req.query);
-      req.query = validated as express.Request["query"];
+      
+      // Store validated query in a custom property for use in route handlers
+      // Route handlers can use (req as any).validatedQuery or parse req.query manually
+      (req as any).validatedQuery = validated;
+      
       next();
     } catch (error: unknown) {
       const zodError = error as any;
@@ -74,6 +83,7 @@ const validateQuery = (schema: ZodSchema) => {
           path: req.path,
           method: req.method,
           errors,
+          query: req.query,
         });
 
         return res.status(400).json({
@@ -82,7 +92,7 @@ const validateQuery = (schema: ZodSchema) => {
         });
       }
 
-      logger.error("Query validation middleware error", error);
+      logger.error("Query validation middleware error", { error, path: req.path });
       return res.status(500).json({ error: "Eroare la validarea parametrilor." });
     }
   };

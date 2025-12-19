@@ -56,9 +56,13 @@ export default function useBookings() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.get<Booking[]>("/booking");
-      setBookings(data);
-      return data;
+      const { data } = await api.get<Booking[] | { data: Booking[]; pagination: any }>("/booking");
+      
+      // Handle paginated response (from /booking) or direct array (for backward compatibility)
+      const bookingsArray = Array.isArray(data) ? data : (data as { data: Booking[] }).data;
+      
+      setBookings(bookingsArray);
+      return bookingsArray;
     } catch (err) {
       const axiosError = err as AxiosError<{ error?: string }>;
       const message =

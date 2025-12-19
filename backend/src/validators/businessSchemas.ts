@@ -78,6 +78,7 @@ const updateEmployeeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   phone: z.string().max(20).optional().nullable(),
   workingHours: z.record(z.any()).optional().nullable(), // JSON object
+  canManageOwnServices: z.boolean().optional(), // TICKET-044: Business owner controlează dacă employee-ul poate gestiona propriile servicii
 });
 
 /**

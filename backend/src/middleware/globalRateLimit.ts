@@ -163,6 +163,7 @@ const paymentRateLimiter = createRateLimiter({
 });
 
 module.exports = {
+  createRateLimiter,
   globalRateLimiter,
   bookingRateLimiter,
   paymentRateLimiter,

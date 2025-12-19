@@ -78,9 +78,13 @@ export default function useBusiness() {
     setError(null);
     try {
       const endpoint = options?.scope === "linked" ? "/client/businesses" : "/business";
-      const { data } = await api.get<Business[]>(endpoint);
-      setBusinesses(data);
-      return data;
+      const { data } = await api.get<Business[] | { data: Business[]; pagination: any }>(endpoint);
+      
+      // Handle paginated response (from /client/businesses) or direct array (from /business)
+      const businessesArray = Array.isArray(data) ? data : (data as { data: Business[] }).data;
+      
+      setBusinesses(businessesArray);
+      return businessesArray;
     } catch (err) {
       const axiosError = err as AxiosError<{ error?: string }>;
       

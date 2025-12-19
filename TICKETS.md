@@ -235,6 +235,177 @@
 - `booking.overlap.ts` - Overlap check logic  
 **Estimare:** 6-8 ore
 
+---
+
+## 🔴 CRITIC - EMPLOYEE SERVICES AUDIT (Must Fix)
+
+### TICKET-044: Adaugă Control de Permisiuni pentru Employee Services
+**Prioritate:** 🔴 CRITIC  
+**Categorie:** Backend / Security / Database  
+**Fișiere:** 
+- `backend/prisma/schema.prisma` (User model)
+- `backend/src/routes/employee.ts`
+- `backend/src/routes/business.employees.routes.ts`
+- `backend/src/validators/businessSchemas.ts`
+- `frontend/src/app/business/dashboard/page.tsx`  
+**Descriere:** Business owner nu poate restricționa employee-ul să-și gestioneze propriile servicii. Employee-ul poate adăuga/șterge servicii fără aprobare business owner.  
+**Impact:** Lipsă control centralizat, conflicte între business owner și employee, risc de securitate  
+**Soluție:** 
+- Adaugă câmp `canManageOwnServices Boolean @default(false)` în modelul `User`
+- Creează migration pentru noul câmp
+- Actualizează employee flow să verifice `canManageOwnServices` înainte de a permite self-service
+- Adaugă UI în business dashboard pentru a controla acest flag (toggle în employee edit modal)
+- Actualizează `GET /employee/services` și `POST/DELETE /employee/services/:serviceId` să verifice permisiunea
+- Actualizează `PUT /business/:businessId/employees/:employeeId` să accepte și să actualizeze `canManageOwnServices`  
+**Status:** ✅ **COMPLETAT**  
+**Estimare:** 2-3 ore  
+**Referință:** EMPLOYEE_SERVICES_AUDIT.md - Problema #1
+
+### TICKET-045: Unifică Logică de Autorizare pentru Employee Services
+**Prioritate:** 🔴 CRITIC  
+**Categorie:** Backend / Security / Code Quality  
+**Fișiere:** 
+- `backend/src/middleware/requireEmployeeServiceAccess.ts` (NOU)
+- `backend/src/routes/business.services.routes.ts`
+- `backend/src/routes/employee.ts`  
+**Descriere:** Logică de autorizare duplicată și inconsistentă între business owner flow și employee self-service flow. Business owner flow verifică ownership explicit, employee flow verifică doar rolul.  
+**Impact:** Inconsistențe în comportament, dificultate în debugging, risc de securitate dacă logica diverge, ~400 linii de cod duplicat  
+**Soluție:** 
+- Creează middleware comun `requireEmployeeServiceAccess` care unifică logica:
+  - Verifică dacă e business owner -> permite
+  - Verifică dacă e employee și `allowSelfService=true` -> verifică `canManageOwnServices`
+  - Altfel -> respinge
+- Refactorizează ambele flow-uri să folosească același middleware
+- Elimină duplicarea de logică  
+**Status:** ✅ **COMPLETAT**  
+**Estimare:** 4-6 ore  
+**Referință:** EMPLOYEE_SERVICES_AUDIT.md - Problema #2, #3
+
+### TICKET-046: Adaugă Audit Trail pentru Employee Services
+**Prioritate:** 🔴 CRITIC  
+**Categorie:** Backend / Database / Compliance  
+**Fișiere:** 
+- `backend/prisma/schema.prisma` (EmployeeServiceAudit model - NOU)
+- `backend/src/routes/business.services.routes.ts`
+- `backend/src/routes/employee.ts`  
+**Descriere:** Nu există audit trail pentru a ști cine a făcut modificările la serviciile angajaților. Business owner nu știe când employee modifică serviciile.  
+**Impact:** Lipsă transparență, dificultate în debugging, lipsă compliance și audit  
+**Soluție:** 
+- Creează model `EmployeeServiceAudit` în schema Prisma:
+  - `id`, `employeeId`, `serviceId`, `action` ("ASSOCIATE" | "DISASSOCIATE")
+  - `performedBy` (userId), `performedByRole` ("BUSINESS" | "EMPLOYEE")
+  - `createdAt`, relations către User și Service
+  - Index-uri pentru `employeeId`, `serviceId`, `performedBy`
+- Creează migration
+- Adaugă logging în ambele flow-uri (business owner și employee) când se face associate/disassociate
+- Creează endpoint `GET /business/:businessId/employees/:employeeId/services/audit` pentru business owner să vadă istoricul  
+**Status:** ✅ **COMPLETAT**  
+**Estimare:** 3-4 ore  
+**Referință:** EMPLOYEE_SERVICES_AUDIT.md - Problema #4
+
+---
+
+## 🟠 HIGH PRIORITY - EMPLOYEE SERVICES AUDIT
+
+### TICKET-047: Refactorizează Endpoint-urile Employee Services (Unificare)
+**Prioritate:** 🟠 HIGH  
+**Categorie:** Backend / Code Organization  
+**Fișiere:** 
+- `backend/src/routes/business.services.routes.ts`
+- `backend/src/routes/employee.ts`  
+**Descriere:** Există două seturi de endpoint-uri pentru același lucru:
+- `/business/:businessId/employees/:employeeId/services` (business owner)
+- `/employee/services` (employee self-service)
+~400 linii de cod duplicat, logică diferită între cele două.  
+**Impact:** Cod duplicat, mentenanță dificilă, inconsistențe posibile, logică poate diverge  
+**Soluție:** 
+- Unifică endpoint-urile într-un singur set:
+  - `GET /business/:businessId/employees/:employeeId/services`
+  - `POST /business/:businessId/employees/:employeeId/services/:serviceId`
+  - `DELETE /business/:businessId/employees/:employeeId/services/:serviceId`
+- Pentru employee self-service, folosește același endpoint dar cu verificare `canManageOwnServices`
+- Refactorizează `employee.ts` să redirecteze către endpoint-urile unificate sau să le folosească direct
+- Elimină cod duplicat  
+**Status:** 📋 **PENDING**  
+**Estimare:** 6-8 ore  
+**Referință:** EMPLOYEE_SERVICES_AUDIT.md - Problema #2
+
+### TICKET-048: Adaugă Cache Invalidation pentru Employee Flow
+**Prioritate:** 🟠 HIGH  
+**Categorie:** Backend / Performance  
+**Fișier:** `backend/src/routes/employee.ts`  
+**Descriere:** Când employee modifică serviciile, nu se invalidează cache-ul pentru business owner. Business owner poate vedea date vechi în UI.  
+**Impact:** Date inconsistente în UI, confuzie pentru business owner  
+**Soluție:** 
+- În `employee.ts`, după associate/disassociate, adaugă:
+  ```typescript
+  await invalidateBusinessProfile(businessId);
+  await invalidateServices(businessId);
+  ```
+- Folosește aceleași funcții de cache invalidation ca în business owner flow (TICKET-009)  
+**Status:** ✅ **COMPLETAT**  
+**Estimare:** 1-2 ore  
+**Referință:** EMPLOYEE_SERVICES_AUDIT.md - Problema #8
+
+### TICKET-049: Adaugă Notificări pentru Business Owner
+**Prioritate:** 🟠 HIGH  
+**Categorie:** Backend / UX  
+**Fișiere:** 
+- `backend/src/routes/employee.ts`
+- `backend/src/services/emailService.ts` (sau notification service)  
+**Descriere:** Când employee modifică serviciile, business owner nu primește notificare. Lipsă transparență.  
+**Impact:** Business owner nu știe când employee modifică serviciile, lipsă transparență  
+**Soluție:** 
+- Când employee face associate/disassociate, trimite notificare business owner-ului:
+  - Email notification (opțional)
+  - In-app notification (dacă există sistem de notificări)
+- Include în notificare: employee name, service name, action (associate/disassociate), timestamp
+- Folosește `emailService` existent sau creează notification service  
+**Status:** 📋 **PENDING**  
+**Estimare:** 4-6 ore  
+**Referință:** EMPLOYEE_SERVICES_AUDIT.md - Problema #4
+
+---
+
+## 🟡 MEDIUM PRIORITY - EMPLOYEE SERVICES AUDIT
+
+### TICKET-050: Îmbunătățește Error Handling în Employee Flow
+**Prioritate:** 🟡 MEDIUM  
+**Categorie:** Backend / UX  
+**Fișier:** `backend/src/routes/employee.ts`  
+**Descriere:** Error handling este diferit între business owner flow și employee flow. Business owner flow are mesaje de eroare detaliate (după TICKET-012), employee flow are mesaje generice.  
+**Impact:** UX inconsistent, dificultate în debugging pentru employee  
+**Soluție:** 
+- Aplică același pattern de error handling ca în business owner flow (TICKET-012)
+- Mesaje specifice și actionable pentru fiecare caz:
+  - Service not found
+  - Service already associated/disassociated
+  - Permission denied (canManageOwnServices = false)
+  - Business not found
+- Include `code` și `actionable` fields în toate răspunsurile de eroare  
+**Status:** 📋 **PENDING**  
+**Estimare:** 2-3 ore  
+**Referință:** EMPLOYEE_SERVICES_AUDIT.md - Problema #7
+
+### TICKET-051: Adaugă Locking Mechanism pentru Employee Services
+**Prioritate:** 🟡 MEDIUM  
+**Categorie:** Backend / Database / Concurrency  
+**Fișiere:** 
+- `backend/src/routes/business.services.routes.ts`
+- `backend/src/routes/employee.ts`  
+**Descriere:** Business owner și employee pot modifica simultan aceleași servicii. Nu există locking mechanism pentru a preveni conflictele.  
+**Impact:** Race conditions, date inconsistente, modificări pierdute, comportament imprevizibil  
+**Soluție:** 
+- Folosește optimistic locking sau database locks
+- Pentru Prisma, folosește `prisma.$transaction` cu `isolationLevel: 'Serializable'` pentru associate/disassociate
+- Sau folosește row-level locking (FOR UPDATE în PostgreSQL) pentru a preveni modificări simultane
+- Adaugă retry logic pentru conflicte  
+**Status:** 📋 **PENDING**  
+**Estimare:** 4-6 ore  
+**Referință:** EMPLOYEE_SERVICES_AUDIT.md - Problema #5
+
+---
+
 ### TICKET-015: Refactor State Management în Componente Mari
 **Prioritate:** 🟡 MEDIUM  
 **Categorie:** Frontend / Code Quality  
@@ -526,19 +697,20 @@
 
 ## 📊 SUMMARY
 
-**Total Tickets:** 43  
-**Critic:** 8 tickets (TICKET-001 ✅, TICKET-002 ✅, TICKET-003 ✅, TICKET-004 ✅, TICKET-005 ✅, TICKET-006 ✅, TICKET-041 ✅, TICKET-042 🔄)  
-**High:** 7 tickets (TICKET-007 ✅, TICKET-008 ✅, TICKET-009 ✅, TICKET-010 ✅, TICKET-011, TICKET-012 ✅, TICKET-013 ✅)  
-**Medium:** 14 tickets  
+**Total Tickets:** 51  
+**Critic:** 11 tickets (TICKET-001 ✅, TICKET-002 ✅, TICKET-003 ✅, TICKET-004 ✅, TICKET-005 ✅, TICKET-006 ✅, TICKET-041 ✅, TICKET-042 🔄, TICKET-044 ✅, TICKET-045 ✅, TICKET-046 ✅)  
+**High:** 10 tickets (TICKET-007 ✅, TICKET-008 ✅, TICKET-009 ✅, TICKET-010 ✅, TICKET-011, TICKET-012 ✅, TICKET-013 ✅, TICKET-047, TICKET-048 ✅, TICKET-049)  
+**Medium:** 16 tickets (TICKET-050, TICKET-051, + 14 existente)  
 **Low:** 14 tickets  
 
 **Status:**
-- ✅ **Completat:** 13 tickets (7 critice + 6 high priority)
+- ✅ **Completat:** 17 tickets (10 critice + 7 high priority)
 - 🔄 **Pending:** 1 ticket critic (TICKET-042 - refactoring major)
-- 📋 **Rămas:** 29 tickets (1 High, 14 Medium, 14 Low priority)
+- 📋 **Rămas:** 33 tickets (0 Critic, 2 High, 1 Medium din audit + 1 High, 14 Medium, 14 Low priority existente)
 
-**Estimare Total:** ~220-320 ore (5.5-8 săptămâni cu 1 developer full-time)  
-**Estimare Rămas:** ~120-180 ore (3-4.5 săptămâni cu 1 developer full-time)
+**Estimare Total:** ~250-360 ore (6.25-9 săptămâni cu 1 developer full-time)  
+**Estimare Rămas:** ~150-220 ore (3.75-5.5 săptămâni cu 1 developer full-time)  
+**Estimare Audit Tickets (TICKET-044 până la TICKET-051):** ~30-40 ore (0.75-1 săptămână)
 
 ---
 
@@ -558,6 +730,15 @@
 **Estimare Sprint 1:** 20-28 ore  
 **Timp efectiv:** ~15-20 ore
 
+### Sprint 1.5 (Employee Services Audit - Urgent - 1 săptămână)
+- TICKET-044: Adaugă Control de Permisiuni pentru Employee Services ✅ **COMPLETAT**
+- TICKET-045: Unifică Logică de Autorizare pentru Employee Services ✅ **COMPLETAT**
+- TICKET-046: Adaugă Audit Trail pentru Employee Services ✅ **COMPLETAT**
+
+**Status Sprint 1.5:** ✅ **3/3 COMPLETAT** (100%)  
+**Estimare Sprint 1.5:** 9-13 ore  
+**Timp efectiv:** ~10-12 ore
+
 ### Sprint 2 (High - 2 săptămâni)
 - TICKET-007: N+1 Query în Employee Services ✅ **COMPLETAT**
 - TICKET-008: Lipsă Index-uri Database ✅ **COMPLETAT**
@@ -566,10 +747,13 @@
 - TICKET-011: Eliminare `any` Types Critice (lăsat pentru final)
 - TICKET-012: Mesaje de Eroare Specifice ✅ **COMPLETAT**
 - TICKET-013: Rate Limiting Fail Closed ✅ **COMPLETAT**
+- TICKET-047: Refactorizează Endpoint-urile Employee Services 📋 **PENDING**
+- TICKET-048: Adaugă Cache Invalidation pentru Employee Flow ✅ **COMPLETAT**
+- TICKET-049: Adaugă Notificări pentru Business Owner 📋 **PENDING**
 
-**Status Sprint 2:** ✅ **6/7 COMPLETAT** (85.7%)  
-**Estimare Sprint 2:** 30-40 ore  
-**Timp efectiv:** ~20-25 ore (pentru cele 6 completate)
+**Status Sprint 2:** ✅ **7/10 COMPLETAT** (70%)  
+**Estimare Sprint 2:** 41-56 ore (30-40 existente + 11-16 noi)  
+**Timp efectiv:** ~22-27 ore (pentru cele 7 completate)
 
 ### Sprint 3 (Medium - 1 lună)
 - TICKET-014: Split Fișier Business.ts ✅ (PARȚIAL FIXAT)
@@ -583,8 +767,10 @@
 - TICKET-021: JSDoc Documentation
 - TICKET-022: Unit Tests
 - TICKET-023: Monitoring Setup
+- TICKET-050: Îmbunătățește Error Handling în Employee Flow 📋 **PENDING**
+- TICKET-051: Adaugă Locking Mechanism pentru Employee Services 📋 **PENDING**
 
-**Estimare Sprint 3:** 65-85 ore
+**Estimare Sprint 3:** 71-97 ore (65-85 existente + 6-12 noi)
 
 ### Backlog (Low Priority)
 - TICKET-024 până la TICKET-040

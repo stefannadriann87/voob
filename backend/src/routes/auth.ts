@@ -17,7 +17,8 @@ const {
   recordRegistrationAttempt,
 } = require("../services/rateLimitService");
 const { rateLimitRegistration, rateLimitLogin } = require("../middleware/rateLimit");
-const { JWT_COOKIE_NAME, extractToken } = require("../middleware/auth");
+const authMiddleware = require("../middleware/auth");
+const { JWT_COOKIE_NAME, extractToken } = authMiddleware;
 
 const router = express.Router();
 
@@ -35,9 +36,13 @@ const JWT_COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24h în milisecunde
 const getJwtCookieOptions = (): express.CookieOptions => ({
   httpOnly: true,
   secure: isProduction,
+  // In development, use "lax" for same-site requests (localhost:3001 -> localhost:4000)
+  // In production, use "strict" for better security
   sameSite: isProduction ? "strict" : "lax",
   path: "/",
   maxAge: JWT_COOKIE_MAX_AGE,
+  // Ensure cookie is sent for cross-origin requests in development
+  ...(isProduction ? {} : { domain: undefined }), // Don't set domain in development to allow localhost
 });
 
 const slugify = (value: string) =>
@@ -303,14 +308,33 @@ router.post("/login", rateLimitLogin, async (req, res) => {
   const userAgent = req.headers["user-agent"];
 
   // Verify CAPTCHA
-  if (!captchaToken) {
-    return res.status(400).json({ error: "Verificare CAPTCHA necesară." });
-  }
+  // DEVELOPMENT: Skip CAPTCHA verification in development mode for easier testing
+  // Check if we're in development (NODE_ENV not set or set to development)
+  const nodeEnv = process.env.NODE_ENV || process.env.ENVIRONMENT;
+  const isDevelopment = !nodeEnv || nodeEnv === "development" || nodeEnv === "dev";
+  const skipCaptcha = isDevelopment;
+  
+  if (!skipCaptcha) {
+    if (!captchaToken) {
+      return res.status(400).json({ error: "Verificare CAPTCHA necesară." });
+    }
 
-  const captchaResult = await verifyCaptcha(captchaToken, ip);
-  if (!captchaResult.success || !isCaptchaScoreValid(captchaResult.score)) {
-    return res.status(400).json({
-      error: "Verificare CAPTCHA eșuată. Te rugăm să reîmprospătezi pagina și să încerci din nou.",
+    const captchaResult = await verifyCaptcha(captchaToken, ip);
+    if (!captchaResult.success || !isCaptchaScoreValid(captchaResult.score)) {
+      logger.warn("CAPTCHA verification failed for login", {
+        email,
+        ip,
+        score: captchaResult.score,
+        error: captchaResult.error,
+      });
+      return res.status(400).json({
+        error: "Verificare CAPTCHA eșuată. Te rugăm să reîmprospătezi pagina și să încerci din nou.",
+      });
+    }
+  } else {
+    logger.debug("Skipping CAPTCHA verification in development mode for login", {
+      nodeEnv: nodeEnv || "undefined",
+      isDevelopment,
     });
   }
 

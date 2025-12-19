@@ -8,30 +8,33 @@ datasource db {
 }
 
 model User {
-  id               String               @id @default(cuid())
-  email            String               @unique
-  password         String
-  name             String
-  phone            String?
-  specialization   String?
-  avatar           String?
-  role             Role                 @default(CLIENT)
-  businessId       String?              @db.VarChar(255)
-  workingHours     Json?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  registrationIp   String?
-  bookings         Booking[]
-  employeeBookings Booking[]            @relation("EmployeeBookings")
-  ownedBusinesses  Business[]           @relation("BusinessOwner")
-  clientLinks      ClientBusinessLink[] @relation("ClientLinks")
-  consentDocuments ConsentDocument[]
-  consentForms     ConsentForm[]
-  employeeHolidays EmployeeHoliday[]
-  resetTokens      PasswordResetToken[]
-  sessions         UserSession[]
-  business         Business?            @relation(fields: [businessId], references: [id])
-  employeeServices EmployeeService[]    @relation("EmployeeServices")
+  id                    String                 @id @default(cuid())
+  email                 String                 @unique
+  password              String
+  name                  String
+  phone                 String?
+  specialization        String?
+  avatar                String?
+  role                  Role                   @default(CLIENT)
+  businessId            String?                @db.VarChar(255)
+  workingHours          Json?
+  canManageOwnServices  Boolean                @default(false) // TICKET-044: Business owner controlează dacă employee-ul poate gestiona propriile servicii
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  registrationIp        String?
+  bookings              Booking[]
+  employeeBookings      Booking[]              @relation("EmployeeBookings")
+  ownedBusinesses       Business[]             @relation("BusinessOwner")
+  clientLinks           ClientBusinessLink[]   @relation("ClientLinks")
+  consentDocuments      ConsentDocument[]
+  consentForms          ConsentForm[]
+  employeeHolidays      EmployeeHoliday[]
+  resetTokens           PasswordResetToken[]
+  sessions              UserSession[]
+  business              Business?              @relation(fields: [businessId], references: [id])
+  employeeServices      EmployeeService[]      @relation("EmployeeServices")
+  serviceAudits         EmployeeServiceAudit[] @relation("AuditPerformer")
+  employeeServiceAudits EmployeeServiceAudit[] @relation("EmployeeAudits")
 
   refreshTokens RefreshToken[]
 
@@ -148,17 +151,18 @@ model Holiday {
 }
 
 model Service {
-  id         String            @id @default(cuid())
-  name       String
-  duration   Int
-  price      Float
-  notes      String?
-  businessId String
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-  bookings   Booking[]
-  business   Business          @relation(fields: [businessId], references: [id])
-  employees  EmployeeService[]
+  id            String                 @id @default(cuid())
+  name          String
+  duration      Int
+  price         Float
+  notes         String?
+  businessId    String
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  bookings      Booking[]
+  business      Business               @relation(fields: [businessId], references: [id])
+  employees     EmployeeService[]
+  serviceAudits EmployeeServiceAudit[]
 }
 
 model EmployeeService {
@@ -173,6 +177,26 @@ model EmployeeService {
   @@unique([employeeId, serviceId])
   @@index([employeeId])
   @@index([serviceId])
+}
+
+// TICKET-046: Audit trail pentru employee services
+model EmployeeServiceAudit {
+  id              String   @id @default(cuid())
+  employeeId      String
+  serviceId       String
+  action          String // "ASSOCIATE" | "DISASSOCIATE"
+  performedBy     String // userId care a făcut acțiunea
+  performedByRole String // "BUSINESS" | "EMPLOYEE"
+  createdAt       DateTime @default(now())
+
+  employee  User    @relation("EmployeeAudits", fields: [employeeId], references: [id], onDelete: Cascade)
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  performer User    @relation("AuditPerformer", fields: [performedBy], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([serviceId])
+  @@index([performedBy])
+  @@index([createdAt])
 }
 
 model Court {

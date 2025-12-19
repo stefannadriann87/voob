@@ -56,12 +56,6 @@ router.use((req, res, next) => {
   next();
 });
 
-// Mount modular routes
-// IMPORTANT: Mount employee services routes BEFORE employee CRUD routes to avoid routing conflicts
-router.use("/", businessServicesRouter);
-router.use("/", businessEmployeesRouter);
-router.use("/", businessCourtsRouter);
-
 router.post("/", verifyJWT, validate(createBusinessRouteSchema), async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const { name, domain, ownerId, services, employeeIds, businessType } = createBusinessRouteSchema.parse(req.body);
@@ -214,7 +208,162 @@ router.get("/", verifyJWT, validateQuery(paginationQuerySchema), async (req, res
   }
 });
 
+// Mount modular routes BEFORE specific routes to ensure they are registered
+// IMPORTANT: Mount employee services routes BEFORE employee CRUD routes to avoid routing conflicts
+router.use("/", businessServicesRouter);
+router.use("/", businessEmployeesRouter);
+router.use("/", businessCourtsRouter);
+
+// CRITICAL FIX: Specific routes MUST be defined BEFORE generic /:businessId route
+// to avoid Express matching the generic route first
+
+// Get working hours for a business
+router.get("/:businessId/working-hours", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const { employeeId } = req.query as { employeeId?: string };
+
+  logger.info(
+    `GET /business/${businessId}/working-hours - Request received${employeeId ? ` (employeeId=${employeeId})` : ""}`
+  );
+
+  if (!businessId) {
+    logger.warn("GET /business/:businessId/working-hours - Missing businessId");
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // If an employeeId is provided, try to return that employee's schedule first
+    if (employeeId) {
+      const employee = await prisma.user.findFirst({
+        where: {
+          id: employeeId,
+          OR: [
+            { businessId },
+            {
+              ownedBusinesses: {
+                some: {
+                  id: businessId,
+                },
+              },
+            },
+          ],
+        },
+        select: { workingHours: true },
+      });
+
+      if (!employee) {
+        logger.warn(
+          `GET /business/${businessId}/working-hours - Employee ${employeeId} not linked to this business`
+        );
+        return res.status(404).json({ error: "Angajatul nu aparține acestui business." });
+      }
+
+      if (employee.workingHours) {
+        logger.info(
+          `GET /business/${businessId}/working-hours - Returning employee ${employeeId} schedule`
+        );
+        return res.json({ workingHours: employee.workingHours, source: "employee" });
+      }
+
+      logger.info(
+        `GET /business/${businessId}/working-hours - Employee ${employeeId} has no custom schedule, falling back to business hours`
+      );
+    }
+
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { workingHours: true },
+    });
+
+    if (!business) {
+      logger.warn(`GET /business/${businessId}/working-hours - Business not found`);
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    logger.info(
+      `GET /business/${businessId}/working-hours - Returning business schedule${employeeId ? " (fallback)" : ""}`
+    );
+    return res.json({ workingHours: business.workingHours, source: "business" });
+  } catch (error) {
+    logger.error("Failed to fetch working hours", error);
+    return res.status(500).json({ error: "Eroare la obținerea programului de lucru." });
+  }
+});
+
+// Get courts for a business
+// CRITICAL FIX: Mutat din business.courts.routes.ts și definit ÎNAINTE de /:businessId
+// 
+// AUTHORIZATION MATRIX FOR COURTS:
+// ┌─────────────┬──────────┬──────────┬──────────┬──────────┐
+// │ HTTP Method │ CLIENT   │ BUSINESS │ EMPLOYEE │ SUPERADMIN│
+// ├─────────────┼──────────┼──────────┼──────────┼──────────┤
+// │ GET /courts │ ✅ ALLOW │ ✅ ALLOW │ ✅ ALLOW │ ✅ ALLOW │
+// │ POST /courts│ ❌ DENY  │ ✅ ALLOW │ ❌ DENY  │ ✅ ALLOW │
+// │ PUT /courts │ ❌ DENY  │ ✅ ALLOW │ ❌ DENY  │ ✅ ALLOW │
+// │ DELETE      │ ❌ DENY  │ ✅ ALLOW │ ❌ DENY  │ ✅ ALLOW │
+// └─────────────┴──────────┴──────────┴──────────┴──────────┘
+//
+// RATIONALE:
+// - READ (GET): CLIENT users MUST be able to view courts for SPORT_OUTDOOR businesses
+//   to make bookings. This is a public read operation (authenticated only).
+// - WRITE (POST/PUT/DELETE): Only BUSINESS owners and SUPERADMIN can modify courts.
+//   This ensures data integrity and prevents unauthorized modifications.
+//
+// NOTE: This endpoint is identical to /working-hours - no ownership checks for READ.
+router.get("/:businessId/courts", verifyJWT, async (req, res) => {
+  const { businessId } = req.params;
+  const authReq = req as AuthenticatedRequest;
+
+  logger.info(`GET /business/${businessId}/courts - Request received`, {
+    businessId,
+    userId: authReq.user?.userId,
+    userRole: authReq.user?.role,
+    path: req.path,
+    originalUrl: req.originalUrl,
+  });
+
+  if (!businessId) {
+    return res.status(400).json({ error: "businessId este obligatoriu." });
+  }
+
+  try {
+    // Verifică doar existența business-ului (exact ca /working-hours)
+    // NO OWNERSHIP CHECK - CLIENT users are allowed to read courts
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true },
+    });
+
+    if (!business) {
+      logger.warn(`GET /business/${businessId}/courts - Business not found`);
+      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+    }
+
+    // Returnează toate courts active (pentru toți userii autentificați)
+    // CLIENT, BUSINESS, EMPLOYEE, SUPERADMIN - all authenticated users can read
+    const courts = await prisma.court.findMany({
+      where: { 
+        businessId,
+        isActive: true, // Doar courts active pentru toți
+      },
+      include: {
+        pricing: {
+          orderBy: { timeSlot: "asc" },
+        },
+      },
+      orderBy: { number: "asc" },
+    });
+
+    logger.info(`GET /business/${businessId}/courts - Returning ${courts.length} courts to ${authReq.user?.role}`);
+    return res.json({ courts });
+  } catch (error) {
+    logger.error("Get courts failed", error);
+    return res.status(500).json({ error: "Eroare la obținerea terenurilor." });
+  }
+});
+
 // CRITICAL FIX (TICKET-009): Get individual business with caching
+// NOTE: This route must be AFTER specific routes (working-hours, courts, etc.) to avoid intercepting them
 router.get("/:businessId", verifyJWT, async (req, res) => {
   const { businessId } = req.params;
   const authReq = req as AuthenticatedRequest;
@@ -478,78 +627,8 @@ router.get("/:businessId/qr", async (req, res) => {
 // CRITICAL FIX (TICKET-014): Services routes moved to business.services.routes.ts
 // Removed duplicate routes - now imported via businessServicesRouter
 
-// Get working hours for a business
-router.get("/:businessId/working-hours", verifyJWT, async (req, res) => {
-  const { businessId } = req.params;
-  const { employeeId } = req.query as { employeeId?: string };
-
-  logger.info(
-    `GET /business/${businessId}/working-hours - Request received${employeeId ? ` (employeeId=${employeeId})` : ""}`
-  );
-
-  if (!businessId) {
-    logger.warn("GET /business/:businessId/working-hours - Missing businessId");
-    return res.status(400).json({ error: "businessId este obligatoriu." });
-  }
-
-  try {
-    // If an employeeId is provided, try to return that employee's schedule first
-    if (employeeId) {
-      const employee = await prisma.user.findFirst({
-        where: {
-          id: employeeId,
-          OR: [
-            { businessId },
-            {
-              ownedBusinesses: {
-                some: {
-                  id: businessId,
-                },
-              },
-            },
-          ],
-        },
-        select: { workingHours: true },
-      });
-
-      if (!employee) {
-        logger.warn(
-          `GET /business/${businessId}/working-hours - Employee ${employeeId} not linked to this business`
-        );
-        return res.status(404).json({ error: "Angajatul nu aparține acestui business." });
-      }
-
-      if (employee.workingHours) {
-        logger.info(
-          `GET /business/${businessId}/working-hours - Returning employee ${employeeId} schedule`
-        );
-        return res.json({ workingHours: employee.workingHours, source: "employee" });
-      }
-
-      logger.info(
-        `GET /business/${businessId}/working-hours - Employee ${employeeId} has no custom schedule, falling back to business hours`
-      );
-    }
-
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-      select: { workingHours: true },
-    });
-
-    if (!business) {
-      logger.warn(`GET /business/${businessId}/working-hours - Business not found`);
-      return res.status(404).json({ error: "Business-ul nu a fost găsit." });
-    }
-
-    logger.info(
-      `GET /business/${businessId}/working-hours - Returning business schedule${employeeId ? " (fallback)" : ""}`
-    );
-    return res.json({ workingHours: business.workingHours, source: "business" });
-  } catch (error) {
-    logger.error("Failed to fetch working hours", error);
-    return res.status(500).json({ error: "Eroare la obținerea programului de lucru." });
-  }
-});
+// CRITICAL FIX: Specific routes (working-hours, courts) are now defined BEFORE generic /:businessId
+// This ensures Express matches specific routes first
 
 // Update working hours for a business
 router.put("/:businessId/working-hours", verifyJWT, async (req, res) => {

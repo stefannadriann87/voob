@@ -7,10 +7,11 @@ const { z } = require("zod");
 
 /**
  * Schema pentru query parameters de pagination
+ * Acceptă string sau number pentru page și limit (Express query params sunt strings)
  */
 const paginationQuerySchema = z.object({
-  page: z.string().regex(/^\d+$/).transform(Number).optional().default("1"),
-  limit: z.string().regex(/^\d+$/).transform(Number).optional().default("20"),
+  page: z.union([z.string().regex(/^\d+$/).transform(Number), z.number()]).optional().default(1),
+  limit: z.union([z.string().regex(/^\d+$/).transform(Number), z.number()]).optional().default(20),
   cursor: z.string().optional(), // Pentru cursor-based pagination
 }).refine((data: { page?: number; limit?: number; cursor?: string }) => {
   const page = Number(data.page) || 1;

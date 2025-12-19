@@ -2427,7 +2427,7 @@ const handleConsentSubmit = async () => {
                 <i className="fas fa-times" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((hours) => {
                 const durationMinutes = hours * 60;
                 return (

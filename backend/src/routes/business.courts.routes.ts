@@ -13,58 +13,15 @@ import type { AuthenticatedRequest } from "./business.shared.d";
 const router = express.Router();
 
 // Get courts
-router.get("/:businessId/courts", verifyJWT, async (req, res) => {
-  const authReq = req as AuthenticatedRequest;
-  const { businessId } = req.params;
-
-  try {
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-      select: { ownerId: true, businessType: true },
-    });
-
-    if (!business) {
-      return res.status(404).json({ error: "Business-ul nu există." });
-    }
-
-    // Verificare permisiuni
-    if (!authReq.user) {
-      return res.status(401).json({ error: "Autentificare necesară." });
-    }
-    
-    const isOwner = business.ownerId === authReq.user?.userId;
-    const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
-    const isClient = authReq.user?.role === "CLIENT";
-    const isSportOutdoor = business.businessType === "SPORT_OUTDOOR";
-
-    // Pentru SPORT_OUTDOOR, permitem și clienților să vadă terenurile
-    // Pentru business-uri normale, doar owner și superadmin
-    const hasPermission = isOwner || isSuperAdmin || (isClient && isSportOutdoor);
-    
-    if (!hasPermission) {
-      return res.status(403).json({ 
-        error: "Nu ai permisiunea de a vizualiza terenurile acestui business.",
-      });
-    }
-
-    const courts = await prisma.court.findMany({
-      where: { businessId },
-      include: {
-        pricing: {
-          orderBy: { timeSlot: "asc" },
-        },
-      },
-      orderBy: { number: "asc" },
-    });
-
-    return res.json({ courts });
-  } catch (error) {
-    logger.error("Get courts failed", error);
-    return res.status(500).json({ error: "Eroare la obținerea terenurilor." });
-  }
-});
+// CRITICAL FIX: Mutat în business.ts pentru a evita conflicte de routing
+// Endpoint-ul GET /:businessId/courts este acum definit direct în business.ts (după /working-hours)
+// pentru a fi identic cu /working-hours și a funcționa corect pentru CLIENT
+// 
+// Acest router conține doar endpoint-urile CRUD (POST, PUT, DELETE) pentru courts
 
 // Create court
+// AUTHORIZATION: Only BUSINESS owner and SUPERADMIN can create courts
+// CLIENT and EMPLOYEE are explicitly denied (403)
 router.post("/:businessId/courts", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const { businessId } = req.params;
@@ -84,11 +41,17 @@ router.post("/:businessId/courts", verifyJWT, async (req, res) => {
       return res.status(400).json({ error: "Terenurile pot fi adăugate doar pentru business type SPORT_OUTDOOR." });
     }
 
-    // Verificare permisiuni
+    // AUTHORIZATION CHECK: Only BUSINESS owner and SUPERADMIN can create courts
+    // CLIENT and EMPLOYEE roles are explicitly denied for write operations
     const isOwner = business.ownerId === authReq.user?.userId;
     const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
 
     if (!isOwner && !isSuperAdmin) {
+      logger.warn("Unauthorized court creation attempt", {
+        userId: authReq.user?.userId,
+        role: authReq.user?.role,
+        businessId,
+      });
       return res.status(403).json({ error: "Nu ai permisiunea de a adăuga terenuri." });
     }
 
@@ -129,6 +92,8 @@ router.post("/:businessId/courts", verifyJWT, async (req, res) => {
 });
 
 // Update court
+// AUTHORIZATION: Only BUSINESS owner and SUPERADMIN can update courts
+// CLIENT and EMPLOYEE are explicitly denied (403)
 router.put("/:businessId/courts/:courtId", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const { businessId, courtId } = req.params;
@@ -144,11 +109,18 @@ router.put("/:businessId/courts/:courtId", verifyJWT, async (req, res) => {
       return res.status(404).json({ error: "Business-ul nu există." });
     }
 
-    // Verificare permisiuni
+    // AUTHORIZATION CHECK: Only BUSINESS owner and SUPERADMIN can update courts
+    // CLIENT and EMPLOYEE roles are explicitly denied for write operations
     const isOwner = business.ownerId === authReq.user?.userId;
     const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
 
     if (!isOwner && !isSuperAdmin) {
+      logger.warn("Unauthorized court update attempt", {
+        userId: authReq.user?.userId,
+        role: authReq.user?.role,
+        businessId,
+        courtId,
+      });
       return res.status(403).json({ error: "Nu ai permisiunea de a actualiza terenurile." });
     }
 
@@ -205,6 +177,8 @@ router.put("/:businessId/courts/:courtId", verifyJWT, async (req, res) => {
 });
 
 // Delete court
+// AUTHORIZATION: Only BUSINESS owner and SUPERADMIN can delete courts
+// CLIENT and EMPLOYEE are explicitly denied (403)
 router.delete("/:businessId/courts/:courtId", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const { businessId, courtId } = req.params;
@@ -219,11 +193,18 @@ router.delete("/:businessId/courts/:courtId", verifyJWT, async (req, res) => {
       return res.status(404).json({ error: "Business-ul nu există." });
     }
 
-    // Verificare permisiuni
+    // AUTHORIZATION CHECK: Only BUSINESS owner and SUPERADMIN can delete courts
+    // CLIENT and EMPLOYEE roles are explicitly denied for write operations
     const isOwner = business.ownerId === authReq.user?.userId;
     const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
 
     if (!isOwner && !isSuperAdmin) {
+      logger.warn("Unauthorized court deletion attempt", {
+        userId: authReq.user?.userId,
+        role: authReq.user?.role,
+        businessId,
+        courtId,
+      });
       return res.status(403).json({ error: "Nu ai permisiunea de a șterge terenurile." });
     }
 
@@ -253,6 +234,9 @@ router.delete("/:businessId/courts/:courtId", verifyJWT, async (req, res) => {
 });
 
 // Get court pricing
+// AUTHORIZATION: All authenticated users (CLIENT, BUSINESS, EMPLOYEE, SUPERADMIN) can view pricing
+// This is a read-only endpoint for viewing pricing details
+// NOTE: CLIENT can also see pricing via GET /courts, but this endpoint is more efficient for single court queries
 router.get("/:businessId/courts/:courtId/pricing", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const { businessId, courtId } = req.params;
@@ -260,20 +244,16 @@ router.get("/:businessId/courts/:courtId/pricing", verifyJWT, async (req, res) =
   try {
     const business = await prisma.business.findUnique({
       where: { id: businessId },
-      select: { ownerId: true },
+      select: { id: true },
     });
 
     if (!business) {
       return res.status(404).json({ error: "Business-ul nu există." });
     }
 
-    // Verificare permisiuni
-    const isOwner = business.ownerId === authReq.user?.userId;
-    const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
-
-    if (!isOwner && !isSuperAdmin) {
-      return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza tarifele." });
-    }
+    // AUTHORIZATION: All authenticated users can view pricing (read-only)
+    // This matches the authorization model for GET /courts endpoint
+    // CLIENT, BUSINESS, EMPLOYEE, SUPERADMIN - all can read pricing
 
     const court = await prisma.court.findUnique({
       where: { id: courtId },
@@ -297,6 +277,8 @@ router.get("/:businessId/courts/:courtId/pricing", verifyJWT, async (req, res) =
 });
 
 // Update court pricing
+// AUTHORIZATION: Only BUSINESS owner and SUPERADMIN can update pricing
+// CLIENT and EMPLOYEE are explicitly denied (403)
 router.put("/:businessId/courts/:courtId/pricing", verifyJWT, async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const { businessId, courtId } = req.params;
@@ -312,11 +294,18 @@ router.put("/:businessId/courts/:courtId/pricing", verifyJWT, async (req, res) =
       return res.status(404).json({ error: "Business-ul nu există." });
     }
 
-    // Verificare permisiuni
+    // AUTHORIZATION CHECK: Only BUSINESS owner and SUPERADMIN can update pricing
+    // CLIENT and EMPLOYEE roles are explicitly denied for write operations
     const isOwner = business.ownerId === authReq.user?.userId;
     const isSuperAdmin = authReq.user?.role === "SUPERADMIN";
 
     if (!isOwner && !isSuperAdmin) {
+      logger.warn("Unauthorized pricing update attempt", {
+        userId: authReq.user?.userId,
+        role: authReq.user?.role,
+        businessId,
+        courtId,
+      });
       return res.status(403).json({ error: "Nu ai permisiunea de a actualiza tarifele." });
     }
 

@@ -58,6 +58,7 @@ router.get("/:businessId/employees", verifyJWT, requireBusinessAccess("businessI
         phone: true,
         specialization: true,
         avatar: true,
+        canManageOwnServices: true, // TICKET-044: Include flag-ul în listă
       },
       skip,
       take,
@@ -218,18 +219,20 @@ router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("business
 });
 
 // Update employee
-router.put("/:businessId/employees/:employeeId", verifyJWT, validate(updateEmployeeSchema), async (req, res) => {
+router.put("/:businessId/employees/:employeeId", verifyJWT, requireBusinessAccess("businessId"), validate(updateEmployeeSchema), async (req, res) => {
   const { businessId, employeeId } = req.params;
   const {
     name,
     email,
     phone,
     specialization,
+    canManageOwnServices, // TICKET-044: Business owner controlează dacă employee-ul poate gestiona propriile servicii
   }: {
     name?: string;
     email?: string;
     phone?: string;
     specialization?: string;
+    canManageOwnServices?: boolean;
   } = req.body;
 
   if (!businessId || !employeeId) {
@@ -267,20 +270,28 @@ router.put("/:businessId/employees/:employeeId", verifyJWT, validate(updateEmplo
     }
 
     // Update employee user
+    const updateData: any = {
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone?.trim() || null,
+      specialization: specialization?.trim() || null,
+    };
+    
+    // TICKET-044: Adaugă canManageOwnServices dacă este furnizat
+    if (canManageOwnServices !== undefined) {
+      updateData.canManageOwnServices = canManageOwnServices;
+    }
+    
     const updatedEmployee = await prisma.user.update({
       where: { id: employeeId },
-      data: {
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone?.trim() || null,
-        specialization: specialization?.trim() || null,
-      },
+      data: updateData,
       select: {
         id: true,
         name: true,
         email: true,
         phone: true,
         specialization: true,
+        canManageOwnServices: true, // TICKET-044: Returnează flag-ul
       },
     });
 

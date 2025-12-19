@@ -53,6 +53,7 @@ export default function BusinessDashboardPage() {
   const [employeeEmail, setEmployeeEmail] = useState("");
   const [employeePhone, setEmployeePhone] = useState("");
   const [employeeSpecialization, setEmployeeSpecialization] = useState("");
+  const [employeeCanManageOwnServices, setEmployeeCanManageOwnServices] = useState(false); // TICKET-044: Control flag pentru self-service
   const [employeeFeedback, setEmployeeFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [addingEmployee, setAddingEmployee] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -344,20 +345,39 @@ export default function BusinessDashboardPage() {
     [editingEmployeeId, business?.id, updatingEmployeeService, api]
   );
 
-  // Fetch employee services when editing employee
+  // Fetch employee services and canManageOwnServices when editing employee
   useEffect(() => {
     if (!employeeModalOpen || !editingEmployeeId || !business?.id) {
       setEmployeeServices([]);
+      setEmployeeCanManageOwnServices(false); // TICKET-044: Reset flag
       return;
     }
 
-    const fetchEmployeeServices = async () => {
+    const fetchEmployeeData = async () => {
       setLoadingEmployeeServices(true);
       try {
-        const { data } = await api.get<{ services: Array<{ id: string; name: string; isAssociated: boolean }> }>(
+        // Fetch employee services
+        const { data: servicesData } = await api.get<{ services: Array<{ id: string; name: string; isAssociated: boolean }> }>(
           `/business/${business.id}/employees/${editingEmployeeId}/services`
         );
-        setEmployeeServices(data.services);
+        setEmployeeServices(servicesData.services);
+        
+        // TICKET-044: Fetch employee data to get canManageOwnServices flag
+        const employee = business.employees?.find((e: any) => e.id === editingEmployeeId);
+        if (employee && (employee as any).canManageOwnServices !== undefined) {
+          setEmployeeCanManageOwnServices((employee as any).canManageOwnServices);
+        } else {
+          // Fallback: fetch from API if not in business.employees
+          try {
+            const { data: employeeData } = await api.get(`/business/${business.id}/employees/${editingEmployeeId}`);
+            if (employeeData?.canManageOwnServices !== undefined) {
+              setEmployeeCanManageOwnServices(employeeData.canManageOwnServices);
+            }
+          } catch (err) {
+            // Ignore error, use default false
+            logger.warn("Could not fetch employee canManageOwnServices flag:", err);
+          }
+        }
       } catch (error: any) {
         logger.error("Failed to fetch employee services:", error);
         // If 404, employee doesn't exist - reset editing state and close modal
@@ -365,6 +385,7 @@ export default function BusinessDashboardPage() {
           setEditingEmployeeId(null);
           setEmployeeModalOpen(false);
           setEmployeeServices([]);
+          setEmployeeCanManageOwnServices(false);
           return;
         }
         // If other error, show all services as not associated (backward compatibility)
@@ -378,8 +399,8 @@ export default function BusinessDashboardPage() {
       }
     };
 
-    void fetchEmployeeServices();
-  }, [employeeModalOpen, editingEmployeeId, business?.id, business?.services, api]);
+    void fetchEmployeeData();
+  }, [employeeModalOpen, editingEmployeeId, business?.id, business?.services, business?.employees, api]);
 
   // Court management handlers
   const handleOpenCourtModal = useCallback((courtId?: string) => {
@@ -873,6 +894,8 @@ export default function BusinessDashboardPage() {
                         setEmployeeEmail(employee.email);
                         setEmployeePhone(employee.phone || "");
                         setEmployeeSpecialization(employee.specialization || "");
+                        // TICKET-044: Load canManageOwnServices flag
+                        setEmployeeCanManageOwnServices((employee as any).canManageOwnServices || false);
                         setEmployeeFeedback(null);
                         setEmployeeModalOpen(true);
                       }}
@@ -1310,6 +1333,7 @@ export default function BusinessDashboardPage() {
                     setEmployeeEmail("");
                     setEmployeePhone("");
                     setEmployeeSpecialization("");
+                    setEmployeeCanManageOwnServices(false); // TICKET-044: Reset flag
                     setEmployeeFeedback(null);
                     setEmployeeServices([]);
                   }}
@@ -1334,14 +1358,14 @@ export default function BusinessDashboardPage() {
                   try {
                     if (editingEmployeeId) {
                       // Update existing employee
-                      await updateEmployee(
-                        business.id,
-                        editingEmployeeId,
-                        employeeName.trim(),
-                        employeeEmail.trim(),
-                        employeePhone.trim() || undefined,
-                        employeeSpecialization.trim() || undefined
-                      );
+                      // TICKET-044: Include canManageOwnServices în update
+                      await api.put(`/business/${business.id}/employees/${editingEmployeeId}`, {
+                        name: employeeName.trim(),
+                        email: employeeEmail.trim(),
+                        phone: employeePhone.trim() || undefined,
+                        specialization: employeeSpecialization.trim() || undefined,
+                        canManageOwnServices: employeeCanManageOwnServices, // TICKET-044: Actualizează flag-ul
+                      });
                       setEmployeeFeedback({ type: "success", message: "Angajat actualizat cu succes!" });
                     } else {
                       // Add new employee
@@ -1361,6 +1385,7 @@ export default function BusinessDashboardPage() {
                       setEmployeeEmail("");
                       setEmployeePhone("");
                       setEmployeeSpecialization("");
+                      setEmployeeCanManageOwnServices(false); // TICKET-044: Reset flag
                       setEmployeeFeedback(null);
                       setEmployeeServices([]);
                       void fetchBusinesses();
@@ -1429,6 +1454,26 @@ export default function BusinessDashboardPage() {
                     placeholder="+40 7XX XXX XXX"
                   />
                 </label>
+
+                {/* TICKET-044: Can Manage Own Services Toggle - Only show when editing existing employee */}
+                {editingEmployeeId && (
+                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0B0E17]/40 p-4 cursor-pointer transition hover:bg-[#0B0E17]/60">
+                    <input
+                      type="checkbox"
+                      checked={employeeCanManageOwnServices}
+                      onChange={(e) => setEmployeeCanManageOwnServices(e.target.checked)}
+                      className="h-4 w-4 rounded border-white/30 text-[#6366F1] focus:ring-[#6366F1]"
+                    />
+                    <div className="flex-1">
+                      <span className="text-sm font-semibold text-white/80 block">
+                        Permite gestionarea propriilor servicii
+                      </span>
+                      <p className="text-xs text-white/50 mt-1">
+                        Dacă este activat, angajatul poate adăuga sau șterge servicii pentru el însuși
+                      </p>
+                    </div>
+                  </label>
+                )}
 
                 {/* Services Section - Only show when editing existing employee */}
                 {editingEmployeeId && business?.services && business.services.length > 0 && (

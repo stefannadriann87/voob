@@ -122,9 +122,10 @@ router.get("/businesses", verifyJWT, validateQuery(paginationQuerySchema), async
   }
 
   try {
-    // Parse pagination parameters
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 50; // Default 50 items
+    // Parse pagination parameters from validated query or fallback to defaults
+    const validatedQuery = (req as any).validatedQuery || {};
+    const page = validatedQuery.page || Number(req.query.page) || 1;
+    const limit = validatedQuery.limit || Number(req.query.limit) || 50; // Default 50 items
     const { skip, take } = getPaginationParams(page, limit);
 
     // Get total count for pagination
