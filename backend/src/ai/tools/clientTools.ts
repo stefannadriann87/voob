@@ -161,7 +161,7 @@ async function updateOwnBooking(
       where: { id: args.employeeId, businessId: booking.businessId, role: "EMPLOYEE" },
     });
     if (!employee) {
-      throw new Error("Angajatul nu a fost găsit sau nu aparține acestui business.");
+      throw new Error("Specialistul nu a fost găsit sau nu aparține acestui business.");
     }
     updateData.employeeId = args.employeeId;
   }

@@ -1,9 +1,10 @@
-/// <reference types="node" />
+// @ts-nocheck - Script file excluded from tsconfig compilation
+const bcryptLib = require("bcryptjs");
+const prismaClientModule = require("@prisma/client");
+const PrismaClientConstructor = prismaClientModule.PrismaClient;
+const RoleType = prismaClientModule.Role;
 
-const bcrypt = require("bcryptjs");
-const { PrismaClient, Role } = require("@prisma/client");
-
-const prisma = new PrismaClient();
+const prismaInstance = new PrismaClientConstructor();
 
 async function addServicesAndEmployees() {
   // Prevent running in production
@@ -15,21 +16,21 @@ async function addServicesAndEmployees() {
   }
 
   const defaultPasswordPlain = "Password123!";
-  const hashedPassword = await bcrypt.hash(defaultPasswordPlain, 10);
+  const hashedPassword = await bcryptLib.hash(defaultPasswordPlain, 10);
 
   // Ensure SUPERADMIN exists
-  const superAdmin = await prisma.user.upsert({
+  const superAdmin = await prismaInstance.user.upsert({
     where: { email: "stefann.adriann@gmail.com" },
     update: {
       name: "Stefan Adrian",
       password: await bcrypt.hash("Develop13#", 10),
-      role: Role.SUPERADMIN,
+      role: RoleEnum.SUPERADMIN,
     },
     create: {
       email: "stefann.adriann@gmail.com",
       name: "Stefan Adrian",
       password: await bcrypt.hash("Develop13#", 10),
-      role: Role.SUPERADMIN,
+      role: RoleEnum.SUPERADMIN,
     },
   });
 
@@ -44,7 +45,7 @@ async function addServicesAndEmployees() {
   ]);
 
   // Get all businesses
-  const businesses = await prisma.business.findMany({
+  const businesses = await prismaInstance.business.findMany({
     include: {
       services: true,
       employees: true,
@@ -54,7 +55,7 @@ async function addServicesAndEmployees() {
 
   if (businesses.length === 0) {
     console.log("⚠️  Nu există business-uri în baza de date.");
-    await prisma.$disconnect();
+    await prismaInstance.$disconnect();
     return;
   }
 
@@ -78,7 +79,7 @@ async function addServicesAndEmployees() {
         { name: "Serviciu Premium", duration: 90, price: 250 },
       ];
 
-      await prisma.service.createMany({
+      await prismaInstance.service.createMany({
         data: defaultServices.map((service) => ({
           ...service,
           businessId: business.id,
@@ -99,25 +100,25 @@ async function addServicesAndEmployees() {
     if (employeesCount === 0) {
       // Create employee user
       const employeeEmail = `employee@${business.domain}.app`;
-      const employeeName = `Angajat ${business.name}`;
+      const employeeName = `Specialist ${business.name}`;
 
-      const employee = await prisma.user.upsert({
+      const employee = await prismaInstance.user.upsert({
         where: { email: employeeEmail },
         update: {
           businessId: business.id,
-          role: Role.EMPLOYEE,
+          role: RoleType.EMPLOYEE,
         },
         create: {
           email: employeeEmail,
           name: employeeName,
           password: hashedPassword,
-          role: Role.EMPLOYEE,
+          role: RoleType.EMPLOYEE,
           businessId: business.id,
         },
       });
 
       // Connect employee to business
-      await prisma.business.update({
+      await prismaInstance.business.update({
         where: { id: business.id },
         data: {
           employees: {
@@ -127,9 +128,9 @@ async function addServicesAndEmployees() {
       });
 
       employeesAdded = 1;
-      console.log(`  ✅ Adăugat angajat pentru ${business.name}: ${employeeEmail}`);
+      console.log(`  ✅ Adăugat specialist pentru ${business.name}: ${employeeEmail}`);
     } else {
-      console.log(`  ℹ️  ${business.name} are deja ${employeesCount} angajați`);
+      console.log(`  ℹ️  ${business.name} are deja ${employeesCount} specialiști`);
     }
 
     results.push({
@@ -163,5 +164,5 @@ addServicesAndEmployees()
     throw error;
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await prismaInstance.$disconnect();
   });

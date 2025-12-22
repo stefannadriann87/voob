@@ -172,7 +172,7 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
         return res.status(400).json({ error: "Serviciile (serviceId) nu sunt permise pentru business type SPORT_OUTDOOR. Folosește terenuri (courtId)." });
       }
       if (employeeId) {
-        return res.status(400).json({ error: "Angajații (employeeId) nu sunt permisi pentru business type SPORT_OUTDOOR." });
+        return res.status(400).json({ error: "Specialiștii (employeeId) nu sunt permisi pentru business type SPORT_OUTDOOR." });
       }
 
       // Verifică terenul
@@ -336,7 +336,7 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
           const holiday = employeeHolidays[0];
           const reason = holiday.reason ? ` (${holiday.reason})` : "";
           return res.status(409).json({
-            error: `Angajatul este în concediu în perioada selectată${reason}.`,
+            error: `Specialistul este în concediu în perioada selectată${reason}.`,
           });
         }
       } catch (employeeHolidayError: any) {
@@ -399,13 +399,13 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
 
           if (!employee) {
             return res.status(400).json({ 
-              error: "Angajatul nu a fost găsit." 
+              error: "Specialistul nu a fost găsit." 
             });
           }
 
           if (employee.businessId !== businessId) {
             return res.status(400).json({ 
-              error: "Angajatul nu aparține acestui business." 
+              error: "Specialistul nu aparține acestui business." 
             });
           }
 
@@ -500,7 +500,7 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
             const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
 
             if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
-              throw new Error("Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.");
+              throw new Error("Există deja o rezervare care se suprapune cu intervalul selectat pentru acest specialist.");
             }
           }
         } else {
@@ -924,7 +924,7 @@ router.put("/:id", verifyJWT, requireBookingAccess("id"), validate(updateBooking
 
         if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
           return res.status(409).json({
-            error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.",
+            error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest specialist.",
           });
         }
       }
@@ -990,7 +990,7 @@ router.put("/:id", verifyJWT, requireBookingAccess("id"), validate(updateBooking
         const holiday = employeeHolidays[0];
         const reason = holiday.reason ? ` (${holiday.reason})` : "";
         return res.status(409).json({
-          error: `Angajatul este în concediu în perioada selectată${reason}.`,
+          error: `Specialistul este în concediu în perioada selectată${reason}.`,
         });
       }
     }
@@ -1772,7 +1772,7 @@ router.post("/confirm", verifyJWT, async (req, res) => {
 
         if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
           return res.status(409).json({
-            error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.",
+            error: "Există deja o rezervare care se suprapune cu intervalul selectat pentru acest specialist.",
           });
         }
       }
@@ -1837,7 +1837,7 @@ router.post("/confirm", verifyJWT, async (req, res) => {
         const holiday = employeeHolidays[0];
         const reason = holiday.reason ? ` (${holiday.reason})` : "";
         return res.status(409).json({
-          error: `Angajatul este în concediu în perioada selectată${reason}.`,
+          error: `Specialistul este în concediu în perioada selectată${reason}.`,
         });
       }
     }
@@ -1921,7 +1921,7 @@ router.post("/confirm", verifyJWT, async (req, res) => {
           const existingEnd = new Date(existingStart.getTime() + existingDuration * 60 * 1000);
 
           if (bookingStart.getTime() < existingEnd.getTime() && bookingEnd.getTime() > existingStart.getTime()) {
-            throw new Error("Există deja o rezervare care se suprapune cu intervalul selectat pentru acest angajat.");
+            throw new Error("Există deja o rezervare care se suprapune cu intervalul selectat pentru acest specialist.");
           }
         }
       } else if (pending.businessId && pending.serviceId) {

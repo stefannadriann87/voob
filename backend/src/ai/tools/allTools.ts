@@ -44,14 +44,14 @@ const clientToolDefinitions = [
     type: "function",
     function: {
       name: "updateOwnBooking",
-      description: "Actualizează o rezervare proprie (dată, serviciu, angajat).",
+      description: "Actualizează o rezervare proprie (dată, serviciu, specialist).",
       parameters: {
         type: "object",
         properties: {
           bookingId: { type: "string", description: "ID-ul rezervării" },
           date: { type: "string", description: "Noua dată (ISO format, opțional)" },
           serviceId: { type: "string", description: "ID-ul noului serviciu (opțional)" },
-          employeeId: { type: "string", description: "ID-ul noului angajat (opțional)" },
+          employeeId: { type: "string", description: "ID-ul noului specialist (opțional)" },
         },
         required: ["bookingId"],
       },
@@ -61,7 +61,7 @@ const clientToolDefinitions = [
     type: "function",
     function: {
       name: "getBusinessInfo",
-      description: "Obține informații despre un business (servicii, angajați, program de lucru).",
+      description: "Obține informații despre un business (servicii, specialiști, program de lucru).",
       parameters: {
         type: "object",
         properties: {
@@ -84,7 +84,7 @@ const clientToolDefinitions = [
           serviceId: { type: "string", description: "ID-ul serviciului (opțional dacă dai serviceName)" },
           serviceName: { type: "string", description: "Numele serviciului (opțional)" },
           date: { type: "string", description: "Data pentru care să verifici disponibilitatea (ISO format)" },
-          employeeId: { type: "string", description: "ID-ul angajatului (opțional)" },
+          employeeId: { type: "string", description: "ID-ul specialistului (opțional)" },
         },
         required: ["date"],
       },

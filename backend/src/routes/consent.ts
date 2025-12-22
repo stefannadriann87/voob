@@ -800,7 +800,7 @@ router.get("/client/:clientId", verifyJWT, async (req, res) => {
     // Dacă e employee și cere filtrare pe employeeId, verifică că e propriul ID
     if (employeeId && isEmployee && !isOwner && !isSuperAdmin) {
       if (employeeId !== authReq.user.userId) {
-        return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza documentele altui angajat." });
+        return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza documentele altui specialist." });
       }
     }
 
@@ -1020,7 +1020,7 @@ router.get("/", verifyJWT, async (req, res) => {
     // Dacă e employee și cere filtrare pe employeeId, verifică că e propriul ID
     if (employeeId && isEmployee && !isOwner && !isSuperAdmin) {
       if (employeeId !== authReq.user.userId) {
-        return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza consimțămintele altui angajat." });
+        return res.status(403).json({ error: "Nu ai permisiunea de a vizualiza consimțămintele altui specialist." });
       }
     }
 

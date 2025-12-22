@@ -548,10 +548,13 @@ export default function BusinessProfilePage() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-white/70">Rol în companie</label>
+                <label className="text-sm font-medium text-white/70">Specializare</label>
                 <div className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white">
                   {user.specialization || "—"}
                 </div>
+                <p className="text-xs text-white/50">
+                  Ce specialist ești dacă profesezi în domeniu (ex: Coafor, Masaj, Manichiură, etc.)
+                </p>
               </div>
 
               {/* Separator vizual */}
@@ -677,14 +680,17 @@ export default function BusinessProfilePage() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-white/70">Rol în companie</label>
+                <label className="text-sm font-medium text-white/70">Specializare</label>
                 <input
                   type="text"
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   className="rounded-xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                  placeholder="Ex: Owner, Manager, Coordonator"
+                  placeholder="Ex: Coafor, Masaj, Manichiură, etc. (dacă profesezi)"
                 />
+                <p className="text-xs text-white/50">
+                  Completează aici ce specialist ești dacă profesezi în domeniu. Programul de lucru îl setezi din Setări, iar serviciile le gestionezi din Dashboard.
+                </p>
               </div>
 
               {/* Separator vizual */}
@@ -827,7 +833,7 @@ export default function BusinessProfilePage() {
             </div>
 
             <div className="grid gap-6 lg:grid-cols-[minmax(220px,280px),1fr]">
-              <div className="flex items-center justify-center rounded-3xl border border-dashed border-white/10 bg-[#0B0E17]/60 p-6">
+              <div className="flex items-center justify-center rounded-3xl border border-dashed border-white/10 bg-[#0B0E17]/60 p-6 mb-6">
                 {ownedBusiness.qrCodeUrl ? (
                   <img
                     src={ownedBusiness.qrCodeUrl}
@@ -840,7 +846,7 @@ export default function BusinessProfilePage() {
                   </div>
                 )}
               </div>
-              <div className="space-y-4">
+              <div className="space-y-4 mb-6">
                 <div className="rounded-2xl border border-white/10 bg-[#0B0E17]/50 p-4">
                   <p className="text-sm font-medium text-white/70">Link direct</p>
                   <p className="mt-1 text-xs text-white/50">

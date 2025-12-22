@@ -32,9 +32,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ErrorBoundary>
-          <DeepLinkHandler />
-          {children}
-          <CookieBanner />
+            <DeepLinkHandler />
+            {children}
+            <CookieBanner />
         </ErrorBoundary>
       </body>
     </html>

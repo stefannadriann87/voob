@@ -101,9 +101,9 @@ export default function CustomSelect({
           <Select.Viewport className="p-1">
             {options
               .filter((option) => option.value !== "") // Filter out empty string values
-              .map((option) => (
+              .map((option, index) => (
                 <Select.Item
-                  key={option.value}
+                  key={option.value || `option-${index}`}
                   value={option.value}
                   disabled={option.disabled}
                   className={`

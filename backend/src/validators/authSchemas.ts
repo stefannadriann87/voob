@@ -91,7 +91,38 @@ const updateProfileSchema = z.object({
     .optional()
     .nullable(),
   specialization: z.string().max(200).optional().nullable(),
-  avatar: z.string().url("URL avatar invalid").optional().nullable(),
+  // CRITICAL FIX: Accept both URL and data URI (base64) for avatar
+  // Data URI format: data:image/jpeg;base64,/9j/4AAQSkZJRg...
+  avatar: z
+    .string()
+    .refine(
+      (val: string) => {
+        if (!val) return true; // Allow null/empty
+        // Check if it's a valid URL (http://, https://)
+        if (val.startsWith("http://") || val.startsWith("https://")) {
+          try {
+            new URL(val);
+            return true;
+          } catch {
+            return false;
+          }
+        }
+        // Check if it's a valid data URI (data:image/...;base64,...)
+        // Accept common image formats: jpeg, jpg, png, gif, webp, svg+xml
+        // Base64 can contain A-Z, a-z, 0-9, +, /, = and may have whitespace/newlines
+        if (val.startsWith("data:image/")) {
+          // More permissive regex: allows any image type and base64 with optional whitespace
+          const dataUriRegex = /^data:image\/([a-zA-Z0-9]+)(\+[a-zA-Z0-9]+)?;base64,([A-Za-z0-9+/=\s]+)$/;
+          return dataUriRegex.test(val);
+        }
+        return false;
+      },
+      {
+        message: "Avatar trebuie să fie un URL valid sau o imagine în format base64 (data:image/...;base64,...)",
+      }
+    )
+    .optional()
+    .nullable(),
 });
 
 /**

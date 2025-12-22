@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 import useAuth from "../hooks/useAuth";
@@ -80,18 +80,25 @@ export default function NotificationBell() {
   const notificationCount = upcomingBookings.length;
 
   // Fetch businesses and bookings when component mounts
+  // CRITICAL FIX: Use useRef to prevent infinite loop
+  const hasFetchedRef = useRef(false);
   useEffect(() => {
     if (!hydrated) return;
     
     if (user?.role === "BUSINESS") {
-      // Fetch businesses first if not loaded
-      if (businesses.length === 0) {
+      // Fetch businesses first if not loaded (only once)
+      if (businesses.length === 0 && !hasFetchedRef.current) {
+        hasFetchedRef.current = true;
         void fetchBusinesses();
       }
       // Fetch bookings
       void fetchBookings();
     }
-  }, [user?.role, hydrated, fetchBusinesses, fetchBookings, businesses.length]);
+    // Reset flag if user changes
+    if (user?.role !== "BUSINESS") {
+      hasFetchedRef.current = false;
+    }
+  }, [user?.role, hydrated]); // Removed fetchBusinesses, fetchBookings, businesses.length from dependencies
 
   // Refresh bookings when dropdown opens
   useEffect(() => {

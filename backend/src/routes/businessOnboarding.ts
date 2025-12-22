@@ -401,7 +401,9 @@ router.post("/submit-kyc", verifyJWT, validate(submitKycSchema), async (req: exp
  * Returnează statusul onboarding-ului
  */
 router.get("/status/:businessId", verifyJWT, async (req: express.Request, res: express.Response) => {
-    const { businessId } = businessIdParamSchema.parse({ businessId: req.params.businessId });
+    // CRITICAL FIX: businessIdParamSchema expects 'id', but route param is 'businessId'
+    // Map businessId param to id for schema validation
+    const { id: businessId } = businessIdParamSchema.parse({ id: req.params.businessId });
   const authReq = req as AuthenticatedRequest;
 
   // Verifică autorizarea

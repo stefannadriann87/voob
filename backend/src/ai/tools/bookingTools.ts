@@ -214,7 +214,7 @@ async function createBooking(
     if (employee) {
       finalEmployeeId = employee.id;
     } else {
-      throw new Error(`Angajatul "${employeeName}" nu a fost găsit la acest business.`);
+      throw new Error(`Specialistul "${employeeName}" nu a fost găsit la acest business.`);
     }
   }
 
@@ -241,7 +241,7 @@ async function createBooking(
   if (finalEmployeeId) {
     const employee = await prisma.user.findUnique({ where: { id: finalEmployeeId } });
     if (!employee || employee.businessId !== finalBusinessId) {
-      throw new Error("Angajatul nu a fost găsit sau nu aparține acestui business.");
+      throw new Error("Specialistul nu a fost găsit sau nu aparține acestui business.");
     }
 
     // Verify employee can perform the service (if serviceId is provided)
@@ -553,7 +553,7 @@ const bookingTools = [
     type: "function" as const,
     function: {
       name: "createBooking",
-      description: "Creează o nouă rezervare. Poți folosi fie ID-uri, fie nume pentru business, serviciu și angajat. Pentru clienți, clientId este automat (userId).",
+      description: "Creează o nouă rezervare. Poți folosi fie ID-uri, fie nume pentru business, serviciu și specialist. Pentru clienți, clientId este automat (userId).",
       parameters: {
         type: "object",
         properties: {
@@ -562,8 +562,8 @@ const bookingTools = [
           businessName: { type: "string", description: "Numele business-ului (ex: 'hair cut studio') - opțional dacă dai businessId" },
           serviceId: { type: "string", description: "ID-ul serviciului (opțional dacă dai serviceName)" },
           serviceName: { type: "string", description: "Numele serviciului (ex: 'tuns bărbați') - opțional dacă dai serviceId" },
-          employeeId: { type: "string", description: "ID-ul angajatului (opțional)" },
-          employeeName: { type: "string", description: "Numele angajatului (opțional)" },
+          employeeId: { type: "string", description: "ID-ul specialistului (opțional)" },
+          employeeName: { type: "string", description: "Numele specialistului (opțional)" },
           date: { type: "string", description: "Data și ora rezervării (ISO format, ex: 2024-11-24T14:00:00)" },
           paid: { type: "boolean", description: "Dacă este plătită (default: false)" },
         },

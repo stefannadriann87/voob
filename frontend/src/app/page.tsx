@@ -626,10 +626,10 @@ export default function Home() {
             <div className="card-icon">
               <i className="fas fa-users-cog" />
             </div>
-            <h3>Management angajați</h3>
+            <h3>Management specialiști</h3>
             <p>
               Gestionează echipa ta, programul de lucru al fiecărui specialist și
-              programările per angajat.
+              programările per specialist.
             </p>
           </div>
           <div className="card">

@@ -145,7 +145,7 @@ async function checkEmployeeLimit(businessId: string): Promise<{
       canAdd: false,
       currentCount: 0,
       maxAllowed: null,
-      error: "Eroare la verificarea limitei de angajați.",
+      error: "Eroare la verificarea limitei de specialiști.",
     };
   }
 }
@@ -306,7 +306,7 @@ async function canChangePlan(
     if (newMaxEmployees !== null && currentEmployeeCount > newMaxEmployees) {
       return {
         canUpgrade: false,
-        error: `Nu poți schimba la planul ${newPlan.name}. Ai ${currentEmployeeCount} ${currentEmployeeCount === 1 ? "angajat" : "angajați"}, iar ${newPlan.name} permite doar ${newMaxEmployees} ${newMaxEmployees === 1 ? "utilizator" : "utilizatori"}. Șterge angajații în exces sau alege alt plan.`,
+        error: `Nu poți schimba la planul ${newPlan.name}. Ai ${currentEmployeeCount} ${currentEmployeeCount === 1 ? "specialist" : "specialiști"}, iar ${newPlan.name} permite doar ${newMaxEmployees} ${newMaxEmployees === 1 ? "utilizator" : "utilizatori"}. Șterge specialiștii în exces sau alege alt plan.`,
       };
     }
 

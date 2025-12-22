@@ -143,7 +143,18 @@ router.get("/", verifyJWT, validateQuery(paginationQuerySchema), async (req, res
     const { skip, take } = getPaginationParams(page, limit);
 
     // Check cache first (cache key includes pagination params)
-    const cacheKey = `business_list_all_page_${page}_limit_${limit}`;
+    // CRITICAL FIX: Use proper cache key format matching delByPattern
+    const cacheKey = `cache:business:business_list_all_page_${page}_limit_${limit}`;
+    
+    // CRITICAL FIX: Verify getCachedBusiness is a function before calling
+    if (typeof getCachedBusiness !== "function") {
+      logger.error("getCachedBusiness is not a function", { 
+        type: typeof getCachedBusiness,
+        cacheService: typeof require("../services/cacheService"),
+      });
+      throw new Error("Cache service not properly initialized");
+    }
+    
     const cached = await getCachedBusiness(cacheKey);
     if (cached) {
       return res.json(cached);
@@ -153,12 +164,12 @@ router.get("/", verifyJWT, validateQuery(paginationQuerySchema), async (req, res
     const total = await prisma.business.count();
 
     // Fetch businesses with services in a single query (avoid N+1)
+    // CRITICAL FIX: Use defaultBusinessInclude.services: true to get ALL service fields (id, name, duration, price, notes)
+    // Previously only selected { duration: true }, which caused new services to not appear and missing fields
     const businesses = await prisma.business.findMany({
       include: {
         ...defaultBusinessInclude,
-        services: {
-          select: { duration: true },
-        },
+        // services: true is already included in defaultBusinessInclude, so we don't need to override it
       },
       skip,
       take,
@@ -166,18 +177,53 @@ router.get("/", verifyJWT, validateQuery(paginationQuerySchema), async (req, res
     });
 
     // Calculate slotDuration for each business if not set (in-memory, no additional queries)
+    // CRITICAL FIX: Also include business owner in employees list (owner can perform services)
     const businessesWithSlotDuration = businesses.map((business: any) => {
         if (business.slotDuration !== null && business.slotDuration !== undefined) {
+          // Still need to add owner to employees list
+          const employees = business.employees || [];
+          const ownerInEmployees = employees.some((emp: any) => emp.id === business.owner?.id);
+          if (!ownerInEmployees && business.owner) {
+            // Add owner as first employee in the list
+            business.employees = [
+              {
+                id: business.owner.id,
+                name: business.owner.name,
+                email: business.owner.email,
+                phone: null,
+                specialization: null,
+                avatar: null,
+              },
+              ...employees,
+            ];
+          }
           return business;
         }
 
         // Calculate from minimum service duration
         const services = business.services || [];
         if (services.length === 0) {
+          // Still need to add owner to employees list
+          const employees = business.employees || [];
+          const ownerInEmployees = employees.some((emp: any) => emp.id === business.owner?.id);
+          if (!ownerInEmployees && business.owner) {
+            business.employees = [
+              {
+                id: business.owner.id,
+                name: business.owner.name,
+                email: business.owner.email,
+                phone: null,
+                specialization: null,
+                avatar: null,
+              },
+              ...employees,
+            ];
+          }
           return { ...business, slotDuration: 60 }; // Default to 60 minutes
         }
 
-        const minDuration = Math.min(...services.map((s: { duration: number }) => s.duration));
+        // CRITICAL FIX: Services now include all fields (id, name, duration, price, notes), not just duration
+        const minDuration = Math.min(...services.map((s: { duration: number }) => s.duration || 60));
         // Round to nearest valid slot duration (30, 60, 90, 120, etc.) - doar multipli de 30
         // Slot duration nu poate fi mai mare decât durata minimă a serviciului
         const validDurations = [30, 60, 90, 120, 150, 180];
@@ -185,6 +231,24 @@ router.get("/", verifyJWT, validateQuery(paginationQuerySchema), async (req, res
           if (curr > minDuration) return prev; // Nu folosim slot duration mai mare decât durata minimă
           return Math.abs(curr - minDuration) < Math.abs(prev - minDuration) ? curr : prev;
         }, 30); // Default minim 30 minute
+
+        // CRITICAL FIX: Add owner to employees list if not already present
+        const employees = business.employees || [];
+        const ownerInEmployees = employees.some((emp: any) => emp.id === business.owner?.id);
+        if (!ownerInEmployees && business.owner) {
+          // Add owner as first employee in the list
+          business.employees = [
+            {
+              id: business.owner.id,
+              name: business.owner.name,
+              email: business.owner.email,
+              phone: null,
+              specialization: null,
+              avatar: null,
+            },
+            ...employees,
+          ];
+        }
 
         return { ...business, slotDuration: calculatedSlotDuration };
       });
@@ -255,7 +319,7 @@ router.get("/:businessId/working-hours", verifyJWT, async (req, res) => {
         logger.warn(
           `GET /business/${businessId}/working-hours - Employee ${employeeId} not linked to this business`
         );
-        return res.status(404).json({ error: "Angajatul nu aparține acestui business." });
+        return res.status(404).json({ error: "Specialistul nu aparține acestui business." });
       }
 
       if (employee.workingHours) {
@@ -666,7 +730,9 @@ router.put("/:businessId/working-hours", verifyJWT, async (req, res) => {
 
 // Update business
 router.put("/:businessId", verifyJWT, requireBusinessAccess("businessId"), validateParams(businessIdParamSchema), validate(updateBusinessSchema), async (req, res) => {
-  const { businessId } = businessIdParamSchema.parse({ businessId: req.params.businessId });
+  // CRITICAL FIX: businessIdParamSchema expects 'id', but route param is 'businessId'
+  // validateParams middleware now handles the mapping
+  const businessId = (req.params as any).id || req.params.businessId;
   const authReq = req as AuthenticatedRequest;
   const { name, email, businessType } = updateBusinessSchema.parse(req.body);
   const body = req.body as { address?: string; phone?: string; latitude?: string | number; longitude?: string | number };

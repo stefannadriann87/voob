@@ -10,7 +10,7 @@ import type { Prisma } from "@prisma/client";
 const { generateBusinessQrDataUrl } = require("../lib/qr");
 const { verifyCaptcha, isCaptchaScoreValid } = require("../services/captchaService");
 const { createRefreshToken, revokeAllUserRefreshTokens } = require("../services/refreshTokenService");
-const { loginSchema, forgotPasswordSchema, passwordSchema } = require("../validators/authSchemas");
+const { loginSchema, forgotPasswordSchema, passwordSchema, updateProfileSchema } = require("../validators/authSchemas");
 const {
   getClientIp,
   checkSuspiciousPattern,
@@ -645,6 +645,15 @@ router.get("/me", authenticate, async (req, res) => {
 router.put("/me", authenticate, async (req, res) => {
   const authReq = req as express.Request & { user?: TokenPayload };
   const { phone, name, specialization, avatar }: { phone?: string; name?: string; specialization?: string; avatar?: string } = req.body;
+
+  // CRITICAL FIX: Validate request body with Zod schema
+  try {
+    updateProfileSchema.parse({ phone, name, specialization, avatar });
+  } catch (validationError: any) {
+    return res.status(400).json({
+      error: validationError.errors?.[0]?.message || "Date invalide pentru actualizarea profilului.",
+    });
+  }
 
   try {
     const updateData: { phone?: string | null; name?: string; specialization?: string | null; avatar?: string | null } = {};

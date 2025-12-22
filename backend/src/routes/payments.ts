@@ -219,10 +219,13 @@ router.post("/create-intent", verifyJWT, validate(createPaymentIntentSchema), as
       amount: amountMinor,
       currency: "ron",
       capture_method: "automatic",
-      // Use automatic_payment_methods for card payments (Stripe handles card, Apple Pay, Google Pay automatically)
+      // CRITICAL FIX: Use automatic_payment_methods with allow_redirects: "always"
+      // This enables Link, Card, Apple Pay, Google Pay, and Klarna
+      // allow_redirects: "always" is REQUIRED for Klarna (redirect-based payment)
+      // Klarna will appear in PaymentElement if enabled in Stripe Dashboard
       automatic_payment_methods: { 
         enabled: true, 
-        allow_redirects: "always" 
+        allow_redirects: "always" // CRITICAL: Required for Klarna to appear
       },
       metadata: {
         businessId: businessId ?? "",

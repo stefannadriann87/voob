@@ -84,7 +84,14 @@ function PaymentFormComponent({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement />
+      {/* CRITICAL FIX: PaymentElement configured to show Klarna alongside Link and Card */}
+      <PaymentElement 
+        options={{
+          // Force Klarna to appear by specifying payment method order
+          // This ensures Klarna is always visible when available
+          paymentMethodOrder: ["klarna", "link", "card"],
+        }}
+      />
       {error && (
         <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
           {error}
@@ -366,10 +373,20 @@ export default function ClientBookingsPage() {
   // Filter services based on selected employee (must be after selectedEmployeeId declaration)
   const availableServices = useMemo(() => {
     if (!selectedBusiness?.services) return [];
-    if (!selectedEmployeeId || employeeServices.size === 0) {
-      // If no employee selected or no restrictions, show all services (backward compatibility)
+    
+    // CRITICAL FIX: If no employee selected, show all services
+    if (!selectedEmployeeId) {
       return selectedBusiness.services;
     }
+    
+    // CRITICAL FIX: If employee is selected, show ONLY services associated with that employee
+    // If employeeServices.size === 0, it means employee has no services assigned, so return empty array
+    // This ensures that when Maria has only "manichiura" assigned, only "manichiura" is shown
+    if (employeeServices.size === 0) {
+      // Employee has no services assigned - return empty array (not all services)
+      return [];
+    }
+    
     // Filter services that are associated with the selected employee
     return selectedBusiness.services.filter((service) => employeeServices.has(service.id));
   }, [selectedBusiness?.services, selectedEmployeeId, employeeServices]);
@@ -2427,7 +2444,7 @@ const handleConsentSubmit = async () => {
                 <i className="fas fa-times" />
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 mobile:gap-1 desktop:gap-3" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((hours) => {
                 const durationMinutes = hours * 60;
                 return (

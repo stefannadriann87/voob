@@ -10,6 +10,7 @@ const { logger } = require("../lib/logger");
 const router = express.Router();
 
 // Get employee working hours
+// CRITICAL FIX: Allow business owner to access their own working hours as a specialist
 router.get("/:employeeId/working-hours", verifyJWT, async (req, res) => {
   const authReq = req as express.Request & { user?: { userId: string; role: string } };
   const { employeeId } = employeeIdParamSchema.parse({ employeeId: req.params.employeeId });
@@ -18,12 +19,7 @@ router.get("/:employeeId/working-hours", verifyJWT, async (req, res) => {
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 
-  // Verify role is EMPLOYEE
-  if (authReq.user.role !== "EMPLOYEE") {
-    return res.status(403).json({ error: "Doar angajații pot accesa programul de lucru." });
-  }
-
-  // Only the employee themselves can access their working hours
+  // Only the user themselves can access their working hours
   if (authReq.user.userId !== employeeId) {
     return res.status(403).json({ error: "Nu ai permisiunea de a accesa aceste date." });
   }
@@ -31,16 +27,28 @@ router.get("/:employeeId/working-hours", verifyJWT, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: employeeId },
-      select: { workingHours: true, role: true },
+      select: { 
+        workingHours: true, 
+        role: true,
+        ownedBusinesses: {
+          select: { id: true },
+        },
+      },
     });
 
     if (!user) {
-      return res.status(404).json({ error: "Employee-ul nu a fost găsit." });
+      return res.status(404).json({ error: "Utilizatorul nu a fost găsit." });
     }
 
-    // Verify user is actually an employee
-    if (user.role !== "EMPLOYEE") {
-      return res.status(403).json({ error: "Utilizatorul nu este un angajat." });
+    // CRITICAL FIX: Allow EMPLOYEE role OR BUSINESS role (if owner wants to be a specialist)
+    // Business owner can also manage their own working hours as a specialist
+    if (user.role !== "EMPLOYEE" && user.role !== "BUSINESS") {
+      return res.status(403).json({ error: "Utilizatorul nu este un specialist sau business owner." });
+    }
+
+    // If BUSINESS role, verify they own at least one business (they can be a specialist)
+    if (user.role === "BUSINESS" && (!user.ownedBusinesses || user.ownedBusinesses.length === 0)) {
+      return res.status(403).json({ error: "Business owner-ul trebuie să aibă cel puțin un business pentru a gestiona working hours." });
     }
 
     return res.json({ workingHours: user.workingHours });
@@ -60,25 +68,35 @@ router.put("/:employeeId/working-hours", verifyJWT, validate(workingHoursSchema)
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 
-  // Verify role is EMPLOYEE
-  if (authReq.user.role !== "EMPLOYEE") {
-    return res.status(403).json({ error: "Doar angajații pot actualiza programul de lucru." });
-  }
-
-  // Only the employee themselves can update their working hours
+  // Only the user themselves can update their working hours
   if (authReq.user.userId !== employeeId) {
     return res.status(403).json({ error: "Nu ai permisiunea de a actualiza aceste date." });
   }
 
   try {
-    // Verify employee exists and is EMPLOYEE
     const existingUser = await prisma.user.findUnique({
       where: { id: employeeId },
-      select: { role: true },
+      select: { 
+        role: true,
+        ownedBusinesses: {
+          select: { id: true },
+        },
+      },
     });
 
-    if (!existingUser || existingUser.role !== "EMPLOYEE") {
-      return res.status(404).json({ error: "Employee-ul nu a fost găsit." });
+    if (!existingUser) {
+      return res.status(404).json({ error: "Utilizatorul nu a fost găsit." });
+    }
+
+    // CRITICAL FIX: Allow EMPLOYEE role OR BUSINESS role (if owner wants to be a specialist)
+    // Business owner can also manage their own working hours as a specialist
+    if (existingUser.role !== "EMPLOYEE" && existingUser.role !== "BUSINESS") {
+      return res.status(403).json({ error: "Utilizatorul nu este un specialist sau business owner." });
+    }
+
+    // If BUSINESS role, verify they own at least one business (they can be a specialist)
+    if (existingUser.role === "BUSINESS" && (!existingUser.ownedBusinesses || existingUser.ownedBusinesses.length === 0)) {
+      return res.status(403).json({ error: "Business owner-ul trebuie să aibă cel puțin un business pentru a gestiona working hours." });
     }
 
     const updatedUser = await prisma.user.update({
@@ -107,7 +125,7 @@ router.get("/:employeeId/holidays", verifyJWT, async (req, res) => {
 
   // Verify role is EMPLOYEE
   if (authReq.user.role !== "EMPLOYEE") {
-    return res.status(403).json({ error: "Doar angajații pot accesa perioadele de concediu." });
+    return res.status(403).json({ error: "Doar specialiștii pot accesa perioadele de concediu." });
   }
 
   // Only the employee themselves can access their holidays
@@ -150,7 +168,7 @@ router.post("/:employeeId/holidays", verifyJWT, validate(createHolidaySchema), a
 
   // Verify role is EMPLOYEE
   if (authReq.user.role !== "EMPLOYEE") {
-    return res.status(403).json({ error: "Doar angajații pot crea perioade de concediu." });
+    return res.status(403).json({ error: "Doar specialiștii pot crea perioade de concediu." });
   }
 
   // Only the employee themselves can create holidays
@@ -197,7 +215,7 @@ router.delete("/:employeeId/holidays/:holidayId", verifyJWT, async (req, res) =>
 
   // Verify role is EMPLOYEE
   if (authReq.user.role !== "EMPLOYEE") {
-    return res.status(403).json({ error: "Doar angajații pot șterge perioade de concediu." });
+    return res.status(403).json({ error: "Doar specialiștii pot șterge perioade de concediu." });
   }
 
   // Only the employee themselves can delete holidays
@@ -254,7 +272,7 @@ router.get("/services", verifyJWT, async (req, res) => {
   // Verify role is EMPLOYEE
   if (authReq.user.role !== "EMPLOYEE") {
     return res.status(403).json({ 
-      error: "Doar angajații pot accesa serviciile.",
+      error: "Doar specialiștii pot accesa serviciile.",
       code: "INVALID_ROLE",
       actionable: "Doar utilizatorii cu rolul de EMPLOYEE pot accesa acest endpoint."
     });
@@ -289,7 +307,7 @@ router.get("/services", verifyJWT, async (req, res) => {
 
     if (!employee || employee.role !== "EMPLOYEE") {
       return res.status(404).json({ 
-        error: "Angajatul nu a fost găsit.",
+        error: "Specialistul nu a fost găsit.",
         code: "EMPLOYEE_NOT_FOUND",
         actionable: "Verifică că utilizatorul există și are rolul de EMPLOYEE."
       });
@@ -297,9 +315,9 @@ router.get("/services", verifyJWT, async (req, res) => {
 
     if (!employee.businessId || !employee.business) {
       return res.status(404).json({ 
-        error: "Angajatul nu are un business asociat.",
+        error: "Specialistul nu are un business asociat.",
         code: "EMPLOYEE_NO_BUSINESS",
-        actionable: "Verifică că angajatul este asociat cu un business."
+        actionable: "Verifică că specialistul este asociat cu un business."
       });
     }
 
@@ -348,10 +366,13 @@ router.post("/services/:serviceId", verifyJWT, async (req, res) => {
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 
+  // CRITICAL FIX: Store user in a const so TypeScript knows it's defined
+  const user = authReq.user;
+
   // Verify role is EMPLOYEE
-  if (authReq.user.role !== "EMPLOYEE") {
+  if (user.role !== "EMPLOYEE") {
     return res.status(403).json({ 
-      error: "Doar angajații pot asocia servicii.",
+      error: "Doar specialiștii pot asocia servicii.",
       code: "INVALID_ROLE",
       actionable: "Doar utilizatorii cu rolul de EMPLOYEE pot accesa acest endpoint."
     });
@@ -360,7 +381,7 @@ router.post("/services/:serviceId", verifyJWT, async (req, res) => {
   try {
     // Get employee with business and canManageOwnServices flag
     const employee = await prisma.user.findUnique({
-      where: { id: authReq.user.userId },
+      where: { id: user.userId },
       select: {
         id: true,
         role: true,
@@ -371,7 +392,7 @@ router.post("/services/:serviceId", verifyJWT, async (req, res) => {
 
     if (!employee || employee.role !== "EMPLOYEE") {
       return res.status(404).json({ 
-        error: "Angajatul nu a fost găsit.",
+        error: "Specialistul nu a fost găsit.",
         code: "EMPLOYEE_NOT_FOUND",
         actionable: "Verifică că utilizatorul există și are rolul de EMPLOYEE."
       });
@@ -379,9 +400,9 @@ router.post("/services/:serviceId", verifyJWT, async (req, res) => {
 
     if (!employee.businessId) {
       return res.status(404).json({ 
-        error: "Angajatul nu are un business asociat.",
+        error: "Specialistul nu are un business asociat.",
         code: "EMPLOYEE_NO_BUSINESS",
-        actionable: "Verifică că angajatul este asociat cu un business."
+        actionable: "Verifică că specialistul este asociat cu un business."
       });
     }
 
@@ -435,7 +456,7 @@ router.post("/services/:serviceId", verifyJWT, async (req, res) => {
     }
 
     // Create association and audit trail in transaction
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       // Create association
       const employeeService = await tx.employeeService.create({
         data: {
@@ -461,7 +482,7 @@ router.post("/services/:serviceId", verifyJWT, async (req, res) => {
           employeeId: employee.id,
           serviceId: service.id,
           action: "ASSOCIATE",
-          performedBy: authReq.user.userId,
+          performedBy: user.userId,
           performedByRole: "EMPLOYEE",
         },
       });
@@ -478,7 +499,7 @@ router.post("/services/:serviceId", verifyJWT, async (req, res) => {
       employeeId: employee.id,
       serviceId,
       serviceName: service.name,
-      performedBy: authReq.user.userId,
+      performedBy: user.userId,
       performedByRole: "EMPLOYEE",
       businessId: employee.businessId,
     });
@@ -520,10 +541,13 @@ router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 
+  // CRITICAL FIX: Store user in a const so TypeScript knows it's defined
+  const user = authReq.user;
+
   // Verify role is EMPLOYEE
-  if (authReq.user.role !== "EMPLOYEE") {
+  if (user.role !== "EMPLOYEE") {
     return res.status(403).json({ 
-      error: "Doar angajații pot dezasocia servicii.",
+      error: "Doar specialiștii pot dezasocia servicii.",
       code: "INVALID_ROLE",
       actionable: "Doar utilizatorii cu rolul de EMPLOYEE pot accesa acest endpoint."
     });
@@ -532,7 +556,7 @@ router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
   try {
     // Get employee with canManageOwnServices flag
     const employee = await prisma.user.findUnique({
-      where: { id: authReq.user.userId },
+      where: { id: user.userId },
       select: {
         id: true,
         role: true,
@@ -543,7 +567,7 @@ router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
 
     if (!employee || employee.role !== "EMPLOYEE") {
       return res.status(404).json({ 
-        error: "Angajatul nu a fost găsit.",
+        error: "Specialistul nu a fost găsit.",
         code: "EMPLOYEE_NOT_FOUND",
         actionable: "Verifică că utilizatorul există și are rolul de EMPLOYEE."
       });
@@ -551,9 +575,9 @@ router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
 
     if (!employee.businessId) {
       return res.status(404).json({ 
-        error: "Angajatul nu are un business asociat.",
+        error: "Specialistul nu are un business asociat.",
         code: "EMPLOYEE_NO_BUSINESS",
-        actionable: "Verifică că angajatul este asociat cu un business."
+        actionable: "Verifică că specialistul este asociat cu un business."
       });
     }
 
@@ -591,7 +615,7 @@ router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
     }
 
     // Delete association and create audit trail in transaction
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       // Delete association
       await tx.employeeService.delete({
         where: {
@@ -608,7 +632,7 @@ router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
           employeeId: employee.id,
           serviceId: serviceId,
           action: "DISASSOCIATE",
-          performedBy: authReq.user.userId,
+          performedBy: user.userId,
           performedByRole: "EMPLOYEE",
         },
       });
@@ -623,7 +647,7 @@ router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
       employeeId: employee.id,
       serviceId,
       serviceName: service?.name,
-      performedBy: authReq.user.userId,
+      performedBy: user.userId,
       performedByRole: "EMPLOYEE",
       businessId: employee.businessId,
     });

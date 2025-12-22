@@ -19,6 +19,7 @@ const { logger } = require("../lib/logger");
 const { validate, validateQuery } = require("../middleware/validate");
 const { paginationQuerySchema, getPaginationParams, buildPaginationResponse } = require("../validators/paginationSchemas");
 const { createEmployeeSchema, updateEmployeeSchema } = require("../validators/businessSchemas");
+const { employeeIdParamSchema } = require("../validators/employeeSchemas");
 const { checkEmployeeLimit } = require("../services/subscriptionService");
 
 const router = express.Router();
@@ -87,12 +88,145 @@ router.get("/:businessId/employees", verifyJWT, requireBusinessAccess("businessI
     }
     
     return res.status(500).json({ 
-      error: "Nu am putut încărca lista de angajați. Te rugăm să încerci din nou.",
+      error: "Nu am putut încărca lista de specialiști. Te rugăm să încerci din nou.",
       code: "EMPLOYEES_FETCH_FAILED",
       actionable: "Dacă problema persistă, reîmprospătează pagina sau contactează suportul."
     });
   }
 });
+
+// Get single employee
+router.get("/:businessId/employees/:employeeId", 
+  verifyJWT, 
+  requireBusinessAccess("businessId"),
+  async (req, res) => {
+    const { businessId, employeeId } = req.params;
+    
+    // CRITICAL FIX: Validate employeeId - check if it exists and is valid
+    if (!employeeId) {
+      logger.warn("GET /employees/:employeeId - Missing employeeId", {
+        businessId,
+        employeeId,
+        path: req.path,
+      });
+      return res.status(400).json({ error: "employeeId este obligatoriu." });
+    }
+    
+    // Validate employeeId format
+    try {
+      employeeIdParamSchema.parse({ employeeId });
+    } catch (error: any) {
+      logger.warn("GET /employees/:employeeId - Invalid employeeId format", {
+        businessId,
+        employeeId,
+        error: error?.errors || error?.message,
+        path: req.path,
+      });
+      return res.status(400).json({ error: "employeeId invalid." });
+    }
+
+    try {
+      // Verify that the business exists
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+        select: { id: true, ownerId: true },
+      });
+
+      if (!business) {
+        return res.status(404).json({ 
+          error: "Business-ul nu a fost găsit.",
+          code: "BUSINESS_NOT_FOUND",
+          actionable: "Verifică că business-ul există și că ai permisiunea de a-l accesa.",
+        });
+      }
+
+      // Get employee - ensure employee belongs to this business and is EMPLOYEE role
+      const employee = await prisma.user.findUnique({
+        where: { 
+          id: employeeId,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          specialization: true,
+          avatar: true,
+          canManageOwnServices: true, // TICKET-044: Include flag-ul
+          workingHours: true,
+          role: true,
+          businessId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!employee) {
+        return res.status(404).json({ 
+          error: "Specialistul nu a fost găsit.",
+          code: "EMPLOYEE_NOT_FOUND",
+          actionable: "Verifică că specialistul există.",
+        });
+      }
+
+      // CRITICAL FIX: Allow business owner to be treated as an employee
+      // Business owner can also perform services and should appear in the employees list
+      if (employee.id === business.ownerId) {
+        // Owner is allowed - return owner data as if it were an employee
+        // Remove sensitive fields before returning
+        const { businessId: _businessId, role: _role, ...employeeResponse } = employee;
+        return res.json(employeeResponse);
+      }
+
+      // Verify employee belongs to this business
+      if (employee.businessId !== businessId) {
+        return res.status(403).json({ 
+          error: "Specialistul nu aparține acestui business.",
+          code: "EMPLOYEE_BUSINESS_MISMATCH",
+          actionable: "Verifică că specialistul aparține business-ului corect.",
+        });
+      }
+
+      // Verify employee has EMPLOYEE role (only if not owner)
+      if (employee.role !== "EMPLOYEE") {
+        return res.status(403).json({ 
+          error: "Utilizatorul nu este un specialist.",
+          code: "NOT_AN_EMPLOYEE",
+          actionable: "Verifică că utilizatorul are rolul de EMPLOYEE.",
+        });
+      }
+
+      // Remove sensitive fields before returning
+      const { businessId: _businessId, role: _role, ...employeeResponse } = employee;
+
+      return res.json(employeeResponse);
+    } catch (error: any) {
+      logger.error("Failed to get employee", error);
+      
+      // CRITICAL FIX (TICKET-012): Specific and actionable error messages
+      if (error instanceof Error) {
+        const errorMessage = error.message || "";
+        const errorCode = (error as any)?.code || "";
+        
+        // Check for not found errors
+        if (errorMessage.includes("nu a fost găsit") || 
+            errorCode === "P2025") {
+          return res.status(404).json({ 
+            error: "Specialistul nu a fost găsit.",
+            code: "EMPLOYEE_NOT_FOUND",
+            actionable: "Verifică că specialistul există și că aparține business-ului corect.",
+          });
+        }
+      }
+      
+      return res.status(500).json({ 
+        error: "Nu am putut încărca datele specialistului. Te rugăm să încerci din nou.",
+        code: "EMPLOYEE_FETCH_FAILED",
+        actionable: "Dacă problema persistă, contactează suportul.",
+      });
+    }
+  }
+);
 
 // Create employee
 router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("businessId"), validate(createEmployeeSchema), async (req, res) => {
@@ -121,7 +255,7 @@ router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("business
     const employeeLimitCheck = await checkEmployeeLimit(businessId);
     if (!employeeLimitCheck.canAdd) {
       return res.status(403).json({
-        error: employeeLimitCheck.error || "Ai atins limita de angajați pentru planul tău.",
+        error: employeeLimitCheck.error || "Ai atins limita de specialiști pentru planul tău.",
         currentCount: employeeLimitCheck.currentCount,
         maxAllowed: employeeLimitCheck.maxAllowed,
       });
@@ -185,7 +319,7 @@ router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("business
         return res.status(409).json({ 
           error: "Un utilizator cu acest email există deja în sistem.",
           code: "EMAIL_ALREADY_EXISTS",
-          actionable: "Folosește un alt email sau verifică dacă angajatul este deja înregistrat."
+          actionable: "Folosește un alt email sau verifică dacă specialistul este deja înregistrat."
         });
       }
       
@@ -194,7 +328,7 @@ router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("business
           errorMessage.includes("Record to connect not found") ||
           errorCode === "P2025") {
         return res.status(400).json({ 
-          error: "Business-ul nu a fost găsit sau nu ai permisiunea de a adăuga angajați pentru acest business.",
+          error: "Business-ul nu a fost găsit sau nu ai permisiunea de a adăuga specialiști pentru acest business.",
           code: "BUSINESS_NOT_FOUND",
           actionable: "Verifică că business-ul există și că ai permisiunea de a-l gestiona."
         });
@@ -203,15 +337,15 @@ router.post("/:businessId/employees", verifyJWT, requireBusinessAccess("business
       // Check for employee limit
       if (errorMessage.includes("limita") || errorMessage.includes("limit")) {
         return res.status(403).json({ 
-          error: errorMessage || "Ai atins limita de angajați pentru planul tău.",
+          error: errorMessage || "Ai atins limita de specialiști pentru planul tău.",
           code: "EMPLOYEE_LIMIT_REACHED",
-          actionable: "Upgrade la un plan superior sau șterge angajați existenți pentru a adăuga alții."
+          actionable: "Upgrade la un plan superior sau șterge specialiști existenți pentru a adăuga alții."
         });
       }
     }
     
     return res.status(500).json({ 
-      error: "Nu am putut adăuga angajatul. Te rugăm să încerci din nou.",
+      error: "Nu am putut adăuga specialistul. Te rugăm să încerci din nou.",
       code: "EMPLOYEE_CREATION_FAILED",
       actionable: "Dacă problema persistă, contactează suportul."
     });
@@ -235,12 +369,27 @@ router.put("/:businessId/employees/:employeeId", verifyJWT, requireBusinessAcces
     canManageOwnServices?: boolean;
   } = req.body;
 
+  // CRITICAL FIX: Validate employeeId - check if it exists and is valid
   if (!businessId || !employeeId) {
     return res.status(400).json({ error: "businessId și employeeId sunt obligatorii." });
   }
-  if (!name || !email) {
-    return res.status(400).json({ error: "name și email sunt obligatorii pentru actualizarea unui employee." });
+
+  // Validate employeeId format
+  try {
+    employeeIdParamSchema.parse({ employeeId });
+  } catch (error: any) {
+    logger.warn("PUT /employees/:employeeId - Invalid employeeId format", {
+      businessId,
+      employeeId,
+      error: error?.errors || error?.message,
+      path: req.path,
+    });
+    return res.status(400).json({ error: "employeeId invalid." });
   }
+  
+  // CRITICAL FIX: For UPDATE, name and email are optional
+  // User can update only canManageOwnServices or other fields without changing name/email
+  // No need to require name and email for updates
 
   try {
     // Verify that the business exists
@@ -258,28 +407,37 @@ router.put("/:businessId/employees/:employeeId", verifyJWT, requireBusinessAcces
     }
 
     if (business.employees.length === 0) {
-      return res.status(404).json({ error: "Angajatul nu a fost găsit sau nu aparține acestui business." });
+      return res.status(404).json({ error: "Specialistul nu a fost găsit sau nu aparține acestui business." });
     }
 
-    // Check if email is being changed and if it already exists
-    if (email.trim() !== business.employees[0].email) {
-      const existingUser = await prisma.user.findUnique({ where: { email: email.trim() } });
-      if (existingUser) {
-        return res.status(409).json({ error: "Un utilizator cu acest email există deja." });
+    // CRITICAL FIX: Build update data object only with provided fields
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name.trim();
+    if (email !== undefined) {
+      // Check if email is being changed and if it already exists
+      if (email.trim() !== business.employees[0].email) {
+        const existingUser = await prisma.user.findUnique({ where: { email: email.trim() } });
+        if (existingUser) {
+          return res.status(409).json({ 
+            error: "Un utilizator cu acest email există deja în sistem.",
+            code: "EMAIL_ALREADY_EXISTS",
+            actionable: "Folosește un alt email pentru acest specialist."
+          });
+        }
       }
+      updateData.email = email.trim();
     }
-
-    // Update employee user
-    const updateData: any = {
-      name: name.trim(),
-      email: email.trim(),
-      phone: phone?.trim() || null,
-      specialization: specialization?.trim() || null,
-    };
+    if (phone !== undefined) updateData.phone = phone?.trim() || null;
+    if (specialization !== undefined) updateData.specialization = specialization?.trim() || null;
+    if (canManageOwnServices !== undefined) updateData.canManageOwnServices = canManageOwnServices; // TICKET-044: Actualizează flag-ul
     
-    // TICKET-044: Adaugă canManageOwnServices dacă este furnizat
-    if (canManageOwnServices !== undefined) {
-      updateData.canManageOwnServices = canManageOwnServices;
+    // If no fields to update, return error
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ 
+        error: "Nu ai furnizat niciun câmp pentru actualizare.",
+        code: "NO_UPDATE_FIELDS",
+        actionable: "Furnizează cel puțin un câmp pentru actualizare (name, email, phone, specialization, canManageOwnServices)."
+      });
     }
     
     const updatedEmployee = await prisma.user.update({
@@ -312,9 +470,9 @@ router.put("/:businessId/employees/:employeeId", verifyJWT, requireBusinessAcces
           errorMessage.includes("Record to update not found") || 
           errorCode === "P2025") {
         return res.status(404).json({ 
-          error: "Angajatul nu a fost găsit sau nu aparține acestui business.",
+          error: "Specialistul nu a fost găsit sau nu aparține acestui business.",
           code: "EMPLOYEE_NOT_FOUND",
-          actionable: "Verifică că angajatul există și că aparține business-ului corect."
+          actionable: "Verifică că specialistul există și că aparține business-ului corect."
         });
       }
       
@@ -325,13 +483,13 @@ router.put("/:businessId/employees/:employeeId", verifyJWT, requireBusinessAcces
         return res.status(409).json({ 
           error: "Un utilizator cu acest email există deja în sistem.",
           code: "EMAIL_ALREADY_EXISTS",
-          actionable: "Folosește un alt email pentru acest angajat."
+          actionable: "Folosește un alt email pentru acest specialist."
         });
       }
     }
     
     return res.status(500).json({ 
-      error: "Nu am putut actualiza angajatul. Te rugăm să încerci din nou.",
+      error: "Nu am putut actualiza specialistul. Te rugăm să încerci din nou.",
       code: "EMPLOYEE_UPDATE_FAILED",
       actionable: "Dacă problema persistă, contactează suportul."
     });
@@ -339,12 +497,29 @@ router.put("/:businessId/employees/:employeeId", verifyJWT, requireBusinessAcces
 });
 
 // Delete employee
-router.delete("/:businessId/employees/:employeeId", verifyJWT, async (req, res) => {
-  const { businessId, employeeId } = req.params;
+router.delete("/:businessId/employees/:employeeId", 
+  verifyJWT, 
+  requireBusinessAccess("businessId"), // CRITICAL FIX: Adăugat requireBusinessAccess pentru securitate
+  async (req, res) => {
+    const { businessId, employeeId } = req.params;
 
-  if (!businessId || !employeeId) {
-    return res.status(400).json({ error: "businessId și employeeId sunt obligatorii." });
-  }
+    // CRITICAL FIX: Validate employeeId - check if it exists and is valid
+    if (!businessId || !employeeId) {
+      return res.status(400).json({ error: "businessId și employeeId sunt obligatorii." });
+    }
+
+    // Validate employeeId format
+    try {
+      employeeIdParamSchema.parse({ employeeId });
+    } catch (error: any) {
+      logger.warn("DELETE /employees/:employeeId - Invalid employeeId format", {
+        businessId,
+        employeeId,
+        error: error?.errors || error?.message,
+        path: req.path,
+      });
+      return res.status(400).json({ error: "employeeId invalid." });
+    }
 
   try {
     // Verify that the business exists
@@ -362,7 +537,7 @@ router.delete("/:businessId/employees/:employeeId", verifyJWT, async (req, res) 
     }
 
     if (business.employees.length === 0) {
-      return res.status(404).json({ error: "Angajatul nu a fost găsit sau nu aparține acestui business." });
+      return res.status(404).json({ error: "Specialistul nu a fost găsit sau nu aparține acestui business." });
     }
 
     // Remove employee from business
@@ -396,9 +571,9 @@ router.delete("/:businessId/employees/:employeeId", verifyJWT, async (req, res) 
           errorMessage.includes("Record to delete does not exist") || 
           errorCode === "P2025") {
         return res.status(404).json({ 
-          error: "Angajatul nu a fost găsit sau a fost deja șters.",
+          error: "Specialistul nu a fost găsit sau a fost deja șters.",
           code: "EMPLOYEE_NOT_FOUND",
-          actionable: "Verifică că angajatul există înainte de a-l șterge."
+          actionable: "Verifică că specialistul există înainte de a-l șterge."
         });
       }
       
@@ -407,15 +582,15 @@ router.delete("/:businessId/employees/:employeeId", verifyJWT, async (req, res) 
           errorMessage.includes("violates foreign key constraint") ||
           errorCode === "P2003") {
         return res.status(409).json({ 
-          error: "Nu poți șterge acest angajat deoarece are rezervări asociate.",
+          error: "Nu poți șterge acest specialist deoarece are rezervări asociate.",
           code: "EMPLOYEE_IN_USE",
-          actionable: "Anulează sau finalizează toate rezervările pentru acest angajat înainte de a-l șterge."
+          actionable: "Anulează sau finalizează toate rezervările pentru acest specialist înainte de a-l șterge."
         });
       }
     }
     
     return res.status(500).json({ 
-      error: "Nu am putut șterge angajatul. Te rugăm să încerci din nou.",
+      error: "Nu am putut șterge specialistul. Te rugăm să încerci din nou.",
       code: "EMPLOYEE_DELETION_FAILED",
       actionable: "Dacă problema persistă, contactează suportul."
     });

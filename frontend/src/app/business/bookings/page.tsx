@@ -201,6 +201,32 @@ export default function BusinessBookingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, user, router]); // Removed fetchBookings and fetchBusinesses from dependencies
 
+  // CRITICAL FIX: Auto-refresh bookings periodically to show new bookings from clients
+  // Poll every 30 seconds to keep bookings up-to-date (silent mode to avoid flicker)
+  useEffect(() => {
+    if (!hydrated || !user || user.role !== "BUSINESS") {
+      return;
+    }
+
+    // Set up polling interval to refresh bookings every 30 seconds
+    // Use silent mode to avoid flicker - only update if bookings actually changed
+    const pollingInterval = setInterval(() => {
+      void fetchBookings({ silent: true });
+    }, 30000); // 30 seconds
+
+    // Also refresh when window gains focus (user switches back to tab)
+    // Use silent mode here too to avoid flicker
+    const handleFocus = () => {
+      void fetchBookings({ silent: true });
+    };
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      clearInterval(pollingInterval);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [hydrated, user, fetchBookings]);
+
   // Listen for booking created events from AI chat
   const handleBookingCreated = useCallback(() => {
     void fetchBookings();

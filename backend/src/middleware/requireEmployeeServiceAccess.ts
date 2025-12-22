@@ -78,19 +78,32 @@ const requireEmployeeServiceAccess = (
         },
       });
 
-      if (!employee || employee.role !== "EMPLOYEE") {
+      // CRITICAL FIX: Allow business owner to be treated as an employee
+      // Business owner can also perform services and should be manageable like employees
+      if (!employee) {
         return res.status(404).json({ 
-          error: "Angajatul nu a fost găsit.",
+          error: "Specialistul nu a fost găsit.",
           code: "EMPLOYEE_NOT_FOUND",
-          actionable: "Verifică că angajatul există și că are rolul de EMPLOYEE."
+          actionable: "Verifică că specialistul există."
+        });
+      }
+
+      // Check if this is the business owner (owner can be treated as employee)
+      const isOwner = employee.business?.ownerId === employee.id;
+      
+      if (!isOwner && employee.role !== "EMPLOYEE") {
+        return res.status(404).json({ 
+          error: "Specialistul nu a fost găsit.",
+          code: "EMPLOYEE_NOT_FOUND",
+          actionable: "Verifică că specialistul există și că are rolul de EMPLOYEE."
         });
       }
 
       if (!employee.businessId || !employee.business) {
         return res.status(404).json({ 
-          error: "Angajatul nu are un business asociat.",
+          error: "Specialistul nu are un business asociat.",
           code: "EMPLOYEE_NO_BUSINESS",
-          actionable: "Verifică că angajatul este asociat cu un business."
+          actionable: "Verifică că specialistul este asociat cu un business."
         });
       }
 
@@ -119,7 +132,7 @@ const requireEmployeeServiceAccess = (
         // Verifică că employee-ul încearcă să-și gestioneze propriile servicii
         if (employee.id !== user.userId) {
           return res.status(403).json({ 
-            error: "Nu poți gestiona serviciile altor angajați.",
+            error: "Nu poți gestiona serviciile altor specialiști.",
             code: "CANNOT_MANAGE_OTHER_EMPLOYEES",
             actionable: "Poți gestiona doar propriile servicii."
           });
@@ -147,9 +160,9 @@ const requireEmployeeServiceAccess = (
       });
 
       return res.status(403).json({ 
-        error: "Nu ai permisiunea de a gestiona serviciile acestui angajat.",
+        error: "Nu ai permisiunea de a gestiona serviciile acestui specialist.",
         code: "EMPLOYEE_SERVICE_ACCESS_DENIED",
-        actionable: "Doar business owner-ul poate gestiona serviciile angajaților."
+        actionable: "Doar business owner-ul poate gestiona serviciile specialiștilor."
       });
     } catch (error) {
       logger.error("Employee service access verification failed", error);

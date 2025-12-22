@@ -90,6 +90,13 @@ const businessIdParamSchema = z.object({
 });
 
 /**
+ * Schema pentru service ID param
+ */
+const serviceIdParamSchema = z.object({
+  serviceId: z.string().regex(cuidRegex, "serviceId trebuie să fie un CUID valid"),
+});
+
+/**
  * Schema pentru link client la business (QR scan)
  */
 const linkClientSchema = z.object({
@@ -98,21 +105,13 @@ const linkClientSchema = z.object({
 });
 
 module.exports = {
-
   createBusinessSchema,
-
   updateBusinessSchema,
-
   createServiceSchema,
-
   updateServiceSchema,
-
   createEmployeeSchema,
-
   updateEmployeeSchema,
-
   businessIdParamSchema,
-
+  serviceIdParamSchema, // CRITICAL FIX: Export serviceIdParamSchema
   linkClientSchema,
-
 };

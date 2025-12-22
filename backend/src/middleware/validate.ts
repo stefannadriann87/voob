@@ -106,7 +106,14 @@ const validateQuery = (schema: ZodSchema) => {
 const validateParams = (schema: ZodSchema) => {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     try {
-      const validated = schema.parse(req.params);
+      // CRITICAL FIX: Map businessId to id if schema expects id
+      // This handles the case where businessIdParamSchema expects 'id' but route param is 'businessId'
+      const paramsToValidate = { ...req.params };
+      if (paramsToValidate.businessId && !paramsToValidate.id) {
+        paramsToValidate.id = paramsToValidate.businessId;
+      }
+      
+      const validated = schema.parse(paramsToValidate);
       req.params = validated as express.Request["params"];
       next();
     } catch (error: unknown) {
@@ -121,6 +128,7 @@ const validateParams = (schema: ZodSchema) => {
           path: req.path,
           method: req.method,
           errors,
+          params: req.params,
         });
 
         return res.status(400).json({

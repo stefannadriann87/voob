@@ -52,8 +52,11 @@ export default function useBookings() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchBookings = useCallback(async () => {
-    setLoading(true);
+  const fetchBookings = useCallback(async (options?: { silent?: boolean }) => {
+    // CRITICAL FIX: Don't set loading for silent/polling requests to avoid flicker
+    if (!options?.silent) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const { data } = await api.get<Booking[] | { data: Booking[]; pagination: any }>("/booking");
@@ -61,7 +64,54 @@ export default function useBookings() {
       // Handle paginated response (from /booking) or direct array (for backward compatibility)
       const bookingsArray = Array.isArray(data) ? data : (data as { data: Booking[] }).data;
       
-      setBookings(bookingsArray);
+      // CRITICAL FIX: Only update state if bookings actually changed to avoid unnecessary re-renders
+      setBookings((prevBookings) => {
+        // Deep comparison: check if bookings actually changed
+        if (prevBookings.length !== bookingsArray.length) {
+          return bookingsArray;
+        }
+        
+        // Create maps for quick lookup
+        const prevMap = new Map(prevBookings.map(b => [b.id, b]));
+        const newMap = new Map(bookingsArray.map(b => [b.id, b]));
+        
+        // Check if any booking was added, removed, or modified
+        let hasChanges = false;
+        
+        // Check for new or modified bookings
+        for (const newBooking of bookingsArray) {
+          const prevBooking = prevMap.get(newBooking.id);
+          if (!prevBooking) {
+            hasChanges = true; // New booking added
+            break;
+          }
+          // Compare key fields that might change
+          if (
+            prevBooking.status !== newBooking.status ||
+            prevBooking.date !== newBooking.date ||
+            prevBooking.paid !== newBooking.paid ||
+            prevBooking.employeeId !== newBooking.employeeId ||
+            prevBooking.serviceId !== newBooking.serviceId
+          ) {
+            hasChanges = true; // Booking modified
+            break;
+          }
+        }
+        
+        // Check for removed bookings
+        if (!hasChanges) {
+          for (const prevBooking of prevBookings) {
+            if (!newMap.has(prevBooking.id)) {
+              hasChanges = true; // Booking removed
+              break;
+            }
+          }
+        }
+        
+        // Only update if there are actual changes
+        return hasChanges ? bookingsArray : prevBookings;
+      });
+      
       return bookingsArray;
     } catch (err) {
       const axiosError = err as AxiosError<{ error?: string }>;
@@ -72,7 +122,9 @@ export default function useBookings() {
       setError(message);
       throw err;
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }, [api]);
 

@@ -24,8 +24,8 @@ const {
   updateServiceSchema, 
   businessIdParamSchema,
   serviceIdParamSchema,
-  employeeIdParamSchema 
 } = require("../validators/businessSchemas");
+const { employeeIdParamSchema } = require("../validators/employeeSchemas");
 import type { AuthenticatedRequest } from "./business.shared.d";
 
 const router = express.Router();
@@ -98,7 +98,9 @@ router.get("/:businessId/services", verifyJWT, requireBusinessAccess("businessId
 
 // Create service
 router.post("/:businessId/services", verifyJWT, validateParams(businessIdParamSchema), validate(createServiceSchema), async (req, res) => {
-  const { businessId } = businessIdParamSchema.parse({ businessId: req.params.businessId });
+  // CRITICAL FIX: businessIdParamSchema expects 'id', but route param is 'businessId'
+  // validateParams middleware now handles the mapping, but we still need to extract businessId correctly
+  const businessId = (req.params as any).id || req.params.businessId;
   const { name, duration, price, description, notes } = createServiceSchema.parse(req.body);
 
   try {
@@ -115,6 +117,11 @@ router.post("/:businessId/services", verifyJWT, validateParams(businessIdParamSc
     // CRITICAL FIX (TICKET-009): Invalidate cache when service is created
     await invalidateServices(businessId);
     await invalidateBusinessProfile(businessId);
+    
+    // CRITICAL FIX: Also invalidate business list cache (business_list_all_*)
+    // This ensures that GET /business returns the new service immediately
+    const { delByPattern } = require("../services/cacheService");
+    await delByPattern("cache:business:business_list_all_*");
 
     return res.status(201).json(service);
   } catch (error: any) {
@@ -212,6 +219,10 @@ router.put("/:businessId/services/:serviceId", verifyJWT, validate(updateService
     // CRITICAL FIX (TICKET-009): Invalidate cache when service is updated
     await invalidateServices(businessId);
     await invalidateBusinessProfile(businessId);
+    
+    // CRITICAL FIX: Also invalidate business list cache
+    const { delByPattern } = require("../services/cacheService");
+    await delByPattern("cache:business:business_list_all_*");
 
     return res.json(service);
   } catch (error: any) {
@@ -277,6 +288,10 @@ router.delete("/:businessId/services/:serviceId", verifyJWT, async (req, res) =>
     // CRITICAL FIX (TICKET-009): Invalidate cache when service is deleted
     await invalidateServices(businessId);
     await invalidateBusinessProfile(businessId);
+    
+    // CRITICAL FIX: Also invalidate business list cache
+    const { delByPattern } = require("../services/cacheService");
+    await delByPattern("cache:business:business_list_all_*");
 
     return res.json({ success: true });
   } catch (error: any) {
@@ -319,56 +334,235 @@ router.delete("/:businessId/services/:serviceId", verifyJWT, async (req, res) =>
 // Employee Services Routes - Must be defined BEFORE employee CRUD routes to avoid routing conflicts
 // TICKET-045: Folosește middleware comun pentru autorizare
 // Get employee services (for business to manage)
+// CRITICAL FIX: GET endpoint allows CLIENT read access to see available services for an employee
+// CLIENT needs to see which services an employee can perform when booking
 router.get("/:businessId/employees/:employeeId/services", 
   verifyJWT, 
-  requireBusinessAccess("businessId"), // Verifică acces la business
-  requireEmployeeServiceAccess({ allowSelfService: false }, "employeeId"), // TICKET-045: Verifică acces la employee services
   async (req, res) => {
     const authReq = req as AuthenticatedRequest;
+    const user = authReq.user;
     const { businessId, employeeId } = req.params;
     
-    // Validate employeeId
+    if (!user) {
+      return res.status(401).json({ error: "Autentificare necesară." });
+    }
+    
+    // CRITICAL FIX: Validate employeeId - check if it exists and is valid
+    if (!employeeId) {
+      logger.warn("GET /employees/:employeeId/services - Missing employeeId", {
+        businessId,
+        employeeId,
+        path: req.path,
+      });
+      return res.status(400).json({ error: "employeeId este obligatoriu." });
+    }
+    
+    // Validate employeeId format
     try {
       employeeIdParamSchema.parse({ employeeId });
-    } catch (error) {
+    } catch (error: any) {
+      logger.warn("GET /employees/:employeeId/services - Invalid employeeId format", {
+        businessId,
+        employeeId,
+        error: error?.errors || error?.message,
+        path: req.path,
+      });
       return res.status(400).json({ error: "employeeId invalid." });
+    }
+    
+    // CRITICAL FIX: Authorization based on role
+    // CLIENT: Verify business access via ClientBusiness link
+    // BUSINESS/EMPLOYEE/SUPERADMIN: Use requireEmployeeServiceAccess logic
+    if (user.role === "CLIENT") {
+      // Get business to check if employeeId is the owner
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+        select: { id: true, ownerId: true },
+      });
+      
+      if (!business) {
+        return res.status(404).json({ 
+          error: "Business-ul nu a fost găsit.",
+          code: "BUSINESS_NOT_FOUND",
+        });
+      }
+      
+      // CRITICAL FIX: Allow business owner to be treated as an employee
+      // Check if employeeId is the business owner
+      const isOwner = business.ownerId === employeeId;
+      
+      if (!isOwner) {
+        // Verify employee belongs to business (normal employee)
+        const employee = await prisma.user.findUnique({
+          where: { id: employeeId },
+          select: { id: true, businessId: true, role: true },
+        });
+        
+        if (!employee || employee.role !== "EMPLOYEE" || employee.businessId !== businessId) {
+          return res.status(404).json({ 
+            error: "Specialistul nu a fost găsit sau nu aparține acestui business.",
+            code: "EMPLOYEE_NOT_FOUND",
+            actionable: "Verifică că specialistul există și că aparține business-ului corect."
+          });
+        }
+      }
+      
+      // Verify client has access to this business (via ClientBusinessLink)
+      const clientBusinessLink = await prisma.clientBusinessLink.findUnique({
+        where: {
+          clientId_businessId: {
+            clientId: user.userId,
+            businessId: businessId,
+          },
+        },
+      });
+      
+      if (!clientBusinessLink) {
+        return res.status(403).json({ 
+          error: "Nu ai acces la acest business.",
+          code: "BUSINESS_ACCESS_DENIED",
+          actionable: "Verifică că ești conectat la acest business."
+        });
+      }
+    } else {
+      // For BUSINESS/EMPLOYEE/SUPERADMIN, use requireBusinessAccess and requireEmployeeServiceAccess
+      // Apply requireBusinessAccess middleware logic
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+        select: {
+          id: true,
+          ownerId: true,
+          status: true,
+          employees: {
+            select: { id: true },
+          },
+        },
+      });
+
+      if (!business) {
+        return res.status(404).json({ error: "Business-ul nu a fost găsit." });
+      }
+
+      // Verify business is ACTIVE
+      if (business.status !== "ACTIVE") {
+        return res.status(403).json({ error: "Business-ul este suspendat. Accesul este restricționat." });
+      }
+
+      // Verify access: business owner, employee (with allowSelfService), or SUPERADMIN
+      if (user.role !== "SUPERADMIN" && business.ownerId !== user.userId) {
+        // Check if employee trying to access own services
+        if (user.role === "EMPLOYEE" && employeeId === user.userId) {
+          const employee = await prisma.user.findUnique({
+            where: { id: employeeId },
+            select: { canManageOwnServices: true },
+          });
+          if (!employee?.canManageOwnServices) {
+            return res.status(403).json({ 
+              error: "Nu ai permisiunea de a-ți gestiona propriile servicii.",
+              code: "SELF_SERVICE_NOT_ALLOWED",
+            });
+          }
+        } else {
+          return res.status(403).json({ 
+            error: "Nu ai permisiunea de a gestiona serviciile acestui specialist.",
+            code: "EMPLOYEE_SERVICE_ACCESS_DENIED",
+          });
+        }
+      }
     }
 
     try {
-      // Get employee with business
-      const employee = await prisma.user.findUnique({
-        where: { id: employeeId },
+      // Get business first to check if employeeId is the owner
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
         select: {
           id: true,
-          role: true,
-          businessId: true,
-          business: {
+          ownerId: true,
+          services: {
             select: {
               id: true,
-              ownerId: true,
-              services: {
-                select: {
-                  id: true,
-                  name: true,
-                  duration: true,
-                  price: true,
-                  notes: true,
-                },
-              },
+              name: true,
+              duration: true,
+              price: true,
+              notes: true,
             },
           },
         },
       });
 
-      if (!employee || !employee.business) {
+      if (!business) {
         return res.status(404).json({ 
-          error: "Angajatul nu a fost găsit.",
-          code: "EMPLOYEE_NOT_FOUND",
-          actionable: "Verifică că angajatul există și că aparține business-ului corect."
+          error: "Business-ul nu a fost găsit.",
+          code: "BUSINESS_NOT_FOUND",
         });
       }
 
-      // Get associated services for this employee
+      // CRITICAL FIX: Allow business owner to be treated as an employee
+      const isOwner = business.ownerId === employeeId;
+      
+      let employee;
+      if (isOwner) {
+        // For owner, get user data but use business services
+        employee = await prisma.user.findUnique({
+          where: { id: employeeId },
+          select: {
+            id: true,
+            role: true,
+            businessId: true,
+          },
+        });
+        
+        if (!employee) {
+          return res.status(404).json({ 
+            error: "Specialistul nu a fost găsit.",
+            code: "EMPLOYEE_NOT_FOUND",
+            actionable: "Verifică că specialistul există."
+          });
+        }
+      } else {
+        // For normal employee, get employee with business
+        employee = await prisma.user.findUnique({
+          where: { id: employeeId },
+          select: {
+            id: true,
+            role: true,
+            businessId: true,
+            business: {
+              select: {
+                id: true,
+                ownerId: true,
+                services: {
+                  select: {
+                    id: true,
+                    name: true,
+                    duration: true,
+                    price: true,
+                    notes: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (!employee || !employee.business) {
+          return res.status(404).json({ 
+            error: "Specialistul nu a fost găsit.",
+            code: "EMPLOYEE_NOT_FOUND",
+            actionable: "Verifică că specialistul există și că aparține business-ului corect."
+          });
+        }
+
+        // Verify employee belongs to the correct business
+        if (employee.businessId !== businessId) {
+          return res.status(403).json({ 
+            error: "Specialistul nu aparține acestui business.",
+            code: "EMPLOYEE_BUSINESS_MISMATCH",
+          });
+        }
+      }
+
+      // Get associated services for this employee (works for both owner and normal employee)
       const employeeServices = await prisma.employeeService.findMany({
         where: { employeeId: employee.id },
         select: { serviceId: true },
@@ -376,8 +570,12 @@ router.get("/:businessId/employees/:employeeId/services",
 
       const associatedServiceIds = new Set(employeeServices.map((es: { serviceId: string }) => es.serviceId));
 
+      // CRITICAL FIX: Use business.services for owner, employee.business.services for normal employee
+      const businessServices = isOwner ? business.services : (employee.business?.services || []);
+      const finalBusinessId = isOwner ? business.id : (employee.business?.id || businessId);
+
       // Return services with association status
-      const services = employee.business.services.map((service: { id: string; name: string; duration: number; price: number; notes?: string | null }) => ({
+      const services = businessServices.map((service: { id: string; name: string; duration: number; price: number; notes?: string | null }) => ({
         ...service,
         isAssociated: associatedServiceIds.has(service.id),
       }));
@@ -385,13 +583,13 @@ router.get("/:businessId/employees/:employeeId/services",
       return res.json({
         services,
         employeeId: employee.id,
-        businessId: employee.business.id,
+        businessId: finalBusinessId,
       });
     } catch (error: any) {
       logger.error("Get employee services error:", error);
       
       return res.status(500).json({ 
-        error: "Nu am putut încărca serviciile angajatului. Te rugăm să încerci din nou.",
+        error: "Nu am putut încărca serviciile specialistului. Te rugăm să încerci din nou.",
         code: "EMPLOYEE_SERVICES_FETCH_FAILED",
         actionable: "Dacă problema persistă, reîmprospătează pagina sau contactează suportul."
       });
@@ -410,11 +608,51 @@ router.post("/:businessId/employees/:employeeId/services/:serviceId",
     const authReq = req as AuthenticatedRequest;
     const { businessId, employeeId, serviceId } = req.params;
     
-    // Validate params
+    // CRITICAL FIX: Validate params - check if they exist and are valid
+    if (!serviceId || serviceId === "undefined") {
+      logger.warn("POST /employees/:employeeId/services/:serviceId - Missing or invalid serviceId", {
+        businessId,
+        employeeId,
+        serviceId,
+        path: req.path,
+      });
+      return res.status(400).json({ error: "serviceId este obligatoriu." });
+    }
+    
+    // CRITICAL DEBUG: Check if schemas are defined
+    if (!serviceIdParamSchema) {
+      const businessSchemas = require("../validators/businessSchemas");
+      logger.error("POST /employees/:employeeId/services/:serviceId - serviceIdParamSchema is undefined!", {
+        businessId,
+        employeeId,
+        serviceId,
+        availableSchemas: Object.keys(businessSchemas),
+        serviceIdParamSchemaExists: !!businessSchemas.serviceIdParamSchema,
+      });
+      return res.status(500).json({ error: "Server configuration error." });
+    }
+    
+    // Validate params format
     try {
       employeeIdParamSchema.parse({ employeeId });
       serviceIdParamSchema.parse({ serviceId: serviceId });
-    } catch (error) {
+    } catch (error: any) {
+      logger.warn("POST /employees/:employeeId/services/:serviceId - Invalid param format", {
+        businessId,
+        employeeId,
+        serviceId,
+        error: error?.errors || error?.message,
+        errorDetails: error,
+        path: req.path,
+      });
+      // Return more specific error message
+      if (error?.errors && Array.isArray(error.errors)) {
+        const errorMessages = error.errors.map((e: any) => e.message).join(", ");
+        return res.status(400).json({ 
+          error: `Parametri invalizi: ${errorMessages}`,
+          details: error.errors,
+        });
+      }
       return res.status(400).json({ error: "Parametri invalizi." });
     }
 
@@ -437,9 +675,22 @@ router.post("/:businessId/employees/:employeeId/services/:serviceId",
 
       if (!employee || !employee.business) {
         return res.status(404).json({ 
-          error: "Angajatul nu a fost găsit.",
+          error: "Specialistul nu a fost găsit.",
           code: "EMPLOYEE_NOT_FOUND",
-          actionable: "Verifică că angajatul există și că aparține business-ului corect."
+          actionable: "Verifică că specialistul există și că aparține business-ului corect."
+        });
+      }
+
+      // CRITICAL FIX: Allow business owner to be treated as an employee
+      // Business owner can also perform services and should be manageable like employees
+      const isOwner = employee.business.ownerId === employee.id;
+      
+      // Verify employee belongs to business OR is the owner
+      if (!isOwner && employee.businessId !== businessId) {
+        return res.status(403).json({ 
+          error: "Specialistul nu aparține acestui business.",
+          code: "EMPLOYEE_BUSINESS_MISMATCH",
+          actionable: "Verifică că specialistul aparține business-ului corect."
         });
       }
 
@@ -457,11 +708,15 @@ router.post("/:businessId/employees/:employeeId/services/:serviceId",
         });
       }
 
-      if (service.businessId !== employee.businessId) {
+      // CRITICAL FIX: For owner, use businessId from business object, not employee.businessId
+      // Owner doesn't have businessId set, so we use business.id
+      const employeeBusinessId = isOwner ? employee.business.id : (employee.businessId || employee.business.id);
+      
+      if (service.businessId !== employeeBusinessId) {
         return res.status(403).json({ 
-          error: "Serviciul nu aparține business-ului angajatului.",
+          error: "Serviciul nu aparține business-ului specialistului.",
           code: "SERVICE_BUSINESS_MISMATCH",
-          actionable: "Verifică că serviciul aparține aceluiași business ca angajatul."
+          actionable: "Verifică că serviciul aparține aceluiași business ca specialistul."
         });
       }
 
@@ -477,14 +732,14 @@ router.post("/:businessId/employees/:employeeId/services/:serviceId",
 
       if (existingAssociation) {
         return res.status(409).json({ 
-          error: "Serviciul este deja asociat cu acest angajat.",
+          error: "Serviciul este deja asociat cu acest specialist.",
           code: "SERVICE_ALREADY_ASSOCIATED",
           actionable: "Serviciul este deja asociat. Nu este necesară o acțiune suplimentară."
         });
       }
 
       // Create association and audit trail in transaction
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx: any) => {
         // Create association
         const employeeService = await tx.employeeService.create({
           data: {
@@ -543,7 +798,7 @@ router.post("/:businessId/employees/:employeeId/services/:serviceId",
         
         if (errorCode === "P2002") {
           return res.status(409).json({ 
-            error: "Serviciul este deja asociat cu acest angajat.",
+            error: "Serviciul este deja asociat cu acest specialist.",
             code: "SERVICE_ALREADY_ASSOCIATED",
             actionable: "Serviciul este deja asociat. Nu este necesară o acțiune suplimentară."
           });
@@ -551,7 +806,7 @@ router.post("/:businessId/employees/:employeeId/services/:serviceId",
       }
       
       return res.status(500).json({ 
-        error: "Nu am putut asocia serviciul cu angajatul. Te rugăm să încerci din nou.",
+        error: "Nu am putut asocia serviciul cu specialistul. Te rugăm să încerci din nou.",
         code: "SERVICE_ASSOCIATION_FAILED",
         actionable: "Dacă problema persistă, contactează suportul."
       });
@@ -570,11 +825,29 @@ router.delete("/:businessId/employees/:employeeId/services/:serviceId",
     const authReq = req as AuthenticatedRequest;
     const { businessId, employeeId, serviceId } = req.params;
     
-    // Validate params
+    // CRITICAL FIX: Validate params - check if they exist and are valid
+    if (!serviceId || serviceId === "undefined") {
+      logger.warn("DELETE /employees/:employeeId/services/:serviceId - Missing or invalid serviceId", {
+        businessId,
+        employeeId,
+        serviceId,
+        path: req.path,
+      });
+      return res.status(400).json({ error: "serviceId este obligatoriu." });
+    }
+    
+    // Validate params format
     try {
       employeeIdParamSchema.parse({ employeeId });
       serviceIdParamSchema.parse({ serviceId: serviceId });
-    } catch (error) {
+    } catch (error: any) {
+      logger.warn("DELETE /employees/:employeeId/services/:serviceId - Invalid param format", {
+        businessId,
+        employeeId,
+        serviceId,
+        error: error?.errors || error?.message,
+        path: req.path,
+      });
       return res.status(400).json({ error: "Parametri invalizi." });
     }
 
@@ -597,9 +870,9 @@ router.delete("/:businessId/employees/:employeeId/services/:serviceId",
 
       if (!employee || !employee.business) {
         return res.status(404).json({ 
-          error: "Angajatul nu a fost găsit.",
+          error: "Specialistul nu a fost găsit.",
           code: "EMPLOYEE_NOT_FOUND",
-          actionable: "Verifică că angajatul există și că aparține business-ului corect."
+          actionable: "Verifică că specialistul există și că aparține business-ului corect."
         });
       }
 
@@ -623,12 +896,12 @@ router.delete("/:businessId/employees/:employeeId/services/:serviceId",
         return res.status(404).json({ 
           error: "Asocierea nu a fost găsită.",
           code: "ASSOCIATION_NOT_FOUND",
-          actionable: "Serviciul nu este asociat cu acest angajat."
+          actionable: "Serviciul nu este asociat cu acest specialist."
         });
       }
 
       // Delete association and create audit trail in transaction
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         // Delete association
         await tx.employeeService.delete({
           where: {
@@ -677,13 +950,13 @@ router.delete("/:businessId/employees/:employeeId/services/:serviceId",
           return res.status(404).json({ 
             error: "Asocierea nu a fost găsită sau a fost deja ștearsă.",
             code: "ASSOCIATION_NOT_FOUND",
-            actionable: "Serviciul nu este asociat cu acest angajat."
+            actionable: "Serviciul nu este asociat cu acest specialist."
           });
         }
       }
       
       return res.status(500).json({ 
-        error: "Nu am putut dezasocia serviciul de la angajat. Te rugăm să încerci din nou.",
+        error: "Nu am putut dezasocia serviciul de la specialist. Te rugăm să încerci din nou.",
         code: "SERVICE_DISASSOCIATION_FAILED",
         actionable: "Dacă problema persistă, contactează suportul."
       });
@@ -731,7 +1004,7 @@ router.get("/:businessId/employees/:employeeId/services/audit",
       });
 
       return res.json({
-        audits: audits.map((audit) => ({
+        audits: audits.map((audit: any) => ({
           id: audit.id,
           action: audit.action,
           serviceId: audit.serviceId,

@@ -62,7 +62,7 @@ export default function BusinessDashboardPage() {
   const [insights, setInsights] = useState<BusinessInsights | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   // Employee services management
-  const [employeeServices, setEmployeeServices] = useState<Array<{ id: string; name: string; isAssociated: boolean }>>([]);
+  const [employeeServices, setEmployeeServices] = useState<Array<{ id: string; name: string; duration: number; price: number; notes?: string | null; isAssociated: boolean }>>([]);
   const [loadingEmployeeServices, setLoadingEmployeeServices] = useState(false);
   const [updatingEmployeeService, setUpdatingEmployeeService] = useState<string | null>(null);
   const [insightsError, setInsightsError] = useState<string | null>(null);
@@ -185,10 +185,13 @@ export default function BusinessDashboardPage() {
   // CRITICAL FIX (TICKET-018): React Hook Form schema for service form
   const serviceFormSchema = z.object({
     name: z.string().min(1, "Numele serviciului este obligatoriu").max(100, "Numele este prea lung"),
-    duration: z.number().min(15, "Durata minimă este 15 minute").max(480, "Durata maximă este 480 minute").refine(
-      (val) => val % 30 === 0,
-      "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)"
-    ),
+    duration: z.number()
+      .min(30, "Durata minimă este 30 minute")
+      .max(480, "Durata maximă este 480 minute")
+      .refine(
+        (val) => val % 30 === 0,
+        "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)"
+      ),
     price: z.number().min(0, "Prețul trebuie să fie pozitiv").max(100000, "Prețul este prea mare"),
     notes: z.string().max(500, "Notițele sunt prea lungi").optional().or(z.literal("")),
   });
@@ -317,9 +320,25 @@ export default function BusinessDashboardPage() {
   // Toggle employee service association
   const handleToggleEmployeeService = useCallback(
     async (serviceId: string, isAssociated: boolean) => {
-      if (!editingEmployeeId || !business?.id || updatingEmployeeService) return;
+      // CRITICAL FIX: Validate serviceId before making request
+      if (!serviceId || serviceId === "undefined" || !editingEmployeeId || !business?.id || updatingEmployeeService) {
+        console.error("handleToggleEmployeeService: Invalid parameters", {
+          serviceId,
+          editingEmployeeId,
+          businessId: business?.id,
+          updatingEmployeeService,
+        });
+        return;
+      }
 
       setUpdatingEmployeeService(serviceId);
+      
+      // CRITICAL FIX: Optimistically update UI immediately to prevent flickering
+      // Update local state BEFORE API call for instant feedback
+      setEmployeeServices((prev) =>
+        prev.map((s) => (s.id === serviceId ? { ...s, isAssociated: !isAssociated } : s))
+      );
+      
       try {
         if (isAssociated) {
           // Disassociate
@@ -328,11 +347,16 @@ export default function BusinessDashboardPage() {
           // Associate
           await api.post(`/business/${business.id}/employees/${editingEmployeeId}/services/${serviceId}`);
         }
-        // Update local state
-        setEmployeeServices((prev) =>
-          prev.map((s) => (s.id === serviceId ? { ...s, isAssociated: !isAssociated } : s))
-        );
+        
+        // CRITICAL FIX: Don't call fetchBusinesses() here - it causes flickering
+        // The local state is already updated optimistically above
+        // We'll refresh business data only when modal closes or employee is saved
       } catch (error) {
+        // CRITICAL FIX: Revert optimistic update on error
+        setEmployeeServices((prev) =>
+          prev.map((s) => (s.id === serviceId ? { ...s, isAssociated: isAssociated } : s))
+        );
+        
         logger.error("Failed to toggle employee service:", error);
         setEmployeeFeedback({
           type: "error",
@@ -354,13 +378,37 @@ export default function BusinessDashboardPage() {
     }
 
     const fetchEmployeeData = async () => {
+      // CRITICAL FIX: Validate editingEmployeeId before making request
+      if (!editingEmployeeId || !business?.id || !business?.services) {
+        setLoadingEmployeeServices(false);
+        return;
+      }
+      
       setLoadingEmployeeServices(true);
       try {
-        // Fetch employee services
-        const { data: servicesData } = await api.get<{ services: Array<{ id: string; name: string; isAssociated: boolean }> }>(
+        // CRITICAL FIX: Use business.services as source of truth, only fetch association status from API
+        // This ensures consistency - the services shown in employee modal are the same as in Services section
+        const { data: servicesData } = await api.get<{ services: Array<{ id: string; name: string; duration: number; price: number; notes?: string | null; isAssociated: boolean }> }>(
           `/business/${business.id}/employees/${editingEmployeeId}/services`
         );
-        setEmployeeServices(servicesData.services);
+        
+        // Create a map of association status from API response
+        const associationMap = new Map<string, boolean>();
+        servicesData.services.forEach((service) => {
+          associationMap.set(service.id, service.isAssociated);
+        });
+        
+        // Use business.services as source of truth, add isAssociated from API
+        const servicesWithAssociation = business.services.map((service) => ({
+          id: service.id,
+          name: service.name,
+          duration: service.duration,
+          price: service.price,
+          notes: service.notes,
+          isAssociated: associationMap.get(service.id) || false,
+        }));
+        
+        setEmployeeServices(servicesWithAssociation);
         
         // TICKET-044: Fetch employee data to get canManageOwnServices flag
         const employee = business.employees?.find((e: any) => e.id === editingEmployeeId);
@@ -389,9 +437,17 @@ export default function BusinessDashboardPage() {
           return;
         }
         // If other error, show all services as not associated (backward compatibility)
+        // CRITICAL FIX: Use business.services as source of truth
         if (business?.services) {
           setEmployeeServices(
-            business.services.map((s) => ({ id: s.id, name: s.name, isAssociated: false }))
+            business.services.map((s) => ({ 
+              id: s.id, 
+              name: s.name, 
+              duration: s.duration,
+              price: s.price,
+              notes: s.notes,
+              isAssociated: false 
+            }))
           );
         }
       } finally {
@@ -796,9 +852,9 @@ export default function BusinessDashboardPage() {
               </button>
             </div>
           <div className="grid gap-2 desktop:gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {business?.services.map((service) => (
+            {business?.services.map((service, index) => (
               <div
-                key={service.id}
+                key={service.id || `service-${index}`}
                 className="group relative rounded-2xl border border-white/10 bg-white/5 p-3 desktop:p-6 transition hover:border-[#6366F1]/60 hover:bg-white/10"
               >
                 <div className="flex items-start justify-between">
@@ -808,10 +864,12 @@ export default function BusinessDashboardPage() {
                       Durată: {service.duration} min
                     </p>
                     <p className="mt-1 text-sm font-medium text-[#6366F1]">
-                      {service.price.toLocaleString("ro-RO", {
-                        style: "currency",
-                        currency: "RON",
-                      })}
+                      {service.price != null
+                        ? service.price.toLocaleString("ro-RO", {
+                            style: "currency",
+                            currency: "RON",
+                          })
+                        : "Preț neconfigurat"}
                     </p>
                     {service.notes && (
                       <p className="mt-2 text-sm text-pink-400">{service.notes}</p>
@@ -851,7 +909,7 @@ export default function BusinessDashboardPage() {
         {!isSportOutdoor && (
           <section id="employees" className="flex flex-col gap-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Angajați</h2>
+            <h2 className="text-xl font-semibold">Specialiști</h2>
             <button
               type="button"
               onClick={() => {
@@ -865,7 +923,7 @@ export default function BusinessDashboardPage() {
               }}
               className="rounded-2xl border border-white/10 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
             >
-              Adaugă angajat
+              Adaugă specialist
             </button>
           </div>
           <div className="grid gap-2 desktop:gap-4 gap-2 md:grid-cols-2 lg:grid-cols-3">
@@ -900,7 +958,7 @@ export default function BusinessDashboardPage() {
                         setEmployeeModalOpen(true);
                       }}
                       className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-[#6366F1]/20 hover:text-[#6366F1]"
-                      title="Editează angajat"
+                      title="Editează specialist"
                     >
                       <i className="fas fa-edit text-sm" />
                     </button>
@@ -908,7 +966,7 @@ export default function BusinessDashboardPage() {
                       type="button"
                       onClick={() => setEmployeeToDelete({ id: employee.id, name: employee.name })}
                       className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-red-500/20 hover:text-red-400"
-                      title="Șterge angajat"
+                      title="Șterge specialist"
                     >
                       <i className="fas fa-trash text-sm" />
                     </button>
@@ -1063,10 +1121,24 @@ export default function BusinessDashboardPage() {
                     <div className="relative">
                       <input
                         type="number"
-                        min={15}
+                        min={30}
                         max={480}
                         step={30}
-                        {...registerService("duration", { valueAsNumber: true })}
+                        {...registerService("duration", { 
+                          valueAsNumber: true,
+                          onChange: (e) => {
+                            // CRITICAL FIX: Round to nearest multiple of 30 when user types
+                            const value = Number(e.target.value);
+                            if (!isNaN(value) && value > 0) {
+                              const rounded = Math.round(value / 30) * 30;
+                              const finalValue = Math.max(30, Math.min(480, rounded)); // Clamp between 30 and 480
+                              // Only update if value changed to avoid infinite loops
+                              if (finalValue !== watchService("duration")) {
+                                setServiceValue("duration", finalValue, { shouldValidate: true });
+                              }
+                            }
+                          },
+                        })}
                         placeholder="30, 60, 90, 120..."
                         className={`w-full rounded-xl border bg-[#0B0E17]/60 px-4 py-3 pr-12 text-white outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                           serviceFormErrors.duration
@@ -1089,7 +1161,7 @@ export default function BusinessDashboardPage() {
                           type="button"
                           onClick={() => {
                             const current = watchService("duration") || 30;
-                            setServiceValue("duration", Math.max(15, current - 30));
+                            setServiceValue("duration", Math.max(30, current - 30)); // CRITICAL FIX: Minimum is 30, not 15
                           }}
                           className="flex h-4 w-6 items-center justify-center rounded-b border border-white/20 border-t-0 bg-white/5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
                         >
@@ -1311,17 +1383,18 @@ export default function BusinessDashboardPage() {
 
         {/* Employee Modal */}
         {employeeModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-            <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0E17] p-8 shadow-xl shadow-black/40">
-              <div className="mb-6 flex items-center justify-between">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-4">
+            <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-[#0B0E17] shadow-xl shadow-black/40 flex flex-col max-h-[90vh]">
+              {/* Header - Fixed */}
+              <div className="flex items-center justify-between p-6 border-b border-white/10">
                 <div>
                   <h3 className="text-xl font-semibold text-white">
-                    {editingEmployeeId ? "Editează angajat" : "Adaugă angajat"}
+                    {editingEmployeeId ? "Editează specialist" : "Adaugă specialist"}
                   </h3>
                   <p className="mt-2 text-sm text-white/60">
                     {editingEmployeeId 
-                      ? "Actualizează informațiile despre angajat" 
-                      : "Completează informațiile pentru noul angajat"}
+                      ? "Actualizează informațiile despre specialist" 
+                      : "Completează informațiile pentru noul specialist"}
                   </p>
                 </div>
                 <button
@@ -1343,117 +1416,126 @@ export default function BusinessDashboardPage() {
                 </button>
               </div>
 
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!business?.id) return;
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                <form
+                  id="employee-form"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!business?.id) return;
 
-                  if (!employeeName.trim() || !employeeEmail.trim()) {
-                    setEmployeeFeedback({ type: "error", message: "Numele și email-ul sunt obligatorii." });
-                    return;
-                  }
-
-                  setAddingEmployee(true);
-                  setEmployeeFeedback(null);
-                  try {
-                    if (editingEmployeeId) {
-                      // Update existing employee
-                      // TICKET-044: Include canManageOwnServices în update
-                      await api.put(`/business/${business.id}/employees/${editingEmployeeId}`, {
-                        name: employeeName.trim(),
-                        email: employeeEmail.trim(),
-                        phone: employeePhone.trim() || undefined,
-                        specialization: employeeSpecialization.trim() || undefined,
-                        canManageOwnServices: employeeCanManageOwnServices, // TICKET-044: Actualizează flag-ul
-                      });
-                      setEmployeeFeedback({ type: "success", message: "Angajat actualizat cu succes!" });
-                    } else {
-                      // Add new employee
-                      await addEmployee({
-                        businessId: business.id,
-                        name: employeeName.trim(),
-                        email: employeeEmail.trim(),
-                        phone: employeePhone.trim() || undefined,
-                        specialization: employeeSpecialization.trim() || undefined,
-                      });
-                      setEmployeeFeedback({ type: "success", message: "Angajat adăugat cu succes!" });
+                    if (!employeeName.trim() || !employeeEmail.trim()) {
+                      setEmployeeFeedback({ type: "error", message: "Numele și email-ul sunt obligatorii." });
+                      return;
                     }
-                    setTimeout(() => {
-                      setEmployeeModalOpen(false);
-                      setEditingEmployeeId(null);
-                      setEmployeeName("");
-                      setEmployeeEmail("");
-                      setEmployeePhone("");
-                      setEmployeeSpecialization("");
-                      setEmployeeCanManageOwnServices(false); // TICKET-044: Reset flag
-                      setEmployeeFeedback(null);
-                      setEmployeeServices([]);
-                      void fetchBusinesses();
-                    }, 1000);
-                  } catch (error: any) {
-                    // Extract error message from Axios response if available
-                    const errorMessage = error?.response?.data?.error 
-                      || error?.message 
-                      || (error instanceof Error ? error.message : null)
-                      || (editingEmployeeId 
-                        ? "Eroare la actualizarea angajatului." 
-                        : "Eroare la adăugarea angajatului.");
-                    
-                    setEmployeeFeedback({
-                      type: "error",
-                      message: errorMessage,
-                    });
-                  } finally {
-                    setAddingEmployee(false);
-                  }
-                }}
-                className="flex flex-col gap-4"
-              >
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-white/70">Nume complet *</span>
-                  <input
-                    type="text"
-                    value={employeeName}
-                    onChange={(e) => setEmployeeName(e.target.value)}
-                    required
-                    className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                    placeholder="Ion Popescu"
-                  />
-                </label>
 
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-white/70">Specializare</span>
-                  <input
-                    type="text"
-                    value={employeeSpecialization}
-                    onChange={(e) => setEmployeeSpecialization(e.target.value)}
-                    className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                    placeholder="Ex: Stomatolog, Hair stylist, etc."
-                  />
-                </label>
+                    setAddingEmployee(true);
+                    setEmployeeFeedback(null);
+                    try {
+                      if (editingEmployeeId) {
+                        // Update existing employee
+                        // TICKET-044: Include canManageOwnServices în update
+                        await api.put(`/business/${business.id}/employees/${editingEmployeeId}`, {
+                          name: employeeName.trim(),
+                          email: employeeEmail.trim(),
+                          phone: employeePhone.trim() || undefined,
+                          specialization: employeeSpecialization.trim() || undefined,
+                          canManageOwnServices: employeeCanManageOwnServices, // TICKET-044: Actualizează flag-ul
+                        });
+                        setEmployeeFeedback({ type: "success", message: "Specialist actualizat cu succes!" });
+                      } else {
+                        // Add new employee
+                        await addEmployee({
+                          businessId: business.id,
+                          name: employeeName.trim(),
+                          email: employeeEmail.trim(),
+                          phone: employeePhone.trim() || undefined,
+                          specialization: employeeSpecialization.trim() || undefined,
+                        });
+                        setEmployeeFeedback({ type: "success", message: "Specialist adăugat cu succes!" });
+                      }
+                      setTimeout(() => {
+                        setEmployeeModalOpen(false);
+                        setEditingEmployeeId(null);
+                        setEmployeeName("");
+                        setEmployeeEmail("");
+                        setEmployeePhone("");
+                        setEmployeeSpecialization("");
+                        setEmployeeCanManageOwnServices(false); // TICKET-044: Reset flag
+                        setEmployeeFeedback(null);
+                        setEmployeeServices([]);
+                        // CRITICAL FIX: Refresh business data when modal closes to sync with server
+                        void fetchBusinesses();
+                      }, 1000);
+                    } catch (error: any) {
+                      // Extract error message from Axios response if available
+                      const errorMessage = error?.response?.data?.error 
+                        || error?.message 
+                        || (error instanceof Error ? error.message : null)
+                        || (editingEmployeeId 
+                          ? "Eroare la actualizarea angajatului." 
+                          : "Eroare la adăugarea angajatului.");
+                      
+                      setEmployeeFeedback({
+                        type: "error",
+                        message: errorMessage,
+                      });
+                    } finally {
+                      setAddingEmployee(false);
+                    }
+                  }}
+                  className="flex flex-col gap-4"
+                >
+                  {/* Input fields in responsive grid: 1 column on mobile, 2 columns on desktop */}
+                  <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Nume complet *</span>
+                      <input
+                        type="text"
+                        value={employeeName}
+                        onChange={(e) => setEmployeeName(e.target.value)}
+                        required
+                        className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                        placeholder="Ion Popescu"
+                      />
+                    </label>
 
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-white/70">Email *</span>
-                  <input
-                    type="email"
-                    value={employeeEmail}
-                    onChange={(e) => setEmployeeEmail(e.target.value)}
-                    required
-                    className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                    placeholder="ion.popescu@example.com"
-                  />
-                </label>
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Email *</span>
+                      <input
+                        type="email"
+                        value={employeeEmail}
+                        onChange={(e) => setEmployeeEmail(e.target.value)}
+                        required
+                        className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                        placeholder="ion.popescu@example.com"
+                      />
+                    </label>
+                  </div>
 
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-white/70">Număr de telefon</span>
-                  <input
-                    type="tel"
-                    value={employeePhone}
-                    onChange={(e) => setEmployeePhone(e.target.value)}
-                    className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
-                    placeholder="+40 7XX XXX XXX"
-                  />
-                </label>
+                  <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Număr de telefon</span>
+                      <input
+                        type="tel"
+                        value={employeePhone}
+                        onChange={(e) => setEmployeePhone(e.target.value)}
+                        className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                        placeholder="+40 7XX XXX XXX"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span className="text-white/70">Specializare</span>
+                      <input
+                        type="text"
+                        value={employeeSpecialization}
+                        onChange={(e) => setEmployeeSpecialization(e.target.value)}
+                        className="rounded-2xl border border-white/10 bg-[#0B0E17]/60 px-4 py-3 text-white outline-none transition focus:border-[#6366F1]"
+                        placeholder="Ex: Stomatolog, Hair stylist, etc."
+                      />
+                    </label>
+                  </div>
 
                 {/* TICKET-044: Can Manage Own Services Toggle - Only show when editing existing employee */}
                 {editingEmployeeId && (
@@ -1469,7 +1551,7 @@ export default function BusinessDashboardPage() {
                         Permite gestionarea propriilor servicii
                       </span>
                       <p className="text-xs text-white/50 mt-1">
-                        Dacă este activat, angajatul poate adăuga sau șterge servicii pentru el însuși
+                        Dacă este activat, specialistul poate adăuga sau șterge servicii pentru el însuși
                       </p>
                     </div>
                   </label>
@@ -1491,19 +1573,24 @@ export default function BusinessDashboardPage() {
                       </div>
                     ) : (
                       <div className="max-h-48 space-y-2 overflow-y-auto">
-                        {employeeServices.map((service) => (
+                        {employeeServices.map((service, index) => (
                           <label
-                            key={service.id}
+                            key={service.id || `service-${index}`}
                             className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 transition hover:bg-white/10 cursor-pointer"
                           >
                             <input
                               type="checkbox"
                               checked={service.isAssociated}
-                              onChange={(e) =>
-                                handleToggleEmployeeService(service.id, service.isAssociated)
-                              }
-                              disabled={updatingEmployeeService === service.id}
-                              className="h-4 w-4 rounded border-white/30 text-[#6366F1] focus:ring-[#6366F1] disabled:opacity-50 disabled:cursor-not-allowed"
+                              onChange={(e) => {
+                                // CRITICAL FIX: Validate service.id before calling handler
+                                if (!service.id || service.id === "undefined") {
+                                  console.error("Cannot toggle service: service.id is invalid", service);
+                                  return;
+                                }
+                                handleToggleEmployeeService(service.id, service.isAssociated);
+                              }}
+                              disabled={updatingEmployeeService === service.id || !service.id || service.id === "undefined"}
+                              className="h-4 w-4 rounded border-white/30 text-[#6366F1] focus:ring-[#6366F1] disabled:opacity-50 disabled:cursor-not-allowed transition-none"
                             />
                             <div className="flex-1">
                               <span className="text-sm text-white">{service.name}</span>
@@ -1523,46 +1610,49 @@ export default function BusinessDashboardPage() {
                   </div>
                 )}
 
-                {employeeFeedback && (
-                  <div
-                    className={`rounded-lg border px-4 py-2 text-sm ${
-                      employeeFeedback.type === "success"
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                        : "border-red-500/40 bg-red-500/10 text-red-200"
-                    }`}
-                  >
-                    {employeeFeedback.message}
-                  </div>
-                )}
+                  {employeeFeedback && (
+                    <div
+                      className={`rounded-lg border px-4 py-2 text-sm ${
+                        employeeFeedback.type === "success"
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                          : "border-red-500/40 bg-red-500/10 text-red-200"
+                      }`}
+                    >
+                      {employeeFeedback.message}
+                    </div>
+                  )}
+                </form>
+              </div>
 
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmployeeModalOpen(false);
-                      setEditingEmployeeId(null);
-                      setEmployeeName("");
-                      setEmployeeEmail("");
-                      setEmployeePhone("");
-                      setEmployeeSpecialization("");
-                      setEmployeeFeedback(null);
-                    }}
-                    disabled={addingEmployee}
-                    className="flex-1 rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Renunță
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={addingEmployee}
-                    className="flex-1 rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {addingEmployee 
-                      ? (editingEmployeeId ? "Se actualizează..." : "Se adaugă...") 
-                      : (editingEmployeeId ? "Salvează modificările" : "Adaugă angajat")}
-                  </button>
-                </div>
-              </form>
+              {/* Footer - Fixed */}
+              <div className="flex gap-3 p-6 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmployeeModalOpen(false);
+                    setEditingEmployeeId(null);
+                    setEmployeeName("");
+                    setEmployeeEmail("");
+                    setEmployeePhone("");
+                    setEmployeeSpecialization("");
+                    setEmployeeFeedback(null);
+                  }}
+                  disabled={addingEmployee}
+                  className="flex-1 rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Renunță
+                </button>
+                <button
+                  type="submit"
+                  form="employee-form"
+                  disabled={addingEmployee}
+                  className="flex-1 rounded-2xl bg-[#6366F1] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#7C3AED] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {addingEmployee 
+                    ? (editingEmployeeId ? "Se actualizează..." : "Se adaugă...") 
+                    : (editingEmployeeId ? "Salvează modificările" : "Adaugă angajat")}
+                </button>
+              </div>
             </div>
           </div>
         )}

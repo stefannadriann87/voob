@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useState, useEffect, useMemo } from "react";
+import { ReactNode, useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LayoutDashboard } from "lucide-react";
@@ -47,11 +47,18 @@ export default function BusinessLayout({ children }: { children: ReactNode }) {
   }, [businesses, user]);
 
   // Fetch businesses when user is authenticated
+  // CRITICAL FIX: Use useRef to prevent infinite loop
+  const hasFetchedRef = useRef(false);
   useEffect(() => {
-    if (!loading && user && (user.role === "BUSINESS" || user.role === "SUPERADMIN") && businesses.length === 0 && !businessesLoading) {
+    if (!loading && user && (user.role === "BUSINESS" || user.role === "SUPERADMIN") && businesses.length === 0 && !businessesLoading && !hasFetchedRef.current) {
+      hasFetchedRef.current = true;
       void fetchBusinesses();
     }
-  }, [loading, user, businesses.length, businessesLoading, fetchBusinesses]);
+    // Reset flag if user changes
+    if (!user || (user.role !== "BUSINESS" && user.role !== "SUPERADMIN")) {
+      hasFetchedRef.current = false;
+    }
+  }, [loading, user, businesses.length, businessesLoading]); // Removed fetchBusinesses from dependencies
 
   // Debug: Log businessId pentru debugging
   useEffect(() => {
