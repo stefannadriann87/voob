@@ -507,7 +507,7 @@ export default function BusinessBookingsPage() {
   // Memoize employee filter options
   const employeeFilterOptions = useMemo(() => {
     return [
-      { value: "", label: "Toți angajații" },
+      { value: "", label: "Toți specialiștii" },
       ...employees.map((emp) => ({
         value: emp.id,
         label: emp.name,
@@ -535,8 +535,8 @@ export default function BusinessBookingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0B0E17] text-white">
-      <main className="flex flex-col gap-10 px-0 desktop:px-4 ">
+    <div className="h-screen sm:h-screen md:h-screen lg:h-screen bg-[#0B0E17] text-white overflow-hidden">
+      <main className="flex flex-col gap-10 px-0 desktop:px-4 h-full overflow-y-auto">
         {/* <section className="rounded-3xl border border-white/10 bg-white/5 p-8">
           <h1 className="text-3xl font-semibold">Programările businessului</h1>
           <p className="mt-2 text-sm text-white/60">
@@ -555,7 +555,7 @@ export default function BusinessBookingsPage() {
                 {viewType === "day" && "Vizualizare detaliată pentru o singură zi."}
               </p>
               </div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-2">
                 {/* View Type Toggle - Mobile optimized */}
                 <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 overflow-x-auto">
                   <button
@@ -583,15 +583,15 @@ export default function BusinessBookingsPage() {
                   </button>
                 </div>
                 
-                    {/* Calendar picker */}
-                    <div className="hidden sm:block">
-                      <DatePicker
-                        value={calendarDate}
-                        onChange={handleCalendarDateChange}
-                        placeholder="Selectează data"
-                        viewType={viewType}
-                      />
-                    </div>
+                {/* Calendar picker - on same row on desktop, new row on mobile */}
+                <div className="w-full sm:w-auto">
+                  <DatePicker
+                    value={calendarDate}
+                    onChange={handleCalendarDateChange}
+                    placeholder="Selectează data"
+                    viewType={viewType}
+                  />
+                </div>
               </div>
             </div>
 
@@ -604,7 +604,7 @@ export default function BusinessBookingsPage() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Caută după client, serviciu, angajat..."
+                  placeholder="Caută după client, serviciu, specialist..."
                   className="w-full rounded-xl border border-white/10 bg-[#0B0E17]/60 pl-10 pr-10 py-2.5 text-sm text-white placeholder:text-white/40 outline-none transition focus:border-[#6366F1] touch-manipulation"
                 />
                 {searchQuery && (
@@ -629,13 +629,13 @@ export default function BusinessBookingsPage() {
                     value={filterEmployeeId || ""}
                     onChange={(value) => setFilterEmployeeId(value || null)}
                     options={[
-                      { value: "", label: "Toți angajații" },
+                      { value: "", label: "Toți specialiștii" },
                       ...employees.map((emp) => ({
                         value: emp.id,
                         label: emp.name,
                       })),
                     ]}
-                    placeholder="Toți angajații"
+                    placeholder="Toți specialiștii"
                     size="md"
                   />
                 )}
@@ -857,8 +857,8 @@ export default function BusinessBookingsPage() {
             </div>
           ) : (
             // Week View - Vizualizare săptămânală (existentă)
-            <div className="overflow-x-auto">
-              <div className="w-full rounded-3xl border border-white/10 bg-[#0B0E17]/40 p-4">
+            <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)]">
+              <div className="w-full min-w-[900px] rounded-3xl border border-white/10 bg-[#0B0E17]/40 p-4">
                 <div
                   className="grid"
                   style={{
@@ -904,8 +904,9 @@ export default function BusinessBookingsPage() {
                         let stateClasses =
                           "bg-[#0B0E17]/60 text-white/70 border border-white/10 transition-all duration-200";
                         if (slot.status === "blocked") {
+                          // Pauză - culoare violet light, mai soft decât roșu
                           stateClasses =
-                            "bg-red-600/30 text-red-400 border border-red-500/60 cursor-not-allowed";
+                            "bg-violet-400/25 text-violet-300 border border-violet-400/40 cursor-not-allowed";
                         } else if (slot.status === "booked") {
                           // Check if slot is in the past
                           const slotDate = new Date(slot.iso);

@@ -999,7 +999,7 @@ export default function BusinessProfilePage() {
               <ul className="list-disc pl-5 space-y-1 text-white/60">
                 <li>Tot business-ul și toate datele asociate</li>
                 <li>Toate rezervările (bookings)</li>
-                <li>Toți angajații și serviciile</li>
+                <li>Toți specialiștii și serviciile</li>
                 <li>Abonamentul Stripe (dacă există)</li>
                 <li>Toate documentele și consimțămintele</li>
                 <li>Link-urile clienților către acest business</li>

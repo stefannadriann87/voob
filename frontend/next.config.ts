@@ -12,7 +12,8 @@ const nextConfig: NextConfig = {
   // Trailing slash pentru compatibilitate
   trailingSlash: true,
   
-  // Rewrite API calls către backend
+  // CRITICAL FIX: Rewrite API calls către backend pentru a evita problemele cu cookie-urile cross-origin
+  // Next.js proxy face request-urile să pară same-origin, astfel cookie-urile funcționează corect
   async rewrites() {
     // Doar în development, în production folosim direct URL-ul backend
     if (process.env.NODE_ENV === 'development') {

@@ -410,10 +410,10 @@ export default function BusinessDashboardPage() {
         
         setEmployeeServices(servicesWithAssociation);
         
-        // TICKET-044: Fetch employee data to get canManageOwnServices flag
-        const employee = business.employees?.find((e: any) => e.id === editingEmployeeId);
-        if (employee && (employee as any).canManageOwnServices !== undefined) {
-          setEmployeeCanManageOwnServices((employee as any).canManageOwnServices);
+        // CRITICAL FIX: Fetch employee data to get canManageOwnServices flag
+        const employee = business.employees?.find((e) => e.id === editingEmployeeId);
+        if (employee && employee.canManageOwnServices !== undefined) {
+          setEmployeeCanManageOwnServices(employee.canManageOwnServices);
         } else {
           // Fallback: fetch from API if not in business.employees
           try {
@@ -952,8 +952,8 @@ export default function BusinessDashboardPage() {
                         setEmployeeEmail(employee.email);
                         setEmployeePhone(employee.phone || "");
                         setEmployeeSpecialization(employee.specialization || "");
-                        // TICKET-044: Load canManageOwnServices flag
-                        setEmployeeCanManageOwnServices((employee as any).canManageOwnServices || false);
+                        // CRITICAL FIX: Load canManageOwnServices flag
+                        setEmployeeCanManageOwnServices(employee.canManageOwnServices || false);
                         setEmployeeFeedback(null);
                         setEmployeeModalOpen(true);
                       }}
@@ -976,7 +976,7 @@ export default function BusinessDashboardPage() {
             ))}
             {(!business?.employees || business.employees.length === 0) && (
               <div className="col-span-full rounded-xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-sm text-white/60">
-                Nu ai angajați adăugați. Adaugă angajați pentru a gestiona programările.
+                Nu ai specialiști adăugați. Adaugă specialiști pentru a gestiona programările.
               </div>
             )}
           </div>
@@ -1473,8 +1473,8 @@ export default function BusinessDashboardPage() {
                         || error?.message 
                         || (error instanceof Error ? error.message : null)
                         || (editingEmployeeId 
-                          ? "Eroare la actualizarea angajatului." 
-                          : "Eroare la adăugarea angajatului.");
+                          ? "Eroare la actualizarea specialistului." 
+                          : "Eroare la adăugarea specialistului.");
                       
                       setEmployeeFeedback({
                         type: "error",
@@ -1650,7 +1650,7 @@ export default function BusinessDashboardPage() {
                 >
                   {addingEmployee 
                     ? (editingEmployeeId ? "Se actualizează..." : "Se adaugă...") 
-                    : (editingEmployeeId ? "Salvează modificările" : "Adaugă angajat")}
+                    : (editingEmployeeId ? "Salvează modificările" : "Adaugă specialist")}
                 </button>
               </div>
             </div>
@@ -1664,7 +1664,7 @@ export default function BusinessDashboardPage() {
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-white">Confirmă ștergerea</h3>
                 <p className="mt-2 text-sm text-white/60">
-                  Ești sigur că vrei să ștergi angajatul <strong className="text-white">"{employeeToDelete.name}"</strong>? 
+                  Ești sigur că vrei să ștergi specialistul <strong className="text-white">"{employeeToDelete.name}"</strong>? 
                   Această acțiune nu poate fi anulată.
                 </p>
               </div>
@@ -1702,7 +1702,7 @@ export default function BusinessDashboardPage() {
                   disabled={deletingEmployeeId === employeeToDelete.id}
                   className="rounded-2xl bg-red-500/80 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {deletingEmployeeId === employeeToDelete.id ? "Se șterge..." : "Șterge angajat"}
+                  {deletingEmployeeId === employeeToDelete.id ? "Se șterge..." : "Șterge specialist"}
                 </button>
               </div>
             </div>

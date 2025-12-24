@@ -229,6 +229,32 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
         return res.status(404).json({ error: "Serviciul nu a fost găsit pentru acest business." });
       }
 
+      // CRITICAL FIX: Check for employee service overrides if employeeId is provided
+      if (employeeId) {
+        const employeeService = await prisma.employeeService.findUnique({
+          where: {
+            employeeId_serviceId: {
+              employeeId,
+              serviceId,
+            },
+          },
+          select: {
+            price: true,
+            duration: true,
+          },
+        });
+
+        // Apply overrides if they exist
+        if (employeeService) {
+          if (employeeService.price !== null && employeeService.price !== undefined) {
+            service.price = employeeService.price;
+          }
+          if (employeeService.duration !== null && employeeService.duration !== undefined) {
+            service.duration = employeeService.duration;
+          }
+        }
+      }
+
       // CRITICAL FIX (TICKET-010): Validare completă pentru duration în business types normale
       // Calculate booking end time based on service duration or override duration
       serviceDurationMinutes = duration ?? service.duration;
@@ -419,15 +445,6 @@ router.post("/", verifyJWT, validate(createBookingSchema), async (req, res) => {
                 },
               },
             });
-
-            // If no association found, check if business has no restrictions (backward compatibility)
-            // For now, we allow booking if no association exists (backward compatibility)
-            // In the future, you might want to make this stricter
-            // if (!employeeService) {
-            //   return res.status(400).json({
-            //     error: "Angajatul nu poate efectua acest serviciu.",
-            //   });
-            // }
           }
         }
       } catch (employeeError: any) {

@@ -19,6 +19,7 @@ export interface Employee {
   phone?: string | null;
   specialization?: string | null;
   avatar?: string | null;
+  canManageOwnServices?: boolean; // CRITICAL FIX: Flag that allows employee to manage their own services
 }
 
 export interface Business {
@@ -287,7 +288,7 @@ export default function useBusiness() {
         const message =
           axiosError.response?.data?.error ??
           axiosError.message ??
-          (err instanceof Error ? err.message : "Eroare la actualizarea angajatului.");
+          (err instanceof Error ? err.message : "Eroare la actualizarea specialistului.");
         setError(message);
         throw err;
       }
@@ -314,7 +315,7 @@ export default function useBusiness() {
         const message =
           axiosError.response?.data?.error ??
           axiosError.message ??
-          (err instanceof Error ? err.message : "Eroare la ștergerea angajatului.");
+          (err instanceof Error ? err.message : "Eroare la ștergerea specialistului.");
         setError(message);
         throw err;
       }

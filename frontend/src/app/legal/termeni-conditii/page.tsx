@@ -68,7 +68,7 @@ export default function TermeniConditiiPage() {
           <ul>
             <li><strong>Client:</strong> Pentru utilizatori care doresc să rezerve servicii</li>
             <li><strong>Business:</strong> Pentru afaceri care oferă servicii</li>
-            <li><strong>Employee:</strong> Pentru angajații unei afaceri</li>
+            <li><strong>Employee:</strong> Pentru specialiștii unei afaceri</li>
             <li><strong>Admin:</strong> Pentru administrarea platformei</li>
           </ul>
         </section>

@@ -9,7 +9,7 @@ const defaultBusinessInclude = {
   },
   services: true,
   employees: {
-    select: { id: true, name: true, email: true, phone: true, specialization: true, avatar: true },
+    select: { id: true, name: true, email: true, phone: true, specialization: true, avatar: true, canManageOwnServices: true }, // CRITICAL FIX: Include canManageOwnServices for employee management
   },
 };
 

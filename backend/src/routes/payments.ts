@@ -30,9 +30,11 @@ const toMinorCurrencyUnit = (amount: number) => Math.round(amount * 100);
 const validateBookingPayload = async ({
   businessId,
   serviceId,
+  employeeId,
 }: {
   businessId?: string;
   serviceId?: string;
+  employeeId?: string | null;
 }) => {
   if (!businessId || !serviceId) {
     throw new Error("businessId și serviceId sunt obligatorii.");
@@ -45,6 +47,32 @@ const validateBookingPayload = async ({
 
   if (!service) {
     throw new Error("Serviciul nu a fost găsit pentru acest business.");
+  }
+
+  // Check for employee service overrides if employeeId is provided
+  if (employeeId) {
+    const employeeService = await prisma.employeeService.findUnique({
+      where: {
+        employeeId_serviceId: {
+          employeeId,
+          serviceId,
+        },
+      },
+      select: {
+        price: true,
+        duration: true,
+      },
+    });
+
+    // Apply overrides if they exist
+    if (employeeService) {
+      if (employeeService.price !== null && employeeService.price !== undefined) {
+        service.price = employeeService.price;
+      }
+      if (employeeService.duration !== null && employeeService.duration !== undefined) {
+        service.duration = employeeService.duration;
+      }
+    }
   }
 
   if (service.price <= 0) {
@@ -107,7 +135,7 @@ router.post("/create-intent", verifyJWT, validate(createPaymentIntentSchema), as
     // CRITICAL FIX (TICKET-011): Error handling robust pentru validare booking payload
     let service;
     try {
-      service = await validateBookingPayload({ businessId, serviceId });
+      service = await validateBookingPayload({ businessId, serviceId, employeeId });
     } catch (validationError: any) {
       logger.error("Booking payload validation failed", { 
         error: validationError.message, 

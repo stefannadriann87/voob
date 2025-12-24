@@ -3,7 +3,17 @@ import { useMemo } from "react";
 import { sanitizeObject } from "../lib/sanitize";
 import { logger } from "../lib/logger";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+// CRITICAL FIX: In development, use Next.js proxy to avoid cross-origin cookie issues
+// Next.js proxy makes requests appear same-origin, so cookies work correctly
+// In development (client-side), use /api proxy; in production or SSR, use direct URL
+const getApiUrl = (): string => {
+  // Check if we're in browser (client-side) and in development
+  if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
+    return "/api"; // Next.js will proxy to backend via rewrites
+  }
+  // In production or SSR, use direct backend URL
+  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+};
 
 /**
  * Hook pentru API calls
@@ -15,8 +25,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
  */
 export default function useApi(): AxiosInstance {
   const instance = useMemo(() => {
+    const apiUrl = getApiUrl();
     const client = axios.create({
-      baseURL: API_URL,
+      baseURL: apiUrl,
       withCredentials: true, // IMPORTANT: Trimite cookies automat (inclusiv JWT HttpOnly)
       timeout: 10000, // 10 second timeout
     });
@@ -52,7 +63,7 @@ export default function useApi(): AxiosInstance {
         
         if (error.code === "ECONNABORTED" || error.message === "Network Error") {
           logger.error("Network Error - Backend may be down or unreachable:", {
-            baseURL: API_URL,
+            baseURL: apiUrl,
             url: error.config?.url,
             method: error.config?.method,
           });

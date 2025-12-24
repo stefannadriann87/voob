@@ -989,7 +989,7 @@ export default function Home() {
                 fontSize: 14,
               }}
             >
-              Adaugă angajații, serviciile cu prețuri și durate, și fiecare specialist poate avea propriul program de lucru.
+              Adaugă specialiști, serviciile cu prețuri și durate, și fiecare specialist poate avea propriul program de lucru.
             </p>
             <p
               style={{
@@ -1009,7 +1009,7 @@ export default function Home() {
             </div>
             <h3>Configurează programul de lucru</h3>
             <p>
-              Setează orele de lucru pentru fiecare zi, pauzele și concediile. Fiecare angajat poate avea program personalizat.
+              Setează orele de lucru pentru fiecare zi, pauzele și concediile. Fiecare specialist poate avea program personalizat.
             </p>
             <p
               style={{

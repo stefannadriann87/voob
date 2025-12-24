@@ -33,17 +33,27 @@ const RESET_TOKEN_EXPIRATION_MINUTES = getEnvNumber("RESET_TOKEN_EXP_MINUTES", 6
 const isProduction = process.env.NODE_ENV === "production";
 const JWT_COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24h în milisecunde
 
-const getJwtCookieOptions = (): express.CookieOptions => ({
-  httpOnly: true,
-  secure: isProduction,
-  // In development, use "lax" for same-site requests (localhost:3001 -> localhost:4000)
-  // In production, use "strict" for better security
-  sameSite: isProduction ? "strict" : "lax",
-  path: "/",
-  maxAge: JWT_COOKIE_MAX_AGE,
-  // Ensure cookie is sent for cross-origin requests in development
-  ...(isProduction ? {} : { domain: undefined }), // Don't set domain in development to allow localhost
-});
+const getJwtCookieOptions = (): express.CookieOptions => {
+  // CRITICAL FIX: In development, use "lax" for cross-origin requests (localhost:3001 -> localhost:4000)
+  // "lax" allows cookies to be sent in top-level navigations and same-site GET requests
+  // For POST/PUT/DELETE cross-origin requests, cookies are still sent if withCredentials: true
+  // Note: For true cross-origin (different ports), we might need "none" with secure: true (HTTPS)
+  // But in development with HTTP, "lax" should work for same-origin requests
+  const sameSiteValue: "strict" | "lax" | "none" = isProduction ? "strict" : "lax";
+  
+  return {
+    httpOnly: true,
+    secure: isProduction, // false in development (HTTP), true in production (HTTPS)
+    sameSite: sameSiteValue,
+    path: "/",
+    maxAge: JWT_COOKIE_MAX_AGE,
+    // CRITICAL: Don't set domain in development to allow localhost cross-origin cookies
+    // Setting domain would restrict cookie to that specific domain
+    // In development, localhost:3001 and localhost:4000 are considered different origins
+    // but cookies can still work with sameSite: "lax" for GET requests
+    ...(isProduction ? {} : { domain: undefined }),
+  };
+};
 
 const slugify = (value: string) =>
   value
@@ -92,8 +102,30 @@ type TokenPayload = {
 
 
 const authenticate = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // CRITICAL FIX: Debug logging pentru a vedea de ce token-ul nu este găsit
+  if (process.env.NODE_ENV === "development") {
+    const cookieReq = req as express.Request & { cookies?: { [key: string]: string } };
+    logger.debug("Authenticate middleware - checking for token", {
+      hasCookies: !!cookieReq.cookies,
+      cookieKeys: cookieReq.cookies ? Object.keys(cookieReq.cookies) : [],
+      hasVoobAuthCookie: cookieReq.cookies ? !!cookieReq.cookies[JWT_COOKIE_NAME] : false,
+      hasAuthHeader: !!req.headers.authorization,
+      origin: req.headers.origin,
+      referer: req.headers.referer,
+    });
+  }
+  
   const token = extractToken(req);
   if (!token) {
+    // CRITICAL FIX: More detailed error message in development
+    if (process.env.NODE_ENV === "development") {
+      const cookieReq = req as express.Request & { cookies?: { [key: string]: string } };
+      logger.warn("Token not found in authenticate middleware", {
+        cookiesPresent: !!cookieReq.cookies,
+        cookieNames: cookieReq.cookies ? Object.keys(cookieReq.cookies) : [],
+        hasAuthHeader: !!req.headers.authorization,
+      });
+    }
     return res.status(401).json({ error: "Autentificare necesară." });
   }
 

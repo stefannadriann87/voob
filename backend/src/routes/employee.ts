@@ -4,7 +4,7 @@ const { verifyJWT } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const { requireEmployeeServiceAccess } = require("../middleware/requireEmployeeServiceAccess");
 const { invalidateBusinessProfile, invalidateServices } = require("../services/cacheService");
-const { employeeIdParamSchema, workingHoursSchema, createHolidaySchema, holidayIdParamSchema } = require("../validators/employeeSchemas");
+const { employeeIdParamSchema, workingHoursSchema, createHolidaySchema, holidayIdParamSchema, updateEmployeeServiceSchema } = require("../validators/employeeSchemas");
 const { logger } = require("../lib/logger");
 
 const router = express.Router();
@@ -324,19 +324,84 @@ router.get("/services", verifyJWT, async (req, res) => {
     // TICKET-044: Verifică canManageOwnServices (doar pentru informare, nu blochează GET)
     // GET este permis pentru a vedea serviciile, dar POST/DELETE vor verifica permisiunea
 
-    // Get associated services for this employee
-    const employeeServices = await prisma.employeeService.findMany({
-      where: { employeeId: employee.id },
-      select: { serviceId: true },
-    });
+    // Get associated services for this employee with overrides
+    // CRITICAL FIX: Handle case where columns might not exist yet (backward compatibility)
+    let employeeServices;
+    try {
+      employeeServices = await prisma.employeeService.findMany({
+        where: { employeeId: employee.id },
+        select: { 
+          serviceId: true,
+          price: true,      // Override price
+          duration: true,  // Override duration
+          notes: true,     // Override notes
+        },
+      });
+    } catch (error: any) {
+      // If columns don't exist yet, fallback to old query
+      // Prisma throws P2021 for unknown column, or we might get a raw SQL error
+      const errorMessage = error?.message || "";
+      const errorCode = error?.code || "";
+      const isColumnError = 
+        errorMessage.includes("Unknown column") || 
+        errorMessage.includes("column") && errorMessage.includes("does not exist") ||
+        errorCode === "P2021" ||
+        errorMessage.includes("P2021");
+      
+      if (isColumnError) {
+        logger.warn("EmployeeService override columns not found, using fallback query", { 
+          employeeId: employee.id,
+          error: errorMessage,
+          code: errorCode
+        });
+        employeeServices = await prisma.employeeService.findMany({
+          where: { employeeId: employee.id },
+          select: { 
+            serviceId: true,
+          },
+        });
+        // Add null overrides for backward compatibility
+        employeeServices = employeeServices.map((es: { serviceId: string }) => ({
+          ...es,
+          price: null,
+          duration: null,
+          notes: null,
+        }));
+      } else {
+        // Log the actual error for debugging
+        logger.error("Get employee services error (not a column error):", { 
+          error: errorMessage,
+          code: errorCode,
+          stack: error?.stack
+        });
+        throw error;
+      }
+    }
+
+    // Create a map of serviceId -> override data
+    type OverrideData = { price?: number | null; duration?: number | null; notes?: string | null };
+    const overrideMap = new Map<string, OverrideData>(
+      employeeServices.map((es: { serviceId: string; price?: number | null; duration?: number | null; notes?: string | null }) => [
+        es.serviceId,
+        { price: es.price, duration: es.duration, notes: es.notes }
+      ])
+    );
 
     const associatedServiceIds = new Set(employeeServices.map((es: { serviceId: string }) => es.serviceId));
 
-    // Return services with association status
-    const services = employee.business.services.map((service: { id: string; name: string; duration: number; price: number; notes?: string | null }) => ({
-      ...service,
-      isAssociated: associatedServiceIds.has(service.id),
-    }));
+    // Return services with association status and overrides applied
+    const services = employee.business.services.map((service: { id: string; name: string; duration: number; price: number; notes?: string | null }) => {
+      const override: OverrideData | undefined = overrideMap.get(service.id);
+      return {
+        ...service,
+        // Apply overrides if they exist, otherwise use service defaults
+        price: override && override.price !== null && override.price !== undefined ? override.price : service.price,
+        duration: override && override.duration !== null && override.duration !== undefined ? override.duration : service.duration,
+        notes: override && override.notes !== null && override.notes !== undefined ? override.notes : service.notes,
+        isAssociated: associatedServiceIds.has(service.id),
+        hasOverrides: override ? (override.price !== null || override.duration !== null || override.notes !== null) : false,
+      };
+    });
 
     return res.json({
       services,
@@ -344,8 +409,86 @@ router.get("/services", verifyJWT, async (req, res) => {
       businessName: employee.business.name,
       canManageOwnServices: employee.canManageOwnServices, // TICKET-044: Returnează flag-ul pentru frontend
     });
-  } catch (error) {
-    logger.error("Get employee services error:", error);
+  } catch (error: any) {
+    logger.error("Get employee services error:", {
+      error: error?.message || error,
+      code: error?.code,
+      stack: error?.stack,
+      employeeId: authReq.user?.userId
+    });
+    
+    // If it's a column error that wasn't caught earlier, try fallback
+    const errorMessage = error?.message || "";
+    const errorCode = error?.code || "";
+    const isColumnError = 
+      errorMessage.includes("Unknown column") || 
+      (errorMessage.includes("column") && errorMessage.includes("does not exist")) ||
+      errorCode === "P2021" ||
+      errorMessage.includes("P2021");
+    
+    if (isColumnError) {
+      logger.warn("Retrying with fallback query after catch block");
+      try {
+        // Fallback: return services without overrides
+        const employee = await prisma.user.findUnique({
+          where: { id: authReq.user.userId },
+          select: {
+            id: true,
+            businessId: true,
+            business: {
+              select: {
+                id: true,
+                name: true,
+                services: {
+                  select: {
+                    id: true,
+                    name: true,
+                    duration: true,
+                    price: true,
+                    notes: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (!employee || !employee.business) {
+          return res.status(404).json({ 
+            error: "Specialistul nu are un business asociat.",
+            code: "EMPLOYEE_NO_BUSINESS",
+          });
+        }
+
+        const employeeServices = await prisma.employeeService.findMany({
+          where: { employeeId: employee.id },
+          select: { serviceId: true },
+        });
+
+        const associatedServiceIds = new Set(employeeServices.map((es: { serviceId: string }) => es.serviceId));
+
+        const services = employee.business.services.map((service: { id: string; name: string; duration: number; price: number; notes?: string | null }) => ({
+          ...service,
+          isAssociated: associatedServiceIds.has(service.id),
+          hasOverrides: false,
+        }));
+
+        return res.json({
+          services,
+          businessId: employee.business.id,
+          businessName: employee.business.name,
+          canManageOwnServices: false,
+        });
+      } catch (fallbackError: any) {
+        logger.error("Fallback query also failed:", fallbackError);
+        return res.status(500).json({ 
+          error: "Eroare la obținerea serviciilor.",
+          code: "EMPLOYEE_SERVICES_FETCH_FAILED",
+          actionable: "Te rugăm să încerci din nou sau să contactezi suportul."
+        });
+      }
+    }
+    
     return res.status(500).json({ 
       error: "Eroare la obținerea serviciilor.",
       code: "EMPLOYEE_SERVICES_FETCH_FAILED",
@@ -672,6 +815,205 @@ router.delete("/services/:serviceId", verifyJWT, async (req, res) => {
     return res.status(500).json({ 
       error: "Nu am putut dezasocia serviciul. Te rugăm să încerci din nou.",
       code: "SERVICE_DISASSOCIATION_FAILED",
+      actionable: "Dacă problema persistă, contactează suportul."
+    });
+  }
+});
+
+// Update employee service overrides (price, duration, notes)
+// TICKET-044: Verifică canManageOwnServices
+router.put("/services/:serviceId", verifyJWT, validate(updateEmployeeServiceSchema), async (req, res) => {
+  const authReq = req as express.Request & { user?: { userId: string; role: string } };
+  const { serviceId } = req.params;
+  const { price, duration, notes } = updateEmployeeServiceSchema.parse(req.body);
+
+  if (!authReq.user) {
+    return res.status(401).json({ error: "Autentificare necesară." });
+  }
+
+  const user = authReq.user;
+
+  // Verify role is EMPLOYEE
+  if (user.role !== "EMPLOYEE") {
+    return res.status(403).json({ 
+      error: "Doar specialiștii pot edita serviciile.",
+      code: "INVALID_ROLE",
+      actionable: "Doar utilizatorii cu rolul de EMPLOYEE pot accesa acest endpoint."
+    });
+  }
+
+  try {
+    // Get employee with business and canManageOwnServices flag
+    const employee = await prisma.user.findUnique({
+      where: { id: user.userId },
+      select: {
+        id: true,
+        role: true,
+        businessId: true,
+        canManageOwnServices: true,
+      },
+    });
+
+    if (!employee || employee.role !== "EMPLOYEE") {
+      return res.status(404).json({ 
+        error: "Specialistul nu a fost găsit.",
+        code: "EMPLOYEE_NOT_FOUND",
+        actionable: "Verifică că utilizatorul există și are rolul de EMPLOYEE."
+      });
+    }
+
+    if (!employee.businessId) {
+      return res.status(404).json({ 
+        error: "Specialistul nu are un business asociat.",
+        code: "EMPLOYEE_NO_BUSINESS",
+        actionable: "Verifică că specialistul este asociat cu un business."
+      });
+    }
+
+    // TICKET-044: Verifică canManageOwnServices
+    if (!employee.canManageOwnServices) {
+      return res.status(403).json({ 
+        error: "Nu ai permisiunea de a-ți gestiona propriile servicii. Contactează business owner-ul.",
+        code: "SELF_SERVICE_NOT_ALLOWED",
+        actionable: "Contactează business owner-ul pentru a obține permisiunea."
+      });
+    }
+
+    // Verify service exists and belongs to employee's business
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      select: { id: true, businessId: true, name: true },
+    });
+
+    if (!service) {
+      return res.status(404).json({ 
+        error: "Serviciul nu a fost găsit.",
+        code: "SERVICE_NOT_FOUND",
+        actionable: "Verifică că serviciul există."
+      });
+    }
+
+    if (service.businessId !== employee.businessId) {
+      return res.status(403).json({ 
+        error: "Serviciul nu aparține business-ului tău.",
+        code: "SERVICE_BUSINESS_MISMATCH",
+        actionable: "Verifică că serviciul aparține aceluiași business ca tine."
+      });
+    }
+
+    // Verify employee has this service associated
+    const existingAssociation = await prisma.employeeService.findUnique({
+      where: {
+        employeeId_serviceId: {
+          employeeId: employee.id,
+          serviceId: service.id,
+        },
+      },
+    });
+
+    if (!existingAssociation) {
+      return res.status(404).json({ 
+        error: "Serviciul nu este asociat cu tine. Asociază-l mai întâi.",
+        code: "SERVICE_NOT_ASSOCIATED",
+        actionable: "Asociază serviciul înainte de a-l edita."
+      });
+    }
+
+    // Validate inputs
+    if (price !== undefined && (price < 0 || !Number.isFinite(price))) {
+      return res.status(400).json({ 
+        error: "Prețul trebuie să fie un număr pozitiv.",
+        code: "INVALID_PRICE",
+        actionable: "Introdu un preț valid (număr pozitiv)."
+      });
+    }
+
+    if (duration !== undefined && (duration <= 0 || !Number.isInteger(duration) || duration % 30 !== 0)) {
+      return res.status(400).json({ 
+        error: "Durata trebuie să fie un număr întreg pozitiv, multiplu de 30 minute.",
+        code: "INVALID_DURATION",
+        actionable: "Introdu o durată validă (30, 60, 90, 120, etc. minute)."
+      });
+    }
+
+    if (notes !== undefined && notes !== null && notes.length > 2000) {
+      return res.status(400).json({ 
+        error: "Notele nu pot depăși 2000 caractere.",
+        code: "INVALID_NOTES",
+        actionable: "Scurtează notele la maximum 2000 caractere."
+      });
+    }
+
+    // Update or create employee service with overrides
+    const updateData: { price?: number | null; duration?: number | null; notes?: string | null } = {};
+    if (price !== undefined) updateData.price = price;
+    if (duration !== undefined) updateData.duration = duration;
+    if (notes !== undefined) updateData.notes = notes || null;
+
+    // If all overrides are being cleared (set to null), remove them
+    const result = await prisma.employeeService.update({
+      where: {
+        employeeId_serviceId: {
+          employeeId: employee.id,
+          serviceId: service.id,
+        },
+      },
+      data: updateData,
+      include: {
+        service: {
+          select: {
+            id: true,
+            name: true,
+            duration: true,
+            price: true,
+            notes: true,
+          },
+        },
+      },
+    });
+
+    // TICKET-048: Invalidate cache
+    await invalidateBusinessProfile(employee.businessId);
+    await invalidateServices(employee.businessId);
+
+    logger.info("Employee service updated (self-service)", {
+      employeeId: employee.id,
+      serviceId,
+      serviceName: service.name,
+      overrides: updateData,
+      performedBy: user.userId,
+      performedByRole: "EMPLOYEE",
+      businessId: employee.businessId,
+    });
+
+    return res.json({
+      employeeService: {
+        id: result.id,
+        serviceId: result.serviceId,
+        price: result.price ?? result.service.price,
+        duration: result.duration ?? result.service.duration,
+        notes: result.notes ?? result.service.notes,
+        hasOverrides: result.price !== null || result.duration !== null || result.notes !== null,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Update employee service error:", error);
+    
+    if (error instanceof Error) {
+      const errorCode = (error as any)?.code || "";
+      
+      if (errorCode === "P2025") {
+        return res.status(404).json({ 
+          error: "Asocierea nu a fost găsită.",
+          code: "ASSOCIATION_NOT_FOUND",
+          actionable: "Serviciul nu este asociat cu tine."
+        });
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: "Nu am putut actualiza serviciul. Te rugăm să încerci din nou.",
+      code: "SERVICE_UPDATE_FAILED",
       actionable: "Dacă problema persistă, contactează suportul."
     });
   }

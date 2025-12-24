@@ -562,11 +562,49 @@ router.get("/:businessId/employees/:employeeId/services",
         }
       }
 
-      // Get associated services for this employee (works for both owner and normal employee)
-      const employeeServices = await prisma.employeeService.findMany({
-        where: { employeeId: employee.id },
-        select: { serviceId: true },
-      });
+      // Get associated services for this employee with overrides (works for both owner and normal employee)
+      // CRITICAL FIX: Handle case where columns might not exist yet (backward compatibility)
+      let employeeServices;
+      try {
+        employeeServices = await prisma.employeeService.findMany({
+          where: { employeeId: employee.id },
+          select: { 
+            serviceId: true,
+            price: true,      // Override price
+            duration: true,  // Override duration
+            notes: true,     // Override notes
+          },
+        });
+      } catch (error: any) {
+        // If columns don't exist yet, fallback to old query
+        if (error?.message?.includes("Unknown column") || error?.code === "P2021") {
+          logger.warn("EmployeeService override columns not found, using fallback query", { employeeId: employee.id });
+          employeeServices = await prisma.employeeService.findMany({
+            where: { employeeId: employee.id },
+            select: { 
+              serviceId: true,
+            },
+          });
+          // Add null overrides for backward compatibility
+          employeeServices = employeeServices.map((es: { serviceId: string }) => ({
+            ...es,
+            price: null,
+            duration: null,
+            notes: null,
+          }));
+        } else {
+          throw error;
+        }
+      }
+
+      // Create a map of serviceId -> override data
+      type EmployeeServiceOverride = { price?: number | null; duration?: number | null; notes?: string | null };
+      const employeeOverrideMap = new Map<string, EmployeeServiceOverride>(
+        employeeServices.map((es: { serviceId: string; price?: number | null; duration?: number | null; notes?: string | null }) => [
+          es.serviceId,
+          { price: es.price, duration: es.duration, notes: es.notes }
+        ])
+      );
 
       const associatedServiceIds = new Set(employeeServices.map((es: { serviceId: string }) => es.serviceId));
 
@@ -574,11 +612,18 @@ router.get("/:businessId/employees/:employeeId/services",
       const businessServices = isOwner ? business.services : (employee.business?.services || []);
       const finalBusinessId = isOwner ? business.id : (employee.business?.id || businessId);
 
-      // Return services with association status
-      const services = businessServices.map((service: { id: string; name: string; duration: number; price: number; notes?: string | null }) => ({
-        ...service,
-        isAssociated: associatedServiceIds.has(service.id),
-      }));
+      // Return services with association status and overrides applied
+      const services = businessServices.map((service: { id: string; name: string; duration: number; price: number; notes?: string | null }) => {
+        const override: EmployeeServiceOverride | undefined = employeeOverrideMap.get(service.id);
+        return {
+          ...service,
+          // Apply overrides if they exist, otherwise use service defaults
+          price: override && override.price !== null && override.price !== undefined ? override.price : service.price,
+          duration: override && override.duration !== null && override.duration !== undefined ? override.duration : service.duration,
+          notes: override && override.notes !== null && override.notes !== undefined ? override.notes : service.notes,
+          isAssociated: associatedServiceIds.has(service.id),
+        };
+      });
 
       return res.json({
         services,

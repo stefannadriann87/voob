@@ -169,6 +169,10 @@ model EmployeeService {
   id         String   @id @default(cuid())
   employeeId String
   serviceId  String
+  // Override fields - if null, use service defaults
+  price      Float?   // Custom price for this employee
+  duration   Int?     // Custom duration for this employee
+  notes      String?  // Custom notes for this employee
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   employee   User     @relation("EmployeeServices", fields: [employeeId], references: [id], onDelete: Cascade)

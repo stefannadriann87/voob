@@ -87,7 +87,7 @@ export default function SupportPage() {
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
               <h4 className="font-semibold text-white mb-2">Cum modific o rezervare?</h4>
               <p className="text-white/70 text-sm">
-                Accesează pagina de rezervări, găsește rezervarea dorită și folosește opțiunea de editare. Poți modifica data, ora, serviciul sau angajatul.
+                Accesează pagina de rezervări, găsește rezervarea dorită și folosește opțiunea de editare. Poți modifica data, ora, serviciul sau specialistul.
               </p>
             </div>
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
@@ -108,11 +108,11 @@ export default function SupportPage() {
     },
     {
       id: "services-employees",
-      title: "Servicii și Angajați",
+      title: "Servicii și Specialiști",
       icon: "👥",
       content: (
         <div className="space-y-4">
-          <h3 className="text-xl font-semibold text-white mb-4">Gestionarea serviciilor și angajaților</h3>
+          <h3 className="text-xl font-semibold text-white mb-4">Gestionarea serviciilor și specialiștilor</h3>
           <div className="space-y-3">
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
               <h4 className="font-semibold text-white mb-2">Cum adaug un serviciu nou?</h4>
@@ -121,15 +121,15 @@ export default function SupportPage() {
               </p>
             </div>
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-              <h4 className="font-semibold text-white mb-2">Cum adaug un angajat?</h4>
+              <h4 className="font-semibold text-white mb-2">Cum adaug un specialist?</h4>
               <p className="text-white/70 text-sm">
-                Din dashboard, accesează secțiunea "Angajați" și folosește butonul "Adaugă angajat". Completează datele și configurează programul de lucru.
+                Din dashboard, accesează secțiunea "Specialist" și folosește butonul "Adaugă specialist". Completează datele și configurează programul de lucru.
               </p>
             </div>
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
               <h4 className="font-semibold text-white mb-2">Cum configurez programul de lucru?</h4>
               <p className="text-white/70 text-sm">
-                Pentru fiecare angajat sau pentru business-ul tău, accesează setările de program de lucru. Poți configura orele pentru fiecare zi, pauzele și concediile.
+                Pentru fiecare specialist sau pentru business-ul tău, accesează setările de program de lucru. Poți configura orele pentru fiecare zi, pauzele și concediile.
               </p>
             </div>
           </div>

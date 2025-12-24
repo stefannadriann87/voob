@@ -407,7 +407,7 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
         <div className="mx-auto max-w-4xl">
           <h1 className="text-3xl font-semibold">Acces restricționat</h1>
           <p className="mt-4 text-sm text-white/60">
-            Această secțiune este disponibilă doar pentru {mode === "employee" ? "angajați" : "conturile Business sau angajați"}.{" "}
+            Această secțiune este disponibilă doar pentru {mode === "employee" ? "specialiști" : "conturile Business sau Specialist"}.{" "}
             <Link href="/auth/login" className="text-[#6366F1] underline">
               Autentifică-te
             </Link>{" "}
@@ -439,7 +439,7 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
         <div className="mx-auto max-w-4xl">
           <h1 className="text-3xl font-semibold">Consimțăminte</h1>
           <p className="mt-4 text-sm text-white/60">
-            Nu am putut identifica angajatul. Contactează administratorul.
+            Nu am putut identifica specialistul. Contactează administratorul.
           </p>
         </div>
       </div>
@@ -451,7 +451,7 @@ export default function ConsentsPage({ mode, title, description, pageTitle }: Co
     ? "Vezi clienții programați la tine, verifică statusul consimțămintelor și descarcă documentele semnate."
     : "Vezi rapid clienții programați astăzi, verifică statusul consimțămintelor și descarcă documentele semnate.";
   const defaultPageTitle = mode === "employee" ? "Consimțămintele mele - VOOB" : "Consimțăminte - VOOB";
-  const headerLabel = mode === "employee" ? "Consimțăminte angajat" : "Consimțăminte digitale";
+  const headerLabel = mode === "employee" ? "Consimțăminte specialist" : "Consimțăminte digitale";
   const emptyMessage = mode === "employee"
     ? "Nu ai rezervări pentru criteriile selectate. Încearcă o altă zi sau un alt termen de căutare."
     : "Nu există rezervări pentru criteriile selectate. Încearcă o altă zi sau un alt termen de căutare.";

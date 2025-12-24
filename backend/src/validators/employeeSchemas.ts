@@ -44,9 +44,26 @@ const holidayIdParamSchema = z.object({
   holidayId: z.string().regex(cuidRegex, "holidayId trebuie să fie un CUID valid"),
 });
 
+/**
+ * Schema pentru actualizare employee service overrides
+ */
+const updateEmployeeServiceSchema = z.object({
+  price: z.number().nonnegative("Prețul nu poate fi negativ").optional().nullable(),
+  duration: z.number()
+    .int("Durata trebuie să fie un număr întreg")
+    .positive("Durata trebuie să fie pozitivă")
+    .refine((val: number) => val % 30 === 0, {
+      message: "Durata trebuie să fie multiplu de 30 minute (30, 60, 90, 120, etc.)",
+    })
+    .optional()
+    .nullable(),
+  notes: z.string().max(2000, "Notele nu pot depăși 2000 caractere").optional().nullable(),
+});
+
 module.exports = {
   employeeIdParamSchema,
   workingHoursSchema,
   createHolidaySchema,
   holidayIdParamSchema,
+  updateEmployeeServiceSchema,
 };

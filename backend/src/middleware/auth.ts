@@ -38,6 +38,17 @@ interface AuthenticatedRequest extends express.Request {
 const extractToken = (req: express.Request): string | null => {
   const cookieReq = req as AuthenticatedRequest;
   
+  // CRITICAL FIX: Debug logging pentru a vedea de ce cookie-ul nu este găsit
+  if (process.env.NODE_ENV === "development") {
+    logger.debug("extractToken - checking for JWT", {
+      hasCookies: !!cookieReq.cookies,
+      cookieKeys: cookieReq.cookies ? Object.keys(cookieReq.cookies) : [],
+      lookingFor: JWT_COOKIE_NAME,
+      foundCookie: cookieReq.cookies ? !!cookieReq.cookies[JWT_COOKIE_NAME] : false,
+      hasAuthHeader: !!req.headers.authorization,
+    });
+  }
+  
   // 1. Prioritate: HttpOnly Cookie (securitate maximă)
   if (cookieReq.cookies && cookieReq.cookies[JWT_COOKIE_NAME]) {
     return cookieReq.cookies[JWT_COOKIE_NAME];

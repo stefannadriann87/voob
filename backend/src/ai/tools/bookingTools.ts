@@ -254,13 +254,6 @@ async function createBooking(
           },
         },
       });
-
-      // If no association found, check if business has no restrictions (backward compatibility)
-      // For now, we allow booking if no association exists (backward compatibility)
-      // In the future, you might want to make this stricter
-      // if (!employeeService) {
-      //   throw new Error("Angajatul nu poate efectua acest serviciu.");
-      // }
     }
   }
 

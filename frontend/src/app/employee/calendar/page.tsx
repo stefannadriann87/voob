@@ -2,7 +2,6 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { NativeSelectRoot, NativeSelectField } from "@chakra-ui/react";
 import DatePicker from "../../../components/DatePicker";
 import useAuth from "../../../hooks/useAuth";
 import useBookings, { Booking } from "../../../hooks/useBookings";
@@ -16,6 +15,7 @@ import {
   MIN_BOOKING_LEAD_MS,
 } from "../../../utils/bookingRules";
 import { getWeekStart, formatDayLabel, getClientColor } from "../../../utils/calendarUtils";
+import { logger } from "../../../lib/logger";
 
 // Calendar utilities importate din utils/calendarUtils
 
@@ -48,6 +48,7 @@ export default function EmployeeCalendarPage() {
   const [clients, setClients] = useState<Array<{ id: string; name: string; email: string; phone?: string | null }>>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [creatingBooking, setCreatingBooking] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
   const [showNewClientForm, setShowNewClientForm] = useState(false);
   const [newClientName, setNewClientName] = useState("");
   const [newClientEmail, setNewClientEmail] = useState("");
@@ -75,6 +76,9 @@ export default function EmployeeCalendarPage() {
   }, [bookingToCancel, bypassCancellationLimits]);
   const [holidays, setHolidays] = useState<Array<{ id: string; startDate: string; endDate: string; reason: string | null }>>([]);
   const [workingHoursRefreshToken, setWorkingHoursRefreshToken] = useState(0);
+  const [employeeServices, setEmployeeServices] = useState<Array<{ id: string; name: string; duration: number; price: number; notes?: string | null; isAssociated: boolean }>>([]);
+  const [loadingEmployeeServices, setLoadingEmployeeServices] = useState(false);
+  const [serviceDropdownOpen, setServiceDropdownOpen] = useState(false);
 
   // Get business ID from employee association and business object
   const { businessId, business } = useMemo(() => {
@@ -190,7 +194,7 @@ export default function EmployeeCalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, user, router]); // Removed fetchBookings and fetchBusinesses from dependencies
 
-  // Fetch clients when modal opens or search query changes
+  // Fetch clients and employee services when modal opens or search query changes
   useEffect(() => {
     if (!createBookingModalOpen) {
       return;
@@ -208,9 +212,34 @@ export default function EmployeeCalendarPage() {
         setLoadingClients(false);
       }
     };
+
+    const fetchEmployeeServices = async () => {
+      setLoadingEmployeeServices(true);
+      try {
+        const { data } = await api.get<{
+          services: Array<{ id: string; name: string; duration: number; price: number; notes?: string | null; isAssociated: boolean }>;
+          businessId: string;
+          businessName: string;
+          canManageOwnServices: boolean;
+        }>("/employee/services");
+        setEmployeeServices(data.services);
+      } catch (error) {
+        logger.error("Failed to fetch employee services:", error);
+        // Fallback: use all business services if endpoint fails
+        if (business?.services) {
+          setEmployeeServices(
+            business.services.map((s) => ({ ...s, isAssociated: true }))
+          );
+        }
+      } finally {
+        setLoadingEmployeeServices(false);
+      }
+    };
+
+    void fetchEmployeeServices();
     const timeoutId = setTimeout(fetchClients, 300); // Debounce search
     return () => clearTimeout(timeoutId);
-  }, [createBookingModalOpen, clientSearchQuery, api]);
+  }, [createBookingModalOpen, clientSearchQuery, api, business?.services]);
 
   // Filter bookings by business and only for this employee
   const businessBookings = useMemo(() => {
@@ -324,7 +353,7 @@ export default function EmployeeCalendarPage() {
   }
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="h-screen sm:h-screen md:h-screen lg:h-screen bg-[#0B0E17] text-white overflow-hidden flex flex-col gap-10">
         {/* <section className="rounded-3xl border border-white/10 bg-white/5 p-8">
           <h1 className="text-3xl font-semibold">Programările businessului</h1>
           <p className="mt-2 text-sm text-white/60">
@@ -333,7 +362,7 @@ export default function EmployeeCalendarPage() {
         </section> */}
 
         <section className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <h1 className="text-xl font-semibold text-white mb-2">Calendar programări</h1>
               <p className="text-xs text-white/50">
@@ -341,7 +370,7 @@ export default function EmployeeCalendarPage() {
                 {viewType === "day" && "Vizualizare detaliată pentru o singură zi."}
               </p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-2">
               {/* View Type Toggle - Mobile optimized */}
               <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 overflow-x-auto">
                 <button
@@ -369,8 +398,8 @@ export default function EmployeeCalendarPage() {
                 </button>
               </div>
               
-              {/* Calendar picker */}
-              <div className="hidden sm:block">
+              {/* Calendar picker - on same row on desktop, new row on mobile */}
+              <div className="w-full sm:w-auto">
                 <DatePicker
                   value={calendarDate}
                   onChange={(date) => {
@@ -396,9 +425,197 @@ export default function EmployeeCalendarPage() {
             <div className="rounded-xl border border-dashed border-white/10 bg-[#0B0E17]/40 px-4 py-6 text-center text-sm text-white/60">
               Se încarcă programările...
             </div>
-          ) : (
-            <div className="overflow-x-auto">
+          ) : viewType === "day" ? (
+            // Day View - O singură zi detaliată
+            <div className="space-y-4">
               <div className="w-full rounded-3xl border border-white/10 bg-[#0B0E17]/40 p-4">
+                <div className="space-y-1 max-h-[600px] overflow-y-auto">
+                  {(() => {
+                    const day = weekDays[0];
+                    const availableHours = getAvailableHoursForDay(day);
+                    const daySlots = slotsMatrix?.[0] || [];
+                    
+                    return availableHours.map((hour: string, index: number) => {
+                      const slot = daySlots[index];
+                      if (!slot) return null;
+                      
+                      const slotDate = new Date(slot.iso);
+                      const slotStartMs = slotDate.getTime();
+                      const hoveredStartMs = hoveredSlot ? new Date(hoveredSlot).getTime() : null;
+                      const hoveredDayString = hoveredSlot ? new Date(hoveredSlot).toDateString() : null;
+
+                      let stateClasses = "bg-[#0B0E17]/60 text-white/70 border border-white/10 transition-all duration-200";
+                      if (slot.status === "blocked") {
+                        // Pauză - culoare violet light, mai soft decât roșu
+                        stateClasses = "bg-violet-400/25 text-violet-300 border border-violet-400/40 cursor-not-allowed";
+                      } else if (slot.status === "booked") {
+                        if (slot.clientColor) {
+                          stateClasses = `${slot.clientColor.bg} text-white ${slot.clientColor.border} border cursor-pointer transition-all duration-200`;
+                        } else {
+                          stateClasses = "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 cursor-pointer transition-all duration-200";
+                        }
+                      } else if (slot.status === "past") {
+                        stateClasses = "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed";
+                      }
+
+                      // Highlight all slots that belong to the same booking when hovering
+                      const isHoverHighlight =
+                        hoveredStartMs !== null &&
+                        slot.status === "booked" &&
+                        slot.booking &&
+                        (() => {
+                          const hoveredBooking = businessBookings.find((b) => {
+                            const bookingStart = new Date(b.date);
+                            const bookingStartMs = bookingStart.getTime();
+                            const bookingDurationMs = (b.service?.duration ?? slotDurationMinutes) * 60 * 1000;
+                            const bookingEndMs = bookingStartMs + bookingDurationMs;
+                            const slotEndMs = hoveredStartMs + slotDurationMinutes * 60 * 1000;
+                            const sameDay = bookingStart.toDateString() === hoveredDayString;
+                            return sameDay && bookingStartMs < slotEndMs && bookingEndMs > hoveredStartMs;
+                          });
+                          return hoveredBooking?.id === slot.booking.id;
+                        })();
+
+                      if (isHoverHighlight && slot.clientColor) {
+                        // Keep the same color but add shadow and slight brightness increase
+                        stateClasses = `${slot.clientColor.bg} text-white ${slot.clientColor.border} border shadow-lg ${slot.clientColor.shadow} transition-all duration-300`;
+                      } else if (isHoverHighlight) {
+                        stateClasses = "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 shadow-lg shadow-[#6366F1]/40 transition-all duration-300";
+                      }
+
+                      const handleMouseEnter = (e: React.MouseEvent<HTMLElement>) => {
+                        if (slot.status === "booked" && slot.booking) {
+                          setHoveredSlot(slot.iso);
+                          if (tooltipTimeoutRef.current) {
+                            clearTimeout(tooltipTimeoutRef.current);
+                            tooltipTimeoutRef.current = null;
+                          }
+                          
+                          const targetElement = e.currentTarget;
+                          const booking = slot.booking;
+                          const rect = targetElement.getBoundingClientRect();
+                          
+                          tooltipTimeoutRef.current = setTimeout(() => {
+                            if (!targetElement || !booking) return;
+                            
+                            const currentRect = targetElement.getBoundingClientRect();
+                            const tooltipWidth = 320;
+                            const tooltipHeight = 380;
+                            const viewportWidth = window.innerWidth;
+                            const viewportHeight = window.innerHeight;
+                            
+                            let x = currentRect.left + currentRect.width / 2;
+                            let y = currentRect.top;
+                            
+                            if (x - tooltipWidth / 2 < 10) {
+                              x = tooltipWidth / 2 + 10;
+                            }
+                            if (x + tooltipWidth / 2 > viewportWidth - 10) {
+                              x = viewportWidth - tooltipWidth / 2 - 10;
+                            }
+                            
+                            const spaceAbove = currentRect.top;
+                            const spaceBelow = viewportHeight - currentRect.bottom;
+                            const showAbove = spaceAbove > tooltipHeight || spaceAbove > spaceBelow;
+                            
+                            if (showAbove) {
+                              y = currentRect.top - 10;
+                            } else {
+                              y = currentRect.bottom + 10;
+                            }
+                            
+                            if (showAbove && y - tooltipHeight < 10) {
+                              y = tooltipHeight + 20;
+                              if (y + tooltipHeight > viewportHeight - 10) {
+                                y = currentRect.bottom + 10;
+                              }
+                            } else if (!showAbove && y + tooltipHeight > viewportHeight - 10) {
+                              y = viewportHeight - tooltipHeight - 20;
+                              if (y < 10) {
+                                y = currentRect.top - 10;
+                              }
+                            }
+                            
+                            setTooltipPosition({ x, y, showAbove });
+                            setTooltipBooking(booking);
+                          }, 100);
+                        }
+                      };
+
+                      const handleMouseLeave = () => {
+                        setHoveredSlot(null);
+                        if (tooltipTimeoutRef.current) {
+                          clearTimeout(tooltipTimeoutRef.current);
+                          tooltipTimeoutRef.current = null;
+                        }
+                        const hideTimeout = setTimeout(() => {
+                          const tooltipElement = tooltipRef.current;
+                          if (!tooltipElement || !tooltipElement.matches(":hover")) {
+                            setTooltipBooking(null);
+                            setTooltipPosition(null);
+                          }
+                        }, 200);
+                        return () => clearTimeout(hideTimeout);
+                      };
+
+                      return (
+                        <div
+                          key={hour}
+                          className={`flex items-center gap-4 rounded-xl p-4 transition ${stateClasses}`}
+                          onMouseEnter={handleMouseEnter}
+                          onMouseLeave={handleMouseLeave}
+                          onClick={() => {
+                            if (slot.status === "booked" && slot.booking) {
+                              setSelectedBooking(slot.booking);
+                            } else if (slot.status === "available" && !slot.isBreak && !slot.blockingHoliday) {
+                              setSelectedSlotDate(slot.iso);
+                              setCreateBookingModalOpen(true);
+                            }
+                          }}
+                        >
+                          <div className="w-20 text-sm font-medium">{hour}</div>
+                          <div className="flex-1">
+                            {slot.status === "booked" && slot.booking ? (
+                              <div>
+                                <div className="text-sm font-medium">
+                                  {slot.booking.client?.name || slot.booking.client?.email || "Client"}
+                                </div>
+                                <div className="text-xs opacity-70">
+                                  {slot.booking.service?.name || "Serviciu"}
+                                </div>
+                              </div>
+                            ) : slot.status === "blocked" && slot.isBreak ? (
+                              <div className="text-sm">
+                                <i className="fas fa-coffee mr-1" />
+                                Pauză
+                              </div>
+                            ) : slot.status === "blocked" && slot.blockingHoliday ? (
+                              <div className="text-sm">
+                                <i className="fas fa-calendar-times mr-1" />
+                                Concediu
+                              </div>
+                            ) : slot.status === "available" ? (
+                              <div className="text-sm font-medium">Disponibil</div>
+                            ) : (
+                              <div className="text-sm opacity-50">Trecut</div>
+                            )}
+                          </div>
+                          {slot.status === "available" && (
+                            <div className="text-xs">
+                              <i className="fas fa-check-circle text-emerald-400" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            </div>
+          ) : (
+            // Week View - Vizualizare săptămânală
+            <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)]">
+              <div className="w-full min-w-[900px] rounded-3xl border border-white/10 bg-[#0B0E17]/40 p-4">
                 <div
                   className="grid"
                   style={{
@@ -441,23 +658,24 @@ export default function EmployeeCalendarPage() {
                         const hoveredDayString = hoveredSlot ? new Date(hoveredSlot).toDateString() : null;
 
                         let stateClasses =
-                          "bg-[#0B0E17]/60 text-white/70 border border-white/10 hover:brightness-110";
+                          "bg-[#0B0E17]/60 text-white/70 border border-white/10 transition-all duration-200";
                         if (slot.status === "blocked") {
+                          // Pauză - culoare violet light, mai soft decât roșu
                           stateClasses =
-                            "bg-red-600/30 text-red-400 border border-red-500/60 cursor-not-allowed hover:brightness-110";
+                            "bg-violet-400/25 text-violet-300 border border-violet-400/40 cursor-not-allowed";
                         } else if (slot.status === "booked") {
                           // Use client-specific color if available
                           if (slot.clientColor) {
-                            // Keep the same color on hover, just make it slightly brighter
-                            stateClasses = `${slot.clientColor.bg} text-white ${slot.clientColor.border} border cursor-pointer hover:brightness-110`;
+                            // Keep the same color, no hover brightness change
+                            stateClasses = `${slot.clientColor.bg} text-white ${slot.clientColor.border} border cursor-pointer transition-all duration-200`;
                           } else {
                             // Fallback to default purple if no client color
                             stateClasses =
-                              "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 cursor-pointer hover:bg-[#6366F1]/60";
+                              "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 cursor-pointer transition-all duration-200";
                           }
                         } else if (slot.status === "past") {
                           stateClasses =
-                            "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed hover:brightness-110";
+                            "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed";
                         }
 
                         // Highlight all slots that belong to the same booking when hovering
@@ -480,12 +698,12 @@ export default function EmployeeCalendarPage() {
                           })();
 
                         if (isHoverHighlight && slot.clientColor) {
-                          // Use a brighter version of the client color on hover
-                          stateClasses = `${slot.clientColor.bg.replace('/60', '/80')} text-white ${slot.clientColor.border.replace('/80', '/100')} border shadow-lg ${slot.clientColor.shadow}`;
+                          // Keep the same color but add shadow for hover effect
+                          stateClasses = `${slot.clientColor.bg} text-white ${slot.clientColor.border} border shadow-lg ${slot.clientColor.shadow} transition-all duration-300`;
                         } else if (isHoverHighlight) {
-                          // Fallback hover style
+                          // Keep the same color, just add shadow
                           stateClasses =
-                            "bg-[#6366F1]/70 text-white border border-[#6366F1]/90 shadow-lg shadow-[#6366F1]/40";
+                            "bg-[#6366F1]/50 text-white border border-[#6366F1]/70 shadow-lg shadow-[#6366F1]/40 transition-all duration-300";
                         }
 
                         const handleMouseEnter = (e: React.MouseEvent<HTMLElement>) => {
@@ -900,7 +1118,7 @@ export default function EmployeeCalendarPage() {
         )}
 
         {selectedBooking && (
-          <section id="booking-details" className="rounded-3xl border border-white/10 bg-white/5 p-6">
+          <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">Detalii rezervare</h2>
               <button
@@ -1079,6 +1297,7 @@ export default function EmployeeCalendarPage() {
                   }
 
                   setCreatingBooking(true);
+                  setBookingError(null);
                   try {
                     await createBooking({
                       clientId: selectedClientId,
@@ -1095,8 +1314,11 @@ export default function EmployeeCalendarPage() {
                     setPaid(false);
                     setClientSearchQuery("");
                     setSelectedSlotDate(null);
-                  } catch (error) {
-                    // Failed to create booking - error handled by UI
+                    setBookingError(null);
+                  } catch (error: any) {
+                    // Extract error message from response
+                    const errorMessage = error?.response?.data?.error || error?.message || "Eroare la crearea rezervării. Te rugăm să încerci din nou.";
+                    setBookingError(errorMessage);
                   } finally {
                     setCreatingBooking(false);
                   }
@@ -1265,34 +1487,94 @@ export default function EmployeeCalendarPage() {
               {/* Service Selection */}
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-semibold text-white">Serviciu *</label>
-                <NativeSelectRoot
-                  bg="#0B0E17"
-                  borderColor="rgba(255, 255, 255, 0.1)"
-                  borderRadius="16px"
-                >
-                  <NativeSelectField
-                    value={selectedServiceId}
-                    onChange={(e) => setSelectedServiceId(e.target.value)}
-                    style={{
-                      color: "white",
-                      backgroundColor: "#0B0E17",
-                      borderColor: "rgba(255, 255, 255, 0.1)",
-                      borderRadius: "16px",
-                      height: "48px",
-                      padding: "0 16px",
-                    }}
-                  >
-                    <option value="">Selectează serviciul</option>
-                    {business?.services.map((service) => (
-                      <option key={service.id} value={service.id}>
-                        {service.name} - {service.duration} min - {service.price.toLocaleString("ro-RO", {
-                          style: "currency",
-                          currency: "RON",
-                        })}
-                      </option>
-                    ))}
-                  </NativeSelectField>
-                </NativeSelectRoot>
+                {loadingEmployeeServices ? (
+                  <div className="flex items-center justify-center rounded-2xl border border-white/10 bg-[#0B0E17] px-4 py-3" style={{ height: "48px" }}>
+                    <i className="fas fa-spinner fa-spin text-white/60 mr-2" />
+                    <span className="text-sm text-white/60">Se încarcă serviciile...</span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setServiceDropdownOpen(!serviceDropdownOpen)}
+                      className={`w-full flex items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm text-white outline-none transition-all duration-200 ${
+                        selectedServiceId
+                          ? "border-white/20 bg-[#0B0E17]/80"
+                          : "border-white/10 bg-[#0B0E17]"
+                      } hover:border-white/20 focus:border-[#6366F1] focus:ring-2 focus:ring-[#6366F1]/20`}
+                      style={{ height: "48px" }}
+                    >
+                      <span className={selectedServiceId ? "text-white" : "text-white/60"}>
+                        {selectedServiceId
+                          ? (() => {
+                              const selected = employeeServices.find((s) => s.id === selectedServiceId && s.isAssociated);
+                              return selected
+                                ? `${selected.name} - ${selected.duration} min - ${selected.price.toLocaleString("ro-RO", {
+                                    style: "currency",
+                                    currency: "RON",
+                                  })}`
+                                : "Selectează serviciul";
+                            })()
+                          : "Selectează serviciul"}
+                      </span>
+                      <i
+                        className={`fas fa-chevron-down text-xs text-white/60 transition-transform duration-200 ${
+                          serviceDropdownOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                    {serviceDropdownOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-10"
+                          onClick={() => setServiceDropdownOpen(false)}
+                        />
+                        <div className="absolute z-20 mt-2 w-full rounded-2xl border border-white/10 bg-[#0B0E17] shadow-xl shadow-black/40 max-h-64 overflow-y-auto">
+                          {employeeServices.filter((s) => s.isAssociated).length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-white/60">
+                              Nu ai servicii asignate. Contactează business owner-ul pentru a-ți asigna servicii.
+                            </div>
+                          ) : (
+                            employeeServices
+                              .filter((service) => service.isAssociated)
+                              .map((service) => (
+                                <button
+                                  key={service.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedServiceId(service.id);
+                                    setServiceDropdownOpen(false);
+                                  }}
+                                  className={`w-full px-4 py-3 text-left transition ${
+                                    selectedServiceId === service.id
+                                      ? "bg-[#6366F1]/20 border-l-2 border-[#6366F1]"
+                                      : "hover:bg-white/5"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex-1">
+                                      <p className={`text-sm font-medium ${selectedServiceId === service.id ? "text-white" : "text-white/90"}`}>
+                                        {service.name}
+                                      </p>
+                                      <p className="text-xs text-white/60 mt-0.5">
+                                        {service.duration} min • {service.price.toLocaleString("ro-RO", {
+                                          style: "currency",
+                                          currency: "RON",
+                                        })}
+                                      </p>
+                                    </div>
+                                    {selectedServiceId === service.id && (
+                                      <i className="fas fa-check text-[#6366F1] ml-2" />
+                                    )}
+                                  </div>
+                                </button>
+                              ))
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
 
@@ -1310,6 +1592,18 @@ export default function EmployeeCalendarPage() {
                 </label>
               </div>
 
+              {/* Error Message */}
+              {bookingError && (
+                <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  <div className="flex items-start gap-2">
+                    <i className="fas fa-exclamation-circle mt-0.5" />
+                    <div>
+                      <p className="font-medium">{bookingError}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Submit Buttons */}
               <div className="flex gap-3 pt-4">
                 <button
@@ -1325,6 +1619,7 @@ export default function EmployeeCalendarPage() {
                   setNewClientName("");
                   setNewClientEmail("");
                   setNewClientPhone("");
+                  setBookingError(null);
                 }}
                 disabled={creatingBooking}
                   className="flex-1 rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"

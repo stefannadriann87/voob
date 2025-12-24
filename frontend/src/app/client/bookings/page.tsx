@@ -203,8 +203,8 @@ export default function ClientBookingsPage() {
   );
 
 
-  // State for employee services (services associated with selected employee)
-  const [employeeServices, setEmployeeServices] = useState<Set<string>>(new Set());
+  // State for employee services (services associated with selected employee with overrides applied)
+  const [employeeServices, setEmployeeServices] = useState<Map<string, { id: string; name: string; duration: number; price: number; notes?: string | null; isAssociated: boolean }>>(new Map());
   // CRITICAL FIX (TICKET-019): Loading state for employee services
   const [loadingEmployeeServices, setLoadingEmployeeServices] = useState(false);
 
@@ -371,24 +371,32 @@ export default function ClientBookingsPage() {
   );
 
   // Filter services based on selected employee (must be after selectedEmployeeId declaration)
+  // CRITICAL FIX: Use employee services with overrides when employee is selected
   const availableServices = useMemo(() => {
     if (!selectedBusiness?.services) return [];
     
-    // CRITICAL FIX: If no employee selected, show all services
+    // CRITICAL FIX: If no employee selected, show all services from business
     if (!selectedEmployeeId) {
       return selectedBusiness.services;
     }
     
     // CRITICAL FIX: If employee is selected, show ONLY services associated with that employee
-    // If employeeServices.size === 0, it means employee has no services assigned, so return empty array
-    // This ensures that when Maria has only "manichiura" assigned, only "manichiura" is shown
+    // Use the services with overrides from employeeServices Map
     if (employeeServices.size === 0) {
       // Employee has no services assigned - return empty array (not all services)
       return [];
     }
     
-    // Filter services that are associated with the selected employee
-    return selectedBusiness.services.filter((service) => employeeServices.has(service.id));
+    // Return services with employee overrides applied (price, duration, notes)
+    return Array.from(employeeServices.values())
+      .filter((service) => service.isAssociated)
+      .map((service) => ({
+        id: service.id,
+        name: service.name,
+        duration: service.duration,
+        price: service.price,
+        notes: service.notes,
+      }));
   }, [selectedBusiness?.services, selectedEmployeeId, employeeServices]);
 
   const selectedServiceId =
@@ -396,9 +404,10 @@ export default function ClientBookingsPage() {
   const selectedCourtId =
     isSportOutdoor && selectedBusinessId != null ? courtSelections[selectedBusinessId] ?? null : null;
 
+  // CRITICAL FIX: Use availableServices (with employee overrides) instead of selectedBusiness.services
   const selectedService = useMemo(
-    () => selectedBusiness?.services.find((service) => service.id === selectedServiceId) ?? null,
-    [selectedBusiness, selectedServiceId]
+    () => availableServices.find((service) => service.id === selectedServiceId) ?? null,
+    [availableServices, selectedServiceId]
   );
   
   const selectedCourt = useMemo(
@@ -409,28 +418,45 @@ export default function ClientBookingsPage() {
   // Fetch employee services when employee is selected
   useEffect(() => {
     if (!selectedEmployeeId || !selectedBusinessId) {
-      setEmployeeServices(new Set());
+      setEmployeeServices(new Map());
+      setLoadingEmployeeServices(false);
       return;
     }
 
     const fetchEmployeeServices = async () => {
       if (!selectedBusinessId) {
-        setEmployeeServices(new Set());
+        setEmployeeServices(new Map());
+        setLoadingEmployeeServices(false);
         return;
       }
+      setLoadingEmployeeServices(true);
       try {
         // CRITICAL FIX (TICKET-003): Use correct route with businessId
-        const { data } = await api.get<{ services: Array<{ id: string; isAssociated: boolean }> }>(
+        // This endpoint returns services with employee overrides (price, duration, notes) already applied
+        const { data } = await api.get<{ 
+          services: Array<{ 
+            id: string; 
+            name: string;
+            duration: number;
+            price: number;
+            notes?: string | null;
+            isAssociated: boolean;
+          }> 
+        }>(
           `/business/${selectedBusinessId}/employees/${selectedEmployeeId}/services`
         );
-        const associatedServiceIds = new Set(
-          data.services.filter((s) => s.isAssociated).map((s) => s.id)
+        
+        // Create a Map of serviceId -> service (with overrides applied)
+        const servicesMap = new Map(
+          data.services.map((service) => [service.id, service])
         );
-        setEmployeeServices(associatedServiceIds);
+        setEmployeeServices(servicesMap);
       } catch (error) {
         // If endpoint fails or employee has no restrictions, show all services (backward compatibility)
         logger.warn("Could not fetch employee services, showing all services:", error);
-        setEmployeeServices(new Set());
+        setEmployeeServices(new Map());
+      } finally {
+        setLoadingEmployeeServices(false);
       }
     };
 
@@ -1190,7 +1216,7 @@ const handleConsentSubmit = async () => {
         }
       }
       // Employee not found (deleted)
-      else if (message.includes("Angajatul") && (message.includes("nu există") || message.includes("nu a fost găsit"))) {
+      else if (message.includes("Specialistul") && (message.includes("nu există") || message.includes("nu a fost găsit"))) {
         message = "Specialistul selectat nu mai este disponibil. Te rugăm să selectezi alt specialist.";
         // Refresh businesses to get updated employees
         void fetchBusinesses({ scope: "linked" });
@@ -1307,7 +1333,8 @@ const handleConsentSubmit = async () => {
   }
 
   return (
-    <>
+    <div className="h-screen sm:h-screen md:h-screen lg:h-screen bg-[#0B0E17] text-white overflow-hidden">
+      <div className="h-full overflow-y-auto">
       <Head>
         <title>Rezervări - VOOB</title>
       </Head>
@@ -1532,7 +1559,7 @@ const handleConsentSubmit = async () => {
               </div>
 
               <section className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6" data-calendar-section>
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-semibold text-white">
                       {isSportOutdoor ? "3. Alege data și ora" : selectedBusiness && selectedBusiness.employees.length > 0 ? "4. Alege data și ora" : "3. Alege data și ora"}
@@ -1548,7 +1575,7 @@ const handleConsentSubmit = async () => {
                       </div>
                     )}
                   </div>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-2">
                     {/* View Type Toggle - Mobile optimized */}
                     <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#0B0E17]/60 p-3 overflow-x-auto">
                       <button
@@ -1576,8 +1603,8 @@ const handleConsentSubmit = async () => {
                       </button>
                     </div>
                     
-                    {/* Calendar picker */}
-                    <div className="hidden sm:block">
+                    {/* Calendar picker - on same row on desktop, new row on mobile */}
+                    <div className="w-full sm:w-auto">
                       <DatePicker
                         value={calendarDate}
                         onChange={handleCalendarDateChange}
@@ -1595,16 +1622,6 @@ const handleConsentSubmit = async () => {
                 ) : viewType === "day" ? (
                   // Day View - O singură zi detaliată
                   <div className="space-y-4">
-                    <div className="text-center mb-4">
-                      <h3 className="text-lg font-semibold text-white">
-                        {weekDays[0].toLocaleDateString("ro-RO", {
-                          weekday: "long",
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </h3>
-                    </div>
                     <div className="space-y-1 max-h-[600px] overflow-y-auto">
                       {(() => {
                         const day = weekDays[0];
@@ -1671,8 +1688,8 @@ const handleConsentSubmit = async () => {
                   </div>
                 ) : (
                   // Week View - Vizualizare săptămânală (existentă)
-                  <div className="overflow-x-auto">
-                    <div className="w-full rounded-3xl border border-white/10 bg-[#0B0E17]/40 p-4">
+                  <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)]">
+                    <div className="w-full min-w-[900px] rounded-3xl border border-white/10 bg-[#0B0E17]/40 p-4">
                       <div
                         className="grid"
                         style={{
@@ -1717,8 +1734,11 @@ const handleConsentSubmit = async () => {
                                 let stateClasses =
                                   "bg-[#0B0E17]/60 text-white/70 hover:bg-white/10 hover:scale-[1.01] border border-white/10 transition-all duration-300 ease-in-out";
                                 if (slot.status === "booked") {
+                                  // Slot ocupat - folosim culoarea clientului sau default
+                                  // (această logică ar trebui să fie pentru "blocked", nu "booked")
+                                  // Dar păstrăm pentru compatibilitate
                                   stateClasses =
-                                    "bg-red-600/30 text-red-400 border border-red-500/60 cursor-not-allowed";
+                                    "bg-violet-400/25 text-violet-300 border border-violet-400/40 cursor-not-allowed";
                                 } else if (slot.status === "past") {
                                   stateClasses =
                                     "bg-[#0B0E17]/15 text-white/30 border border-white/5 cursor-not-allowed";
@@ -2480,6 +2500,7 @@ const handleConsentSubmit = async () => {
           </div>
         </div>
       )}
-    </>
+      </div>
+    </div>
   );
 }
